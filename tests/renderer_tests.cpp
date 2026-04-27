@@ -185,7 +185,7 @@ void test_image_stores_gamma_corrected_pixels() {
     image.set_pixel(0, 0, renderer::Color(1.0, 0.25, 0.0));
     renderer::Rgb8 pixel = image.pixel_rgb8(0, 0);
     RENDER_CHECK(pixel.r == 255);
-    RENDER_CHECK(pixel.g >= 126 && pixel.g <= 128);
+    RENDER_CHECK(pixel.g >= 135 && pixel.g <= 137);
     RENDER_CHECK(pixel.b == 0);
 }
 
