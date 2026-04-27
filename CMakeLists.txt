@@ -26,6 +26,9 @@ target_link_libraries(renderer PRIVATE renderer_core)
 add_executable(renderer_tests tests/renderer_tests.cpp)
 target_link_libraries(renderer_tests PRIVATE renderer_core)
 
+enable_testing()
+add_test(NAME renderer_tests COMMAND renderer_tests)
+
 function(target_enable_warnings target_name)
     if(MSVC)
         target_compile_options(${target_name} PRIVATE /W4 /permissive-)
