@@ -1,0 +1,7 @@
+.worktrees/
+build/
+output/*.png
+output/*.ppm
+output/*.jpg
+output/*.jpeg
+output/*.bmp
