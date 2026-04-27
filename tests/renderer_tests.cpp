@@ -1,6 +1,10 @@
 #include "test_framework.h"
 
+#include "core/color.h"
+#include "core/image.h"
+#include "core/math/bounds.h"
 #include "core/math/mat4.h"
+#include "core/math/ray.h"
 #include "core/math/vec2.h"
 #include "core/math/vec3.h"
 #include "core/math/vec4.h"
@@ -167,6 +171,24 @@ void test_mat4_look_at_invalid_inputs_throw() {
     RENDER_CHECK(threw_parallel_up);
 }
 
+void test_ray_and_bounds_intersection() {
+    renderer::Ray ray(renderer::Vec3(0, 0, -5), renderer::Vec3(0, 0, 1));
+    renderer::Bounds3 box(renderer::Vec3(-1, -1, -1), renderer::Vec3(1, 1, 1));
+    RENDER_CHECK(box.intersect(ray, 0.001, 1000.0));
+
+    renderer::Ray miss(renderer::Vec3(5, 5, -5), renderer::Vec3(0, 0, 1));
+    RENDER_CHECK(!box.intersect(miss, 0.001, 1000.0));
+}
+
+void test_image_stores_gamma_corrected_pixels() {
+    renderer::Image image(2, 1);
+    image.set_pixel(0, 0, renderer::Color(1.0, 0.25, 0.0));
+    renderer::Rgb8 pixel = image.pixel_rgb8(0, 0);
+    RENDER_CHECK(pixel.r == 255);
+    RENDER_CHECK(pixel.g >= 126 && pixel.g <= 128);
+    RENDER_CHECK(pixel.b == 0);
+}
+
 int main() {
     RENDER_CHECK(1 + 1 == 2);
     test_vec3_arithmetic();
@@ -176,6 +198,8 @@ int main() {
     test_mat4_perspective_invalid_inputs_throw();
     test_mat4_look_at();
     test_mat4_look_at_invalid_inputs_throw();
+    test_ray_and_bounds_intersection();
+    test_image_stores_gamma_corrected_pixels();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;
 }

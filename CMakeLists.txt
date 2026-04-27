@@ -12,9 +12,11 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_BINARY_DIR}/bin")
 
-add_library(renderer_core INTERFACE)
+add_library(renderer_core STATIC
+    src/core/image.cpp
+)
 target_include_directories(renderer_core
-    INTERFACE
+    PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/external/stb"
         "${CMAKE_CURRENT_SOURCE_DIR}/external/tinyobjloader"
@@ -38,4 +40,5 @@ function(target_enable_warnings target_name)
 endfunction()
 
 target_enable_warnings(renderer)
+target_enable_warnings(renderer_core)
 target_enable_warnings(renderer_tests)
