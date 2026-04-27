@@ -53,6 +53,19 @@ inline Mat4 Mat4::scale(const Vec3& factors) {
 }
 
 inline Mat4 Mat4::perspective(double vertical_fov_degrees, double aspect, double near_z, double far_z) {
+    if (vertical_fov_degrees <= 0.0 || vertical_fov_degrees >= 180.0) {
+        throw std::invalid_argument("perspective requires vertical_fov_degrees in the range (0, 180)");
+    }
+    if (aspect <= 0.0) {
+        throw std::invalid_argument("perspective requires a positive aspect ratio");
+    }
+    if (near_z <= 0.0) {
+        throw std::invalid_argument("perspective requires a positive near plane");
+    }
+    if (far_z <= near_z) {
+        throw std::invalid_argument("perspective requires far_z to be greater than near_z");
+    }
+
     constexpr double pi = 3.14159265358979323846;
     const double fovy_radians = vertical_fov_degrees * pi / 180.0;
     const double f = 1.0 / std::tan(fovy_radians * 0.5);

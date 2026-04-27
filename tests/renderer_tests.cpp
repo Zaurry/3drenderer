@@ -96,6 +96,33 @@ void test_mat4_perspective_uses_degrees_and_ndc_depth() {
     RENDER_CHECK(nearly_equal(far_clip.z / far_clip.w, 1.0));
 }
 
+void check_perspective_invalid_input_throws(
+    double vertical_fov_degrees,
+    double aspect,
+    double near_z,
+    double far_z) {
+    bool threw = false;
+    try {
+        renderer::Mat4::perspective(vertical_fov_degrees, aspect, near_z, far_z);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    RENDER_CHECK(threw);
+}
+
+void test_mat4_perspective_invalid_inputs_throw() {
+    check_perspective_invalid_input_throws(0.0, 1.0, 1.0, 10.0);
+    check_perspective_invalid_input_throws(-1.0, 1.0, 1.0, 10.0);
+    check_perspective_invalid_input_throws(180.0, 1.0, 1.0, 10.0);
+    check_perspective_invalid_input_throws(181.0, 1.0, 1.0, 10.0);
+    check_perspective_invalid_input_throws(90.0, 0.0, 1.0, 10.0);
+    check_perspective_invalid_input_throws(90.0, -1.0, 1.0, 10.0);
+    check_perspective_invalid_input_throws(90.0, 1.0, 0.0, 10.0);
+    check_perspective_invalid_input_throws(90.0, 1.0, -1.0, 10.0);
+    check_perspective_invalid_input_throws(90.0, 1.0, 1.0, 1.0);
+    check_perspective_invalid_input_throws(90.0, 1.0, 10.0, 1.0);
+}
+
 void test_mat4_look_at() {
     renderer::Mat4 view = renderer::Mat4::look_at(
         renderer::Vec3(0, 0, 0),
@@ -146,6 +173,7 @@ int main() {
     test_mat4_translation_and_perspective_divide();
     test_mat4_composition_order();
     test_mat4_perspective_uses_degrees_and_ndc_depth();
+    test_mat4_perspective_invalid_inputs_throw();
     test_mat4_look_at();
     test_mat4_look_at_invalid_inputs_throw();
     std::cout << "renderer_tests: all tests passed\n";
