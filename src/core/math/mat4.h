@@ -4,6 +4,7 @@
 #include "core/math/vec4.h"
 
 #include <cmath>
+#include <stdexcept>
 
 namespace renderer {
 
@@ -17,11 +18,11 @@ struct Mat4 {
             {0.0, 0.0, 0.0, 0.0}} {}
 
     // 矩阵在内存中按行主序保存；计算时把 Vec4 当作列向量，使用 M * v。
-    // 透视矩阵采用教学中常见的裁剪空间深度范围 [-1, 1]。
+    // 透视矩阵的垂直视场角使用“度”，裁剪空间深度采用教学中常见的 [-1, 1]。
     static Mat4 identity();
     static Mat4 translation(const Vec3& offset);
     static Mat4 scale(const Vec3& factors);
-    static Mat4 perspective(double fovy_radians, double aspect, double near_z, double far_z);
+    static Mat4 perspective(double vertical_fov_degrees, double aspect, double near_z, double far_z);
     static Mat4 look_at(const Vec3& eye, const Vec3& target, const Vec3& up);
 };
 
@@ -51,7 +52,9 @@ inline Mat4 Mat4::scale(const Vec3& factors) {
     return result;
 }
 
-inline Mat4 Mat4::perspective(double fovy_radians, double aspect, double near_z, double far_z) {
+inline Mat4 Mat4::perspective(double vertical_fov_degrees, double aspect, double near_z, double far_z) {
+    constexpr double pi = 3.14159265358979323846;
+    const double fovy_radians = vertical_fov_degrees * pi / 180.0;
     const double f = 1.0 / std::tan(fovy_radians * 0.5);
 
     Mat4 result;
@@ -64,9 +67,24 @@ inline Mat4 Mat4::perspective(double fovy_radians, double aspect, double near_z,
 }
 
 inline Mat4 Mat4::look_at(const Vec3& eye, const Vec3& target, const Vec3& up) {
+    constexpr double epsilon = 1e-12;
+    const Vec3 view_direction = target - eye;
+    if (length_squared(view_direction) <= epsilon) {
+        throw std::invalid_argument("look_at requires eye and target to be different");
+    }
+    if (length_squared(up) <= epsilon) {
+        throw std::invalid_argument("look_at requires a non-zero up vector");
+    }
+
     // 右手坐标系视图矩阵：相机看向 -Z，适合和上面的透视矩阵配套教学。
-    const Vec3 forward = normalize(eye - target);
-    const Vec3 right = normalize(cross(up, forward));
+    const Vec3 forward = normalize(-view_direction);
+    const Vec3 normalized_up = normalize(up);
+    const Vec3 right_candidate = cross(normalized_up, forward);
+    if (length_squared(right_candidate) <= epsilon) {
+        throw std::invalid_argument("look_at up vector must not be parallel to the view direction");
+    }
+
+    const Vec3 right = normalize(right_candidate);
     const Vec3 camera_up = cross(forward, right);
 
     Mat4 result = identity();
