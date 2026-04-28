@@ -6,6 +6,7 @@
 #include "core/math/vec3.h"
 
 #include <cmath>
+#include <stdexcept>
 
 namespace renderer {
 
@@ -26,11 +27,20 @@ struct HitRecord {
 class Sphere {
 public:
     Sphere(const Vec3& center, double radius, int material_id)
-        : center_(center), radius_(radius), material_id_(material_id) {}
+        : center_(center), radius_(radius), material_id_(material_id) {
+        if (radius <= 0.0) {
+            throw std::invalid_argument("Sphere radius must be positive");
+        }
+    }
 
     bool intersect(const Ray& ray, double t_min, double t_max, HitRecord& hit) const {
         const Vec3 oc = ray.origin - center_;
         const double a = length_squared(ray.direction);
+        constexpr double direction_epsilon = 1e-24;
+        if (a <= direction_epsilon) {
+            return false;
+        }
+
         const double half_b = dot(oc, ray.direction);
         const double c = length_squared(oc) - radius_ * radius_;
         const double discriminant = half_b * half_b - a * c;

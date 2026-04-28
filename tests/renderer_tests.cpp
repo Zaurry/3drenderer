@@ -10,6 +10,7 @@
 #include "core/math/vec4.h"
 #include "scene/material.h"
 #include "scene/primitive.h"
+#include "scene/texture.h"
 
 #include <iostream>
 #include <limits>
@@ -248,6 +249,52 @@ void test_sphere_intersection() {
     RENDER_CHECK(hit.material_id == 0);
 }
 
+void test_sphere_rejects_zero_direction_ray() {
+    renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0, 0);
+    renderer::Ray ray(renderer::Vec3(0, 0, -5), renderer::Vec3(0, 0, 0));
+    renderer::HitRecord hit;
+    RENDER_CHECK(!sphere.intersect(ray, 0.001, 1000.0, hit));
+}
+
+void test_sphere_invalid_radius_throws() {
+    bool threw_zero_radius = false;
+    try {
+        renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 0.0, 0);
+    } catch (const std::invalid_argument&) {
+        threw_zero_radius = true;
+    }
+    RENDER_CHECK(threw_zero_radius);
+
+    bool threw_negative_radius = false;
+    try {
+        renderer::Sphere sphere(renderer::Vec3(0, 0, 0), -1.0, 0);
+    } catch (const std::invalid_argument&) {
+        threw_negative_radius = true;
+    }
+    RENDER_CHECK(threw_negative_radius);
+}
+
+void test_sphere_inside_ray_reports_back_face() {
+    renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0, 1);
+    renderer::Ray ray(renderer::Vec3(0, 0, 0), renderer::Vec3(0, 0, 1));
+    renderer::HitRecord hit;
+    RENDER_CHECK(sphere.intersect(ray, 0.001, 1000.0, hit));
+    RENDER_CHECK(!hit.front_face);
+    RENDER_CHECK(nearly_equal(hit.t, 1.0));
+    RENDER_CHECK(nearly_equal(hit.normal.z, -1.0));
+}
+
+void test_sphere_bounds_include_center_and_radius() {
+    renderer::Sphere sphere(renderer::Vec3(1, 2, 3), 2.0, 0);
+    const renderer::Bounds3 bounds = sphere.bounds();
+    RENDER_CHECK(nearly_equal(bounds.min.x, -1.0));
+    RENDER_CHECK(nearly_equal(bounds.min.y, 0.0));
+    RENDER_CHECK(nearly_equal(bounds.min.z, 1.0));
+    RENDER_CHECK(nearly_equal(bounds.max.x, 3.0));
+    RENDER_CHECK(nearly_equal(bounds.max.y, 4.0));
+    RENDER_CHECK(nearly_equal(bounds.max.z, 5.0));
+}
+
 void test_triangle_intersection() {
     renderer::Triangle tri(
         renderer::Vec3(-1, 0, 0),
@@ -261,6 +308,69 @@ void test_triangle_intersection() {
     RENDER_CHECK(nearly_equal(hit.position.x, 0.0));
     RENDER_CHECK(nearly_equal(hit.position.y, 0.25));
     RENDER_CHECK(hit.material_id == 2);
+}
+
+void test_triangle_back_side_hit_reports_back_face() {
+    renderer::Triangle tri(
+        renderer::Vec3(-1, 0, 0),
+        renderer::Vec3(1, 0, 0),
+        renderer::Vec3(0, 1, 0),
+        2);
+
+    renderer::Ray ray(renderer::Vec3(0, 0.25, -2), renderer::Vec3(0, 0, 1));
+    renderer::HitRecord hit;
+    RENDER_CHECK(tri.intersect(ray, 0.001, 1000.0, hit));
+    RENDER_CHECK(!hit.front_face);
+    RENDER_CHECK(renderer::dot(hit.normal, ray.direction) < 0.0);
+}
+
+void test_triangle_boundary_hits_succeed() {
+    renderer::Triangle tri(
+        renderer::Vec3(-1, 0, 0),
+        renderer::Vec3(1, 0, 0),
+        renderer::Vec3(0, 1, 0),
+        2);
+
+    renderer::HitRecord vertex_hit;
+    renderer::Ray vertex_ray(renderer::Vec3(-1, 0, -2), renderer::Vec3(0, 0, 1));
+    RENDER_CHECK(tri.intersect(vertex_ray, 0.001, 1000.0, vertex_hit));
+    RENDER_CHECK(nearly_equal(vertex_hit.position.x, -1.0));
+    RENDER_CHECK(nearly_equal(vertex_hit.position.y, 0.0));
+
+    renderer::HitRecord edge_hit;
+    renderer::Ray edge_ray(renderer::Vec3(0, 0, -2), renderer::Vec3(0, 0, 1));
+    RENDER_CHECK(tri.intersect(edge_ray, 0.001, 1000.0, edge_hit));
+    RENDER_CHECK(nearly_equal(edge_hit.position.x, 0.0));
+    RENDER_CHECK(nearly_equal(edge_hit.position.y, 0.0));
+}
+
+void test_degenerate_triangle_misses() {
+    renderer::Triangle tri(
+        renderer::Vec3(0, 0, 0),
+        renderer::Vec3(1, 1, 1),
+        renderer::Vec3(2, 2, 2),
+        2);
+
+    renderer::Ray ray(renderer::Vec3(0, 0, -2), renderer::Vec3(0, 0, 1));
+    renderer::HitRecord hit;
+    RENDER_CHECK(!tri.intersect(ray, 0.001, 1000.0, hit));
+}
+
+void test_checker_texture_is_deterministic_for_positive_and_negative_coordinates() {
+    renderer::CheckerTexture texture;
+    texture.even = renderer::Color(1, 0, 0);
+    texture.odd = renderer::Color(0, 1, 0);
+    texture.scale = 1.0;
+
+    const renderer::Color positive = texture.sample(renderer::Vec2(), renderer::Vec3(0.25, 0.25, 0.25));
+    RENDER_CHECK(nearly_equal(positive.x, 1.0));
+    RENDER_CHECK(nearly_equal(positive.y, 0.0));
+    RENDER_CHECK(nearly_equal(positive.z, 0.0));
+
+    const renderer::Color negative = texture.sample(renderer::Vec2(), renderer::Vec3(-0.25, 0.25, 0.25));
+    RENDER_CHECK(nearly_equal(negative.x, 0.0));
+    RENDER_CHECK(nearly_equal(negative.y, 1.0));
+    RENDER_CHECK(nearly_equal(negative.z, 0.0));
 }
 
 int main() {
@@ -278,7 +388,15 @@ int main() {
     test_image_stores_gamma_corrected_pixels();
     test_to_rgb8_sanitizes_non_finite_channels();
     test_sphere_intersection();
+    test_sphere_rejects_zero_direction_ray();
+    test_sphere_invalid_radius_throws();
+    test_sphere_inside_ray_reports_back_face();
+    test_sphere_bounds_include_center_and_radius();
     test_triangle_intersection();
+    test_triangle_back_side_hit_reports_back_face();
+    test_triangle_boundary_hits_succeed();
+    test_degenerate_triangle_misses();
+    test_checker_texture_is_deterministic_for_positive_and_negative_coordinates();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;
 }
