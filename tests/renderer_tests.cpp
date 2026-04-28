@@ -10,6 +10,7 @@
 #include "core/math/vec3.h"
 #include "core/math/vec4.h"
 #include "render/render_settings.h"
+#include "render/raytracer/raytracer_renderer.h"
 #include "sampling/sampler.h"
 #include "scene/camera.h"
 #include "scene/material.h"
@@ -889,6 +890,26 @@ void test_render_settings_defaults_are_useful() {
     RENDER_CHECK(settings.max_depth == 5);
 }
 
+void test_raytracer_renders_visible_sphere() {
+    renderer::Scene scene = renderer::make_gradient_sphere_scene();
+    renderer::Camera camera(
+        renderer::Vec3(0, 0, 2),
+        renderer::Vec3(0, 0, -1),
+        renderer::Vec3(0, 1, 0),
+        45.0,
+        1.0);
+
+    renderer::RenderSettings settings;
+    settings.width = 32;
+    settings.height = 32;
+    settings.max_depth = 3;
+
+    renderer::RayTracerRenderer renderer_instance;
+    renderer::RenderResult result = renderer_instance.render(scene, camera, settings);
+    renderer::Color center = result.image.pixel(16, 16);
+    RENDER_CHECK(center.x > 0.05 || center.y > 0.05 || center.z > 0.05);
+}
+
 int main() {
     RENDER_CHECK(1 + 1 == 2);
     test_vec3_arithmetic();
@@ -932,6 +953,7 @@ int main() {
     test_cornell_box_light_uses_emissive_material_and_faces_downward();
     test_cosine_sample_is_in_upper_hemisphere();
     test_render_settings_defaults_are_useful();
+    test_raytracer_renders_visible_sphere();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;
 }
