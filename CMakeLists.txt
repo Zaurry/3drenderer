@@ -14,6 +14,9 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_BINARY_DIR}/bin")
 
 add_library(renderer_core STATIC
     src/core/image.cpp
+    src/scene/camera.cpp
+    src/scene/mesh.cpp
+    src/scene/scene.cpp
 )
 target_include_directories(renderer_core
     PUBLIC

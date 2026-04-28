@@ -8,8 +8,10 @@
 #include "core/math/vec2.h"
 #include "core/math/vec3.h"
 #include "core/math/vec4.h"
+#include "scene/camera.h"
 #include "scene/material.h"
 #include "scene/primitive.h"
+#include "scene/scene.h"
 #include "scene/texture.h"
 
 #include <iostream>
@@ -173,6 +175,20 @@ void test_mat4_look_at_invalid_inputs_throw() {
         threw_parallel_up = true;
     }
     RENDER_CHECK(threw_parallel_up);
+}
+
+void test_camera_center_ray_points_forward() {
+    renderer::Camera camera(
+        renderer::Vec3(0, 0, 0),
+        renderer::Vec3(0, 0, -1),
+        renderer::Vec3(0, 1, 0),
+        60.0,
+        1.0);
+
+    renderer::Ray ray = camera.generate_ray(0.5, 0.5);
+    RENDER_CHECK(nearly_equal(ray.direction.x, 0.0, 1e-6));
+    RENDER_CHECK(nearly_equal(ray.direction.y, 0.0, 1e-6));
+    RENDER_CHECK(ray.direction.z < -0.999);
 }
 
 void test_ray_and_bounds_intersection() {
@@ -491,6 +507,12 @@ void test_checker_texture_is_deterministic_for_positive_and_negative_coordinates
     RENDER_CHECK(nearly_equal(negative.z, 0.0));
 }
 
+void test_builtin_scene_contains_renderable_geometry() {
+    renderer::Scene scene = renderer::make_gradient_sphere_scene();
+    RENDER_CHECK(!scene.materials.empty());
+    RENDER_CHECK(!scene.spheres.empty());
+}
+
 int main() {
     RENDER_CHECK(1 + 1 == 2);
     test_vec3_arithmetic();
@@ -500,6 +522,7 @@ int main() {
     test_mat4_perspective_invalid_inputs_throw();
     test_mat4_look_at();
     test_mat4_look_at_invalid_inputs_throw();
+    test_camera_center_ray_points_forward();
     test_ray_and_bounds_intersection();
     test_bounds_intersection_counts_corner_touch_as_hit();
     test_image_invalid_dimensions_throw_invalid_argument();
@@ -520,6 +543,7 @@ int main() {
     test_triangle_boundary_hits_succeed();
     test_degenerate_triangle_misses();
     test_checker_texture_is_deterministic_for_positive_and_negative_coordinates();
+    test_builtin_scene_contains_renderable_geometry();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;
 }
