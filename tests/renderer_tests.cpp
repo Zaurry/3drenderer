@@ -8,6 +8,8 @@
 #include "core/math/vec2.h"
 #include "core/math/vec3.h"
 #include "core/math/vec4.h"
+#include "scene/material.h"
+#include "scene/primitive.h"
 
 #include <iostream>
 #include <limits>
@@ -232,6 +234,35 @@ void test_to_rgb8_sanitizes_non_finite_channels() {
     RENDER_CHECK(infinity_pixel.r == 255);
 }
 
+void test_sphere_intersection() {
+    renderer::Material material;
+    material.base_color = renderer::Color(1, 0, 0);
+    renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0, 0);
+
+    renderer::Ray ray(renderer::Vec3(0, 0, -5), renderer::Vec3(0, 0, 1));
+    renderer::HitRecord hit;
+    RENDER_CHECK(sphere.intersect(ray, 0.001, 1000.0, hit));
+    RENDER_CHECK(nearly_equal(hit.t, 4.0));
+    RENDER_CHECK(nearly_equal(hit.position.z, -1.0));
+    RENDER_CHECK(nearly_equal(renderer::length(hit.normal), 1.0));
+    RENDER_CHECK(hit.material_id == 0);
+}
+
+void test_triangle_intersection() {
+    renderer::Triangle tri(
+        renderer::Vec3(-1, 0, 0),
+        renderer::Vec3(1, 0, 0),
+        renderer::Vec3(0, 1, 0),
+        2);
+
+    renderer::Ray ray(renderer::Vec3(0, 0.25, -2), renderer::Vec3(0, 0, 1));
+    renderer::HitRecord hit;
+    RENDER_CHECK(tri.intersect(ray, 0.001, 1000.0, hit));
+    RENDER_CHECK(nearly_equal(hit.position.x, 0.0));
+    RENDER_CHECK(nearly_equal(hit.position.y, 0.25));
+    RENDER_CHECK(hit.material_id == 2);
+}
+
 int main() {
     RENDER_CHECK(1 + 1 == 2);
     test_vec3_arithmetic();
@@ -246,6 +277,8 @@ int main() {
     test_image_invalid_dimensions_throw_invalid_argument();
     test_image_stores_gamma_corrected_pixels();
     test_to_rgb8_sanitizes_non_finite_channels();
+    test_sphere_intersection();
+    test_triangle_intersection();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;
 }
