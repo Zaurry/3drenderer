@@ -1,5 +1,6 @@
 #include "test_framework.h"
 
+#include "acceleration/bvh.h"
 #include "core/color.h"
 #include "core/image.h"
 #include "core/math/bounds.h"
@@ -18,6 +19,7 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <vector>
 
 void test_vec3_arithmetic() {
     renderer::Vec3 a(1.0, 2.0, 3.0);
@@ -516,6 +518,20 @@ void test_degenerate_triangle_misses() {
     RENDER_CHECK(!tri.intersect(ray, 0.001, 1000.0, hit));
 }
 
+void test_bvh_matches_bruteforce_triangle_hit() {
+    std::vector<renderer::Triangle> tris;
+    tris.emplace_back(renderer::Vec3(-1, 0, 0), renderer::Vec3(1, 0, 0), renderer::Vec3(0, 1, 0), 0);
+    tris.emplace_back(renderer::Vec3(-1, 0, 5), renderer::Vec3(1, 0, 5), renderer::Vec3(0, 1, 5), 0);
+
+    renderer::Bvh bvh;
+    bvh.build(tris);
+
+    renderer::Ray ray(renderer::Vec3(0, 0.25, -2), renderer::Vec3(0, 0, 1));
+    renderer::HitRecord bvh_hit;
+    RENDER_CHECK(bvh.intersect(ray, 0.001, 1000.0, bvh_hit));
+    RENDER_CHECK(nearly_equal(bvh_hit.t, 2.0));
+}
+
 void test_checker_texture_is_deterministic_for_positive_and_negative_coordinates() {
     renderer::CheckerTexture texture;
     texture.even = renderer::Color(1, 0, 0);
@@ -794,6 +810,7 @@ int main() {
     test_triangle_back_side_hit_reports_back_face();
     test_triangle_boundary_hits_succeed();
     test_degenerate_triangle_misses();
+    test_bvh_matches_bruteforce_triangle_hit();
     test_checker_texture_is_deterministic_for_positive_and_negative_coordinates();
     test_builtin_scene_contains_renderable_geometry();
     test_raster_triangle_scene_contains_triangle_and_light();

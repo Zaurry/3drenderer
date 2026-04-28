@@ -13,6 +13,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_BINARY_DIR}/bin")
 
 add_library(renderer_core STATIC
+    src/acceleration/bvh.cpp
     src/core/image.cpp
     src/scene/camera.cpp
     src/scene/mesh.cpp
