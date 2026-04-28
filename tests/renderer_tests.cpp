@@ -518,6 +518,63 @@ void test_degenerate_triangle_misses() {
     RENDER_CHECK(!tri.intersect(ray, 0.001, 1000.0, hit));
 }
 
+bool brute_force_triangle_intersect(
+    const std::vector<renderer::Triangle>& tris,
+    const renderer::Ray& ray,
+    double t_min,
+    double t_max,
+    renderer::HitRecord& closest_hit) {
+    bool hit_anything = false;
+    double closest_t = t_max;
+    for (const renderer::Triangle& tri : tris) {
+        renderer::HitRecord hit;
+        if (tri.intersect(ray, t_min, closest_t, hit)) {
+            hit_anything = true;
+            closest_t = hit.t;
+            closest_hit = hit;
+        }
+    }
+    return hit_anything;
+}
+
+void check_bvh_matches_bruteforce(
+    const renderer::Bvh& bvh,
+    const std::vector<renderer::Triangle>& tris,
+    const renderer::Ray& ray) {
+    renderer::HitRecord brute_force_hit;
+    renderer::HitRecord bvh_hit;
+    const bool brute_force_found = brute_force_triangle_intersect(tris, ray, 0.001, 1000.0, brute_force_hit);
+    const bool bvh_found = bvh.intersect(ray, 0.001, 1000.0, bvh_hit);
+    RENDER_CHECK(bvh_found == brute_force_found);
+    if (!brute_force_found) {
+        return;
+    }
+
+    RENDER_CHECK(nearly_equal(bvh_hit.t, brute_force_hit.t));
+    RENDER_CHECK(bvh_hit.material_id == brute_force_hit.material_id);
+    RENDER_CHECK(nearly_equal(bvh_hit.position.x, brute_force_hit.position.x));
+    RENDER_CHECK(nearly_equal(bvh_hit.position.y, brute_force_hit.position.y));
+    RENDER_CHECK(nearly_equal(bvh_hit.position.z, brute_force_hit.position.z));
+    RENDER_CHECK(dot(bvh_hit.normal, brute_force_hit.normal) > 0.999);
+}
+
+void test_empty_bvh_has_no_nodes_or_hits() {
+    std::vector<renderer::Triangle> tris;
+
+    renderer::Bvh bvh;
+    bvh.build(tris);
+
+    RENDER_CHECK(bvh.nodes().empty());
+    RENDER_CHECK(bvh.primitive_indices().empty());
+
+    renderer::HitRecord hit;
+    RENDER_CHECK(!bvh.intersect(
+        renderer::Ray(renderer::Vec3(0, 0, -2), renderer::Vec3(0, 0, 1)),
+        0.001,
+        1000.0,
+        hit));
+}
+
 void test_bvh_matches_bruteforce_triangle_hit() {
     std::vector<renderer::Triangle> tris;
     tris.emplace_back(renderer::Vec3(-1, 0, 0), renderer::Vec3(1, 0, 0), renderer::Vec3(0, 1, 0), 0);
@@ -526,40 +583,43 @@ void test_bvh_matches_bruteforce_triangle_hit() {
     renderer::Bvh bvh;
     bvh.build(tris);
 
-    const auto brute_force_intersect = [&tris](const renderer::Ray& ray, double t_min, double t_max, renderer::HitRecord& closest_hit) {
-        bool hit_anything = false;
-        double closest_t = t_max;
-        for (const renderer::Triangle& tri : tris) {
-            renderer::HitRecord hit;
-            if (tri.intersect(ray, t_min, closest_t, hit)) {
-                hit_anything = true;
-                closest_t = hit.t;
-                closest_hit = hit;
-            }
-        }
-        return hit_anything;
-    };
+    check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(0, 0.25, -2), renderer::Vec3(0, 0, 1)));
+    check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(3, 3, -2), renderer::Vec3(0, 0, 1)));
+}
 
-    const auto check_bvh_matches_bruteforce = [&bvh, &brute_force_intersect](const renderer::Ray& ray) {
-        renderer::HitRecord brute_force_hit;
-        renderer::HitRecord bvh_hit;
-        const bool brute_force_found = brute_force_intersect(ray, 0.001, 1000.0, brute_force_hit);
-        const bool bvh_found = bvh.intersect(ray, 0.001, 1000.0, bvh_hit);
-        RENDER_CHECK(bvh_found == brute_force_found);
-        if (!brute_force_found) {
-            return;
-        }
+void test_bvh_splits_and_traverses_interior_nodes() {
+    std::vector<renderer::Triangle> tris;
+    for (int i = 0; i < 6; ++i) {
+        const double x = static_cast<double>(i) * 3.0;
+        tris.emplace_back(
+            renderer::Vec3(x - 1.0, 0, 0),
+            renderer::Vec3(x + 1.0, 0, 0),
+            renderer::Vec3(x, 1, 0),
+            i);
+    }
 
-        RENDER_CHECK(nearly_equal(bvh_hit.t, brute_force_hit.t));
-        RENDER_CHECK(bvh_hit.material_id == brute_force_hit.material_id);
-        RENDER_CHECK(nearly_equal(bvh_hit.position.x, brute_force_hit.position.x));
-        RENDER_CHECK(nearly_equal(bvh_hit.position.y, brute_force_hit.position.y));
-        RENDER_CHECK(nearly_equal(bvh_hit.position.z, brute_force_hit.position.z));
-        RENDER_CHECK(dot(bvh_hit.normal, brute_force_hit.normal) > 0.999);
-    };
+    renderer::Bvh bvh;
+    bvh.build(tris);
 
-    check_bvh_matches_bruteforce(renderer::Ray(renderer::Vec3(0, 0.25, -2), renderer::Vec3(0, 0, 1)));
-    check_bvh_matches_bruteforce(renderer::Ray(renderer::Vec3(3, 3, -2), renderer::Vec3(0, 0, 1)));
+    const std::vector<renderer::BvhNode>& nodes = bvh.nodes();
+    RENDER_CHECK(nodes.size() > 1);
+    RENDER_CHECK(!nodes[0].is_leaf());
+    RENDER_CHECK(nodes[0].left >= 0);
+    RENDER_CHECK(nodes[0].right >= 0);
+    RENDER_CHECK(static_cast<std::size_t>(nodes[0].left) < nodes.size());
+    RENDER_CHECK(static_cast<std::size_t>(nodes[0].right) < nodes.size());
+
+    std::vector<int> sorted_indices = bvh.primitive_indices();
+    std::sort(sorted_indices.begin(), sorted_indices.end());
+    RENDER_CHECK(sorted_indices.size() == tris.size());
+    for (std::size_t i = 0; i < sorted_indices.size(); ++i) {
+        RENDER_CHECK(sorted_indices[i] == static_cast<int>(i));
+    }
+
+    check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(0, 0.25, -2), renderer::Vec3(0, 0, 1)));
+    check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(6, 0.25, -2), renderer::Vec3(0, 0, 1)));
+    check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(15, 0.25, -2), renderer::Vec3(0, 0, 1)));
+    check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(1.5, 0.25, -2), renderer::Vec3(0, 0, 1)));
 }
 
 void test_checker_texture_is_deterministic_for_positive_and_negative_coordinates() {
@@ -840,7 +900,9 @@ int main() {
     test_triangle_back_side_hit_reports_back_face();
     test_triangle_boundary_hits_succeed();
     test_degenerate_triangle_misses();
+    test_empty_bvh_has_no_nodes_or_hits();
     test_bvh_matches_bruteforce_triangle_hit();
+    test_bvh_splits_and_traverses_interior_nodes();
     test_checker_texture_is_deterministic_for_positive_and_negative_coordinates();
     test_builtin_scene_contains_renderable_geometry();
     test_raster_triangle_scene_contains_triangle_and_light();
