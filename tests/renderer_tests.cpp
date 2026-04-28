@@ -14,6 +14,7 @@
 #include "scene/scene.h"
 #include "scene/texture.h"
 
+#include <algorithm>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -513,6 +514,80 @@ void test_builtin_scene_contains_renderable_geometry() {
     RENDER_CHECK(!scene.spheres.empty());
 }
 
+bool has_material_type(const renderer::Scene& scene, renderer::MaterialType type) {
+    return std::any_of(
+        scene.materials.begin(),
+        scene.materials.end(),
+        [type](const renderer::Material& material) {
+            return material.type == type;
+        });
+}
+
+bool has_red_like_material(const renderer::Scene& scene) {
+    return std::any_of(
+        scene.materials.begin(),
+        scene.materials.end(),
+        [](const renderer::Material& material) {
+            return material.base_color.x > material.base_color.y &&
+                   material.base_color.x > material.base_color.z;
+        });
+}
+
+bool has_green_like_material(const renderer::Scene& scene) {
+    return std::any_of(
+        scene.materials.begin(),
+        scene.materials.end(),
+        [](const renderer::Material& material) {
+            return material.base_color.y > material.base_color.x &&
+                   material.base_color.y > material.base_color.z;
+        });
+}
+
+bool has_white_diffuse_material(const renderer::Scene& scene) {
+    return std::any_of(
+        scene.materials.begin(),
+        scene.materials.end(),
+        [](const renderer::Material& material) {
+            return material.type == renderer::MaterialType::Diffuse &&
+                   material.base_color.x > 0.5 &&
+                   material.base_color.y > 0.5 &&
+                   material.base_color.z > 0.5;
+        });
+}
+
+bool has_nonzero_emissive_material(const renderer::Scene& scene) {
+    return std::any_of(
+        scene.materials.begin(),
+        scene.materials.end(),
+        [](const renderer::Material& material) {
+            return material.type == renderer::MaterialType::Emissive &&
+                   renderer::length_squared(material.emission) > 0.0;
+        });
+}
+
+void test_raster_triangle_scene_contains_triangle_and_light() {
+    renderer::Scene scene = renderer::make_raster_triangle_scene();
+    RENDER_CHECK(!scene.materials.empty());
+    RENDER_CHECK(!scene.triangles.empty());
+    RENDER_CHECK(!scene.point_lights.empty() || !scene.directional_lights.empty());
+}
+
+void test_mirror_spheres_scene_contains_metal_sphere_and_point_light() {
+    renderer::Scene scene = renderer::make_mirror_spheres_scene();
+    RENDER_CHECK(scene.spheres.size() >= 2);
+    RENDER_CHECK(has_material_type(scene, renderer::MaterialType::Metal));
+    RENDER_CHECK(!scene.point_lights.empty());
+}
+
+void test_cornell_box_scene_contains_walls_and_expected_materials() {
+    renderer::Scene scene = renderer::make_cornell_box_scene();
+    RENDER_CHECK(scene.triangles.size() >= 12);
+    RENDER_CHECK(has_red_like_material(scene));
+    RENDER_CHECK(has_green_like_material(scene));
+    RENDER_CHECK(has_white_diffuse_material(scene));
+    RENDER_CHECK(has_nonzero_emissive_material(scene));
+}
+
 int main() {
     RENDER_CHECK(1 + 1 == 2);
     test_vec3_arithmetic();
@@ -544,6 +619,9 @@ int main() {
     test_degenerate_triangle_misses();
     test_checker_texture_is_deterministic_for_positive_and_negative_coordinates();
     test_builtin_scene_contains_renderable_geometry();
+    test_raster_triangle_scene_contains_triangle_and_light();
+    test_mirror_spheres_scene_contains_metal_sphere_and_point_light();
+    test_cornell_box_scene_contains_walls_and_expected_materials();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;
 }
