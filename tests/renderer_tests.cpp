@@ -526,10 +526,40 @@ void test_bvh_matches_bruteforce_triangle_hit() {
     renderer::Bvh bvh;
     bvh.build(tris);
 
-    renderer::Ray ray(renderer::Vec3(0, 0.25, -2), renderer::Vec3(0, 0, 1));
-    renderer::HitRecord bvh_hit;
-    RENDER_CHECK(bvh.intersect(ray, 0.001, 1000.0, bvh_hit));
-    RENDER_CHECK(nearly_equal(bvh_hit.t, 2.0));
+    const auto brute_force_intersect = [&tris](const renderer::Ray& ray, double t_min, double t_max, renderer::HitRecord& closest_hit) {
+        bool hit_anything = false;
+        double closest_t = t_max;
+        for (const renderer::Triangle& tri : tris) {
+            renderer::HitRecord hit;
+            if (tri.intersect(ray, t_min, closest_t, hit)) {
+                hit_anything = true;
+                closest_t = hit.t;
+                closest_hit = hit;
+            }
+        }
+        return hit_anything;
+    };
+
+    const auto check_bvh_matches_bruteforce = [&bvh, &brute_force_intersect](const renderer::Ray& ray) {
+        renderer::HitRecord brute_force_hit;
+        renderer::HitRecord bvh_hit;
+        const bool brute_force_found = brute_force_intersect(ray, 0.001, 1000.0, brute_force_hit);
+        const bool bvh_found = bvh.intersect(ray, 0.001, 1000.0, bvh_hit);
+        RENDER_CHECK(bvh_found == brute_force_found);
+        if (!brute_force_found) {
+            return;
+        }
+
+        RENDER_CHECK(nearly_equal(bvh_hit.t, brute_force_hit.t));
+        RENDER_CHECK(bvh_hit.material_id == brute_force_hit.material_id);
+        RENDER_CHECK(nearly_equal(bvh_hit.position.x, brute_force_hit.position.x));
+        RENDER_CHECK(nearly_equal(bvh_hit.position.y, brute_force_hit.position.y));
+        RENDER_CHECK(nearly_equal(bvh_hit.position.z, brute_force_hit.position.z));
+        RENDER_CHECK(dot(bvh_hit.normal, brute_force_hit.normal) > 0.999);
+    };
+
+    check_bvh_matches_bruteforce(renderer::Ray(renderer::Vec3(0, 0.25, -2), renderer::Vec3(0, 0, 1)));
+    check_bvh_matches_bruteforce(renderer::Ray(renderer::Vec3(3, 3, -2), renderer::Vec3(0, 0, 1)));
 }
 
 void test_checker_texture_is_deterministic_for_positive_and_negative_coordinates() {
