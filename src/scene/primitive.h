@@ -10,6 +10,10 @@
 
 namespace renderer {
 
+inline bool all_components_finite(const Vec3& v) {
+    return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+}
+
 struct HitRecord {
     double t = 0.0;
     Vec3 position;
@@ -28,12 +32,16 @@ class Sphere {
 public:
     Sphere(const Vec3& center, double radius, int material_id)
         : center_(center), radius_(radius), material_id_(material_id) {
-        if (radius <= 0.0) {
-            throw std::invalid_argument("Sphere radius must be positive");
+        if (!std::isfinite(radius) || radius <= 0.0) {
+            throw std::invalid_argument("Sphere radius must be finite and positive");
         }
     }
 
     bool intersect(const Ray& ray, double t_min, double t_max, HitRecord& hit) const {
+        if (!all_components_finite(ray.direction)) {
+            return false;
+        }
+
         const Vec3 oc = ray.origin - center_;
         const double a = length_squared(ray.direction);
         constexpr double direction_epsilon = 1e-24;

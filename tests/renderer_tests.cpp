@@ -272,6 +272,38 @@ void test_sphere_invalid_radius_throws() {
         threw_negative_radius = true;
     }
     RENDER_CHECK(threw_negative_radius);
+
+    bool threw_nan_radius = false;
+    try {
+        renderer::Sphere sphere(renderer::Vec3(0, 0, 0), std::numeric_limits<double>::quiet_NaN(), 0);
+    } catch (const std::invalid_argument&) {
+        threw_nan_radius = true;
+    }
+    RENDER_CHECK(threw_nan_radius);
+
+    bool threw_infinite_radius = false;
+    try {
+        renderer::Sphere sphere(renderer::Vec3(0, 0, 0), std::numeric_limits<double>::infinity(), 0);
+    } catch (const std::invalid_argument&) {
+        threw_infinite_radius = true;
+    }
+    RENDER_CHECK(threw_infinite_radius);
+}
+
+void test_sphere_rejects_non_finite_direction_rays() {
+    renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0, 0);
+
+    renderer::HitRecord nan_hit;
+    renderer::Ray nan_ray(
+        renderer::Vec3(0, 0, -5),
+        renderer::Vec3(0, 0, std::numeric_limits<double>::quiet_NaN()));
+    RENDER_CHECK(!sphere.intersect(nan_ray, 0.001, 1000.0, nan_hit));
+
+    renderer::HitRecord infinite_hit;
+    renderer::Ray infinite_ray(
+        renderer::Vec3(0, 0, -5),
+        renderer::Vec3(0, 0, std::numeric_limits<double>::infinity()));
+    RENDER_CHECK(!sphere.intersect(infinite_ray, 0.001, 1000.0, infinite_hit));
 }
 
 void test_sphere_inside_ray_reports_back_face() {
@@ -390,6 +422,7 @@ int main() {
     test_sphere_intersection();
     test_sphere_rejects_zero_direction_ray();
     test_sphere_invalid_radius_throws();
+    test_sphere_rejects_non_finite_direction_rays();
     test_sphere_inside_ray_reports_back_face();
     test_sphere_bounds_include_center_and_radius();
     test_triangle_intersection();
