@@ -16,14 +16,18 @@
 #include "sampling/sampler.h"
 #include "scene/camera.h"
 #include "scene/material.h"
+#include "scene/obj_loader.h"
 #include "scene/primitive.h"
 #include "scene/scene.h"
 #include "scene/texture.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 void test_vec3_arithmetic() {
@@ -990,6 +994,21 @@ void test_rasterizer_draws_triangle() {
     RENDER_CHECK(lit_pixels > 20);
 }
 
+void test_obj_loader_reads_single_triangle() {
+    const std::string path = "test_single_triangle.obj";
+    {
+        std::ofstream out(path);
+        out << "v 0 0 0\n";
+        out << "v 1 0 0\n";
+        out << "v 0 1 0\n";
+        out << "f 1 2 3\n";
+    }
+
+    renderer::Mesh mesh = renderer::load_obj_mesh(path, 0);
+    RENDER_CHECK(mesh.triangles.size() == 1);
+    std::remove(path.c_str());
+}
+
 int main() {
     RENDER_CHECK(1 + 1 == 2);
     test_vec3_arithmetic();
@@ -1037,6 +1056,7 @@ int main() {
     test_raytracer_renders_triangle_scene_with_direct_light();
     test_pathtracer_renders_emissive_scene();
     test_rasterizer_draws_triangle();
+    test_obj_loader_reads_single_triangle();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;
 }
