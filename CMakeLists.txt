@@ -16,6 +16,7 @@ add_library(renderer_core STATIC
     src/acceleration/bvh.cpp
     src/core/image.cpp
     src/render/pathtracer/pathtracer_renderer.cpp
+    src/render/rasterizer/rasterizer_renderer.cpp
     src/render/raytracer/raytracer_renderer.cpp
     src/sampling/sampler.cpp
     src/scene/camera.cpp

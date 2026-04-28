@@ -75,4 +75,24 @@ const Vec3& Camera::eye() const {
     return eye_;
 }
 
+const Vec3& Camera::forward() const {
+    return forward_;
+}
+
+const Vec3& Camera::right() const {
+    return right_;
+}
+
+const Vec3& Camera::up() const {
+    return true_up_;
+}
+
+double Camera::viewport_width() const {
+    return viewport_width_;
+}
+
+double Camera::viewport_height() const {
+    return viewport_height_;
+}
+
 }  // namespace renderer

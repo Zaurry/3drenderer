@@ -154,6 +154,22 @@ public:
         return (a_ + b_ + c_) / 3.0;
     }
 
+    const Vec3& a() const {
+        return a_;
+    }
+
+    const Vec3& b() const {
+        return b_;
+    }
+
+    const Vec3& c() const {
+        return c_;
+    }
+
+    int material_id() const {
+        return material_id_;
+    }
+
 private:
     Vec3 a_;
     Vec3 b_;

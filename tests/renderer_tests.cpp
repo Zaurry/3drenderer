@@ -10,8 +10,9 @@
 #include "core/math/vec3.h"
 #include "core/math/vec4.h"
 #include "render/render_settings.h"
-#include "render/raytracer/raytracer_renderer.h"
 #include "render/pathtracer/pathtracer_renderer.h"
+#include "render/rasterizer/rasterizer_renderer.h"
+#include "render/raytracer/raytracer_renderer.h"
 #include "sampling/sampler.h"
 #include "scene/camera.h"
 #include "scene/material.h"
@@ -961,6 +962,34 @@ void test_pathtracer_renders_emissive_scene() {
     RENDER_CHECK(luminance_sum > 0.1);
 }
 
+void test_rasterizer_draws_triangle() {
+    renderer::Scene scene = renderer::make_raster_triangle_scene();
+    renderer::Camera camera(
+        renderer::Vec3(0, 0, 2),
+        renderer::Vec3(0, 0, 0),
+        renderer::Vec3(0, 1, 0),
+        45.0,
+        1.0);
+
+    renderer::RenderSettings settings;
+    settings.width = 64;
+    settings.height = 64;
+
+    renderer::RasterizerRenderer renderer_instance;
+    renderer::RenderResult result = renderer_instance.render(scene, camera, settings);
+
+    int lit_pixels = 0;
+    for (int y = 0; y < result.image.height(); ++y) {
+        for (int x = 0; x < result.image.width(); ++x) {
+            renderer::Color c = result.image.pixel(x, y);
+            if (c.x + c.y + c.z > 0.05) {
+                ++lit_pixels;
+            }
+        }
+    }
+    RENDER_CHECK(lit_pixels > 20);
+}
+
 int main() {
     RENDER_CHECK(1 + 1 == 2);
     test_vec3_arithmetic();
@@ -1007,6 +1036,7 @@ int main() {
     test_raytracer_renders_visible_sphere();
     test_raytracer_renders_triangle_scene_with_direct_light();
     test_pathtracer_renders_emissive_scene();
+    test_rasterizer_draws_triangle();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;
 }
