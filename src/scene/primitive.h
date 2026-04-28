@@ -32,12 +32,18 @@ class Sphere {
 public:
     Sphere(const Vec3& center, double radius, int material_id)
         : center_(center), radius_(radius), material_id_(material_id) {
+        if (!all_components_finite(center)) {
+            throw std::invalid_argument("Sphere center must be finite");
+        }
         if (!std::isfinite(radius) || radius <= 0.0) {
             throw std::invalid_argument("Sphere radius must be finite and positive");
         }
     }
 
     bool intersect(const Ray& ray, double t_min, double t_max, HitRecord& hit) const {
+        if (!all_components_finite(ray.origin)) {
+            return false;
+        }
         if (!all_components_finite(ray.direction)) {
             return false;
         }
