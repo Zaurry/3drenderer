@@ -60,6 +60,10 @@ Camera::Camera(
 }
 
 Ray Camera::generate_ray(double u, double v) const {
+    if (!std::isfinite(u) || !std::isfinite(v)) {
+        throw std::invalid_argument("Camera screen coordinates must be finite");
+    }
+
     const Vec3 direction =
         forward_ +
         ((u - 0.5) * viewport_width_) * right_ +

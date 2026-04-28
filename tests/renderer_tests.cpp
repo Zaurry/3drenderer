@@ -192,6 +192,31 @@ void test_camera_center_ray_points_forward() {
     RENDER_CHECK(ray.direction.z < -0.999);
 }
 
+void test_camera_rejects_non_finite_screen_coordinates() {
+    renderer::Camera camera(
+        renderer::Vec3(0, 0, 0),
+        renderer::Vec3(0, 0, -1),
+        renderer::Vec3(0, 1, 0),
+        60.0,
+        1.0);
+
+    bool threw_nan_u = false;
+    try {
+        camera.generate_ray(std::numeric_limits<double>::quiet_NaN(), 0.5);
+    } catch (const std::invalid_argument&) {
+        threw_nan_u = true;
+    }
+    RENDER_CHECK(threw_nan_u);
+
+    bool threw_infinite_v = false;
+    try {
+        camera.generate_ray(0.5, std::numeric_limits<double>::infinity());
+    } catch (const std::invalid_argument&) {
+        threw_infinite_v = true;
+    }
+    RENDER_CHECK(threw_infinite_v);
+}
+
 void test_ray_and_bounds_intersection() {
     renderer::Ray ray(renderer::Vec3(0, 0, -5), renderer::Vec3(0, 0, 1));
     renderer::Bounds3 box(renderer::Vec3(-1, -1, -1), renderer::Vec3(1, 1, 1));
@@ -565,6 +590,51 @@ bool has_nonzero_emissive_material(const renderer::Scene& scene) {
         });
 }
 
+bool material_id_in_range(const renderer::Scene& scene, int material_id) {
+    return material_id >= 0 &&
+           static_cast<std::size_t>(material_id) < scene.materials.size();
+}
+
+bool intersect_closest_sphere(const renderer::Scene& scene, const renderer::Ray& ray, renderer::HitRecord& closest_hit) {
+    bool hit_anything = false;
+    double closest_t = 1000.0;
+    for (const renderer::Sphere& sphere : scene.spheres) {
+        renderer::HitRecord hit;
+        if (sphere.intersect(ray, 0.001, closest_t, hit)) {
+            hit_anything = true;
+            closest_t = hit.t;
+            closest_hit = hit;
+        }
+    }
+    return hit_anything;
+}
+
+bool intersect_closest_triangle(const renderer::Scene& scene, const renderer::Ray& ray, renderer::HitRecord& closest_hit) {
+    bool hit_anything = false;
+    double closest_t = 1000.0;
+    for (const renderer::Triangle& triangle : scene.triangles) {
+        renderer::HitRecord hit;
+        if (triangle.intersect(ray, 0.001, closest_t, hit)) {
+            hit_anything = true;
+            closest_t = hit.t;
+            closest_hit = hit;
+        }
+    }
+    return hit_anything;
+}
+
+void check_sphere_hit_material_in_range(const renderer::Scene& scene, const renderer::Ray& ray) {
+    renderer::HitRecord hit;
+    RENDER_CHECK(intersect_closest_sphere(scene, ray, hit));
+    RENDER_CHECK(material_id_in_range(scene, hit.material_id));
+}
+
+void check_triangle_hit_material_in_range(const renderer::Scene& scene, const renderer::Ray& ray) {
+    renderer::HitRecord hit;
+    RENDER_CHECK(intersect_closest_triangle(scene, ray, hit));
+    RENDER_CHECK(material_id_in_range(scene, hit.material_id));
+}
+
 void test_raster_triangle_scene_contains_triangle_and_light() {
     renderer::Scene scene = renderer::make_raster_triangle_scene();
     RENDER_CHECK(!scene.materials.empty());
@@ -588,6 +658,112 @@ void test_cornell_box_scene_contains_walls_and_expected_materials() {
     RENDER_CHECK(has_nonzero_emissive_material(scene));
 }
 
+void test_builtin_scene_probe_material_ids_are_in_range() {
+    renderer::Scene gradient_scene = renderer::make_gradient_sphere_scene();
+    check_sphere_hit_material_in_range(
+        gradient_scene,
+        renderer::Ray(renderer::Vec3(0, 0, 0), renderer::Vec3(0, 0, -1)));
+
+    renderer::Scene raster_scene = renderer::make_raster_triangle_scene();
+    check_triangle_hit_material_in_range(
+        raster_scene,
+        renderer::Ray(renderer::Vec3(0, 0, 0), renderer::Vec3(0, 0, -1)));
+
+    renderer::Scene mirror_scene = renderer::make_mirror_spheres_scene();
+    check_sphere_hit_material_in_range(
+        mirror_scene,
+        renderer::Ray(renderer::Vec3(0, 0, 0), renderer::Vec3(0, 0, -1)));
+    check_sphere_hit_material_in_range(
+        mirror_scene,
+        renderer::Ray(renderer::Vec3(2, 0, -1), renderer::Vec3(0, -1, 0)));
+
+    renderer::Scene cornell_scene = renderer::make_cornell_box_scene();
+    check_triangle_hit_material_in_range(
+        cornell_scene,
+        renderer::Ray(renderer::Vec3(0, 0, -2), renderer::Vec3(0, -1, 0)));
+    check_triangle_hit_material_in_range(
+        cornell_scene,
+        renderer::Ray(renderer::Vec3(0.8, 0, -2), renderer::Vec3(0, 1, 0)));
+    check_triangle_hit_material_in_range(
+        cornell_scene,
+        renderer::Ray(renderer::Vec3(0, 0, -2), renderer::Vec3(-1, 0, 0)));
+    check_triangle_hit_material_in_range(
+        cornell_scene,
+        renderer::Ray(renderer::Vec3(0, 0, -2), renderer::Vec3(1, 0, 0)));
+    check_triangle_hit_material_in_range(
+        cornell_scene,
+        renderer::Ray(renderer::Vec3(0, 0, -2), renderer::Vec3(0, 0, -1)));
+    check_triangle_hit_material_in_range(
+        cornell_scene,
+        renderer::Ray(renderer::Vec3(0, 0, -2), renderer::Vec3(0, 1, 0)));
+}
+
+void check_cornell_wall_hit(
+    const renderer::Scene& scene,
+    const renderer::Ray& ray,
+    bool (*material_predicate)(const renderer::Material&)) {
+    renderer::HitRecord hit;
+    RENDER_CHECK(intersect_closest_triangle(scene, ray, hit));
+    RENDER_CHECK(hit.front_face);
+    RENDER_CHECK(material_id_in_range(scene, hit.material_id));
+    RENDER_CHECK(material_predicate(scene.materials[hit.material_id]));
+}
+
+bool is_red_like_material(const renderer::Material& material) {
+    return material.base_color.x > material.base_color.y &&
+           material.base_color.x > material.base_color.z;
+}
+
+bool is_green_like_material(const renderer::Material& material) {
+    return material.base_color.y > material.base_color.x &&
+           material.base_color.y > material.base_color.z;
+}
+
+bool is_white_diffuse_material(const renderer::Material& material) {
+    return material.type == renderer::MaterialType::Diffuse &&
+           material.base_color.x > 0.5 &&
+           material.base_color.y > 0.5 &&
+           material.base_color.z > 0.5;
+}
+
+void test_cornell_box_wall_normals_face_inward() {
+    renderer::Scene scene = renderer::make_cornell_box_scene();
+    check_cornell_wall_hit(
+        scene,
+        renderer::Ray(renderer::Vec3(0, 0, -2), renderer::Vec3(0, -1, 0)),
+        is_white_diffuse_material);
+    check_cornell_wall_hit(
+        scene,
+        renderer::Ray(renderer::Vec3(0.8, 0, -2), renderer::Vec3(0, 1, 0)),
+        is_white_diffuse_material);
+    check_cornell_wall_hit(
+        scene,
+        renderer::Ray(renderer::Vec3(0, 0, -2), renderer::Vec3(-1, 0, 0)),
+        is_red_like_material);
+    check_cornell_wall_hit(
+        scene,
+        renderer::Ray(renderer::Vec3(0, 0, -2), renderer::Vec3(1, 0, 0)),
+        is_green_like_material);
+    check_cornell_wall_hit(
+        scene,
+        renderer::Ray(renderer::Vec3(0, 0, -2), renderer::Vec3(0, 0, -1)),
+        is_white_diffuse_material);
+}
+
+void test_cornell_box_light_uses_emissive_material_and_faces_downward() {
+    renderer::Scene scene = renderer::make_cornell_box_scene();
+    renderer::HitRecord hit;
+    RENDER_CHECK(intersect_closest_triangle(
+        scene,
+        renderer::Ray(renderer::Vec3(0, 0, -2), renderer::Vec3(0, 1, 0)),
+        hit));
+    RENDER_CHECK(material_id_in_range(scene, hit.material_id));
+    RENDER_CHECK(scene.materials[hit.material_id].type == renderer::MaterialType::Emissive);
+    RENDER_CHECK(renderer::length_squared(scene.materials[hit.material_id].emission) > 0.0);
+    RENDER_CHECK(hit.front_face);
+    RENDER_CHECK(hit.normal.y < -0.999);
+}
+
 int main() {
     RENDER_CHECK(1 + 1 == 2);
     test_vec3_arithmetic();
@@ -598,6 +774,7 @@ int main() {
     test_mat4_look_at();
     test_mat4_look_at_invalid_inputs_throw();
     test_camera_center_ray_points_forward();
+    test_camera_rejects_non_finite_screen_coordinates();
     test_ray_and_bounds_intersection();
     test_bounds_intersection_counts_corner_touch_as_hit();
     test_image_invalid_dimensions_throw_invalid_argument();
@@ -622,6 +799,9 @@ int main() {
     test_raster_triangle_scene_contains_triangle_and_light();
     test_mirror_spheres_scene_contains_metal_sphere_and_point_light();
     test_cornell_box_scene_contains_walls_and_expected_materials();
+    test_builtin_scene_probe_material_ids_are_in_range();
+    test_cornell_box_wall_normals_face_inward();
+    test_cornell_box_light_uses_emissive_material_and_faces_downward();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;
 }

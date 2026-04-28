@@ -86,11 +86,11 @@ Scene make_cornell_box_scene() {
     scene.materials.push_back(diffuse(Color(0.73, 0.73, 0.68)));
     scene.materials.push_back(emissive(Color(1.0, 0.95, 0.8), Color(12.0, 10.0, 7.0)));
 
-    add_quad(scene, Vec3(-1, -1, -3), Vec3(1, -1, -3), Vec3(1, -1, -1), Vec3(-1, -1, -1), white_id);
-    add_quad(scene, Vec3(-1, 1, -1), Vec3(1, 1, -1), Vec3(1, 1, -3), Vec3(-1, 1, -3), white_id);
-    add_quad(scene, Vec3(-1, -1, -3), Vec3(-1, -1, -1), Vec3(-1, 1, -1), Vec3(-1, 1, -3), red_id);
-    add_quad(scene, Vec3(1, -1, -1), Vec3(1, -1, -3), Vec3(1, 1, -3), Vec3(1, 1, -1), green_id);
-    add_quad(scene, Vec3(-1, -1, -3), Vec3(-1, 1, -3), Vec3(1, 1, -3), Vec3(1, -1, -3), white_id);
+    add_quad(scene, Vec3(-1, -1, -3), Vec3(-1, -1, -1), Vec3(1, -1, -1), Vec3(1, -1, -3), white_id);
+    add_quad(scene, Vec3(-1, 1, -1), Vec3(-1, 1, -3), Vec3(1, 1, -3), Vec3(1, 1, -1), white_id);
+    add_quad(scene, Vec3(-1, -1, -3), Vec3(-1, 1, -3), Vec3(-1, 1, -1), Vec3(-1, -1, -1), red_id);
+    add_quad(scene, Vec3(1, -1, -1), Vec3(1, 1, -1), Vec3(1, 1, -3), Vec3(1, -1, -3), green_id);
+    add_quad(scene, Vec3(-1, -1, -3), Vec3(1, -1, -3), Vec3(1, 1, -3), Vec3(-1, 1, -3), white_id);
     add_quad(scene, Vec3(-0.35, 0.99, -2.35), Vec3(0.35, 0.99, -2.35), Vec3(0.35, 0.99, -1.65), Vec3(-0.35, 0.99, -1.65), light_id);
 
     return scene;
