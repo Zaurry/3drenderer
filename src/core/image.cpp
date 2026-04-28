@@ -15,12 +15,19 @@
 
 namespace renderer {
 
-Image::Image(int image_width, int image_height)
-    : width_(image_width), height_(image_height), pixels_(static_cast<std::size_t>(image_width * image_height)) {
+namespace {
+
+std::size_t validated_pixel_count(int image_width, int image_height) {
     if (image_width <= 0 || image_height <= 0) {
         throw std::invalid_argument("Image dimensions must be positive");
     }
+    return static_cast<std::size_t>(image_width) * static_cast<std::size_t>(image_height);
 }
+
+}  // namespace
+
+Image::Image(int image_width, int image_height)
+    : width_(image_width), height_(image_height), pixels_(validated_pixel_count(image_width, image_height)) {}
 
 int Image::width() const {
     return width_;

@@ -77,7 +77,7 @@ struct Bounds3 {
 
             t_min = std::max(t_min, near_t);
             t_max = std::min(t_max, far_t);
-            if (t_max <= t_min) {
+            if (t_max < t_min) {
                 return false;
             }
         }

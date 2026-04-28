@@ -10,6 +10,7 @@
 #include "core/math/vec4.h"
 
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 
 void test_vec3_arithmetic() {
@@ -180,6 +181,38 @@ void test_ray_and_bounds_intersection() {
     RENDER_CHECK(!box.intersect(miss, 0.001, 1000.0));
 }
 
+void test_bounds_intersection_counts_corner_touch_as_hit() {
+    renderer::Bounds3 box(renderer::Vec3(-1, -1, -1), renderer::Vec3(1, 1, 1));
+    renderer::Ray corner_touch(renderer::Vec3(-2, -2, 1), renderer::Vec3(1, 1, 0));
+    RENDER_CHECK(box.intersect(corner_touch, 0.001, 1000.0));
+}
+
+void test_image_invalid_dimensions_throw_invalid_argument() {
+    bool threw_zero_width = false;
+    try {
+        renderer::Image image(0, 1);
+    } catch (const std::invalid_argument&) {
+        threw_zero_width = true;
+    }
+    RENDER_CHECK(threw_zero_width);
+
+    bool threw_zero_height = false;
+    try {
+        renderer::Image image(1, 0);
+    } catch (const std::invalid_argument&) {
+        threw_zero_height = true;
+    }
+    RENDER_CHECK(threw_zero_height);
+
+    bool threw_negative_width = false;
+    try {
+        renderer::Image image(-1, 1);
+    } catch (const std::invalid_argument&) {
+        threw_negative_width = true;
+    }
+    RENDER_CHECK(threw_negative_width);
+}
+
 void test_image_stores_gamma_corrected_pixels() {
     renderer::Image image(2, 1);
     image.set_pixel(0, 0, renderer::Color(1.0, 0.25, 0.0));
@@ -187,6 +220,16 @@ void test_image_stores_gamma_corrected_pixels() {
     RENDER_CHECK(pixel.r == 255);
     RENDER_CHECK(pixel.g >= 135 && pixel.g <= 137);
     RENDER_CHECK(pixel.b == 0);
+}
+
+void test_to_rgb8_sanitizes_non_finite_channels() {
+    const renderer::Rgb8 nan_pixel = renderer::to_rgb8(
+        renderer::Color(std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0));
+    RENDER_CHECK(nan_pixel.r == 0);
+
+    const renderer::Rgb8 infinity_pixel = renderer::to_rgb8(
+        renderer::Color(std::numeric_limits<double>::infinity(), 0.0, 0.0));
+    RENDER_CHECK(infinity_pixel.r == 255);
 }
 
 int main() {
@@ -199,7 +242,10 @@ int main() {
     test_mat4_look_at();
     test_mat4_look_at_invalid_inputs_throw();
     test_ray_and_bounds_intersection();
+    test_bounds_intersection_counts_corner_touch_as_hit();
+    test_image_invalid_dimensions_throw_invalid_argument();
     test_image_stores_gamma_corrected_pixels();
+    test_to_rgb8_sanitizes_non_finite_channels();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;
 }
