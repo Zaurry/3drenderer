@@ -9,6 +9,8 @@
 #include "core/math/vec2.h"
 #include "core/math/vec3.h"
 #include "core/math/vec4.h"
+#include "render/render_settings.h"
+#include "sampling/sampler.h"
 #include "scene/camera.h"
 #include "scene/material.h"
 #include "scene/primitive.h"
@@ -870,6 +872,23 @@ void test_cornell_box_light_uses_emissive_material_and_faces_downward() {
     RENDER_CHECK(hit.normal.y < -0.999);
 }
 
+void test_cosine_sample_is_in_upper_hemisphere() {
+    renderer::PcgRandom rng(42);
+    for (int i = 0; i < 100; ++i) {
+        renderer::Vec3 d = renderer::cosine_weighted_hemisphere(rng);
+        RENDER_CHECK(d.z >= -1e-9);
+        RENDER_CHECK(nearly_equal(renderer::length(d), 1.0, 1e-6));
+    }
+}
+
+void test_render_settings_defaults_are_useful() {
+    renderer::RenderSettings settings;
+    RENDER_CHECK(settings.width == 512);
+    RENDER_CHECK(settings.height == 512);
+    RENDER_CHECK(settings.samples_per_pixel == 1);
+    RENDER_CHECK(settings.max_depth == 5);
+}
+
 int main() {
     RENDER_CHECK(1 + 1 == 2);
     test_vec3_arithmetic();
@@ -911,6 +930,8 @@ int main() {
     test_builtin_scene_probe_material_ids_are_in_range();
     test_cornell_box_wall_normals_face_inward();
     test_cornell_box_light_uses_emissive_material_and_faces_downward();
+    test_cosine_sample_is_in_upper_hemisphere();
+    test_render_settings_defaults_are_useful();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;
 }
