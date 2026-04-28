@@ -95,9 +95,17 @@ private:
 class Triangle {
 public:
     Triangle(const Vec3& a, const Vec3& b, const Vec3& c, int material_id)
-        : a_(a), b_(b), c_(c), material_id_(material_id) {}
+        : a_(a), b_(b), c_(c), material_id_(material_id) {
+        if (!all_components_finite(a) || !all_components_finite(b) || !all_components_finite(c)) {
+            throw std::invalid_argument("Triangle vertices must be finite");
+        }
+    }
 
     bool intersect(const Ray& ray, double t_min, double t_max, HitRecord& hit) const {
+        if (!all_components_finite(ray.origin) || !all_components_finite(ray.direction)) {
+            return false;
+        }
+
         constexpr double epsilon = 1e-12;
         const Vec3 edge1 = b_ - a_;
         const Vec3 edge2 = c_ - a_;

@@ -382,6 +382,52 @@ void test_triangle_intersection() {
     RENDER_CHECK(hit.material_id == 2);
 }
 
+void test_triangle_invalid_vertices_throw() {
+    bool threw_nan_vertex = false;
+    try {
+        renderer::Triangle tri(
+            renderer::Vec3(std::numeric_limits<double>::quiet_NaN(), 0, 0),
+            renderer::Vec3(1, 0, 0),
+            renderer::Vec3(0, 1, 0),
+            0);
+    } catch (const std::invalid_argument&) {
+        threw_nan_vertex = true;
+    }
+    RENDER_CHECK(threw_nan_vertex);
+
+    bool threw_infinite_vertex = false;
+    try {
+        renderer::Triangle tri(
+            renderer::Vec3(0, 0, 0),
+            renderer::Vec3(std::numeric_limits<double>::infinity(), 0, 0),
+            renderer::Vec3(0, 1, 0),
+            0);
+    } catch (const std::invalid_argument&) {
+        threw_infinite_vertex = true;
+    }
+    RENDER_CHECK(threw_infinite_vertex);
+}
+
+void test_triangle_rejects_non_finite_rays() {
+    renderer::Triangle tri(
+        renderer::Vec3(-1, 0, 0),
+        renderer::Vec3(1, 0, 0),
+        renderer::Vec3(0, 1, 0),
+        2);
+
+    renderer::HitRecord nan_origin_hit;
+    renderer::Ray nan_origin_ray(
+        renderer::Vec3(std::numeric_limits<double>::quiet_NaN(), 0.25, -2),
+        renderer::Vec3(0, 0, 1));
+    RENDER_CHECK(!tri.intersect(nan_origin_ray, 0.001, 1000.0, nan_origin_hit));
+
+    renderer::HitRecord infinite_direction_hit;
+    renderer::Ray infinite_direction_ray(
+        renderer::Vec3(0, 0.25, -2),
+        renderer::Vec3(0, 0, std::numeric_limits<double>::infinity()));
+    RENDER_CHECK(!tri.intersect(infinite_direction_ray, 0.001, 1000.0, infinite_direction_hit));
+}
+
 void test_triangle_back_side_hit_reports_back_face() {
     renderer::Triangle tri(
         renderer::Vec3(-1, 0, 0),
@@ -468,6 +514,8 @@ int main() {
     test_sphere_inside_ray_reports_back_face();
     test_sphere_bounds_include_center_and_radius();
     test_triangle_intersection();
+    test_triangle_invalid_vertices_throw();
+    test_triangle_rejects_non_finite_rays();
     test_triangle_back_side_hit_reports_back_face();
     test_triangle_boundary_hits_succeed();
     test_degenerate_triangle_misses();
