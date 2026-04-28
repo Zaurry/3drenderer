@@ -47,6 +47,7 @@ RenderResult RayTracerRenderer::render(const Scene& scene, const Camera& camera,
         for (int x = 0; x < settings.width; ++x) {
             const double u = (static_cast<double>(x) + 0.5) / static_cast<double>(settings.width);
             const double v = 1.0 - (static_cast<double>(y) + 0.5) / static_cast<double>(settings.height);
+            // Primary ray：每个像素从相机出发打一条主光线，找到屏幕上能看到的第一个表面。
             const Ray ray = camera.generate_ray(u, v);
             image.set_pixel(x, y, trace_ray(ray, scene, bvh, settings.max_depth, settings));
         }
@@ -61,6 +62,7 @@ Color RayTracerRenderer::trace_ray(
     const Bvh& bvh,
     int depth,
     const RenderSettings& settings) const {
+    // 递归深度限制防止镜面互相反射或玻璃反复折射时无限追踪。
     if (depth <= 0) {
         return black();
     }
@@ -94,6 +96,7 @@ Color RayTracerRenderer::trace_ray(
         const Vec3 light_dir = to_light / distance;
 
         HitRecord shadow_hit;
+        // Shadow ray：从命中点朝灯光打一条检测光线，若中途碰到物体，这个灯就被遮挡。
         const Ray shadow_ray(hit.position, light_dir);
         if (hit_scene(shadow_ray, scene, bvh, 0.001, distance - 0.001, shadow_hit)) {
             continue;
@@ -106,6 +109,7 @@ Color RayTracerRenderer::trace_ray(
     for (const DirectionalLight& light : scene.directional_lights) {
         const Vec3 light_dir = normalize(-light.direction);
         HitRecord shadow_hit;
+        // 方向光没有距离衰减，shadow ray 只需要确认沿光源方向是否有任意遮挡物。
         const Ray shadow_ray(hit.position, light_dir);
         if (hit_scene(shadow_ray, scene, bvh, 0.001, 1.0e30, shadow_hit)) {
             continue;
@@ -116,10 +120,12 @@ Color RayTracerRenderer::trace_ray(
     }
 
     if (material.type == MaterialType::Metal) {
+        // Reflection ray：镜面材质沿法线反射入射方向，再递归查询反射方向看到的颜色。
         const Vec3 reflected = reflect(normalize(ray.direction), hit.normal);
         const Color reflected_color = trace_ray(Ray(hit.position, reflected), scene, bvh, depth - 1, settings);
         result += multiply(material.base_color, reflected_color) * 0.8;
     } else if (material.type == MaterialType::Dielectric) {
+        // Refraction ray：玻璃材质根据相对折射率弯折光线，并用 Schlick 近似混合反射/折射。
         const double eta_ratio = hit.front_face ? (1.0 / material.ior) : material.ior;
         const Vec3 unit_direction = normalize(ray.direction);
         const double cos_theta = std::min(dot(-unit_direction, hit.normal), 1.0);
