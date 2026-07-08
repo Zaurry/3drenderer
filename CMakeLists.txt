@@ -15,6 +15,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_BINARY_DIR}/bin")
 add_library(renderer_core STATIC
     src/acceleration/bvh.cpp
     src/core/image.cpp
+    src/render/depth_buffer.cpp
+    src/render/framebuffer.cpp
     src/render/pathtracer/pathtracer_renderer.cpp
     src/render/rasterizer/rasterizer_renderer.cpp
     src/render/raytracer/raytracer_renderer.cpp

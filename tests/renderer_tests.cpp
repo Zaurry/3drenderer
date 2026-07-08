@@ -10,6 +10,8 @@
 #include "core/math/vec3.h"
 #include "core/math/vec4.h"
 #include "render/render_settings.h"
+#include "render/depth_buffer.h"
+#include "render/framebuffer.h"
 #include "render/pathtracer/pathtracer_renderer.h"
 #include "render/rasterizer/rasterizer_renderer.h"
 #include "render/raytracer/raytracer_renderer.h"
@@ -22,6 +24,7 @@
 #include "scene/texture.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
@@ -286,6 +289,39 @@ void test_to_rgb8_sanitizes_non_finite_channels() {
     const renderer::Rgb8 infinity_pixel = renderer::to_rgb8(
         renderer::Color(std::numeric_limits<double>::infinity(), 0.0, 0.0));
     RENDER_CHECK(infinity_pixel.r == 255);
+}
+
+void test_framebuffer_clear_set_and_rgba8_conversion() {
+    renderer::Framebuffer framebuffer(2, 1);
+    framebuffer.clear(renderer::Color(0.25, 0.0, 1.0));
+    framebuffer.set_pixel(1, 0, renderer::Color(1.0, 0.25, 0.0));
+
+    RENDER_CHECK(framebuffer.width() == 2);
+    RENDER_CHECK(framebuffer.height() == 1);
+    RENDER_CHECK(nearly_equal(framebuffer.pixel(0, 0).z, 1.0));
+
+    const std::vector<std::uint8_t> rgba = framebuffer.to_rgba8();
+    RENDER_CHECK(rgba.size() == 8);
+    RENDER_CHECK(rgba[3] == 255);
+    RENDER_CHECK(rgba[4] == 255);
+    RENDER_CHECK(rgba[7] == 255);
+}
+
+void test_depth_buffer_clear_resize_and_access() {
+    renderer::DepthBuffer depth(2, 2);
+    depth.clear(42.0);
+    depth.set(1, 0, 0.5);
+
+    RENDER_CHECK(depth.width() == 2);
+    RENDER_CHECK(depth.height() == 2);
+    RENDER_CHECK(nearly_equal(depth.get(0, 0), 42.0));
+    RENDER_CHECK(nearly_equal(depth.get(1, 0), 0.5));
+
+    depth.resize(1, 1);
+    depth.clear(7.0);
+    RENDER_CHECK(depth.width() == 1);
+    RENDER_CHECK(depth.height() == 1);
+    RENDER_CHECK(nearly_equal(depth.get(0, 0), 7.0));
 }
 
 void test_sphere_intersection() {
@@ -1025,6 +1061,8 @@ int main() {
     test_image_invalid_dimensions_throw_invalid_argument();
     test_image_stores_gamma_corrected_pixels();
     test_to_rgb8_sanitizes_non_finite_channels();
+    test_framebuffer_clear_set_and_rgba8_conversion();
+    test_depth_buffer_clear_resize_and_access();
     test_sphere_intersection();
     test_sphere_rejects_zero_direction_ray();
     test_sphere_invalid_radius_throws();
