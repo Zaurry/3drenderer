@@ -36,6 +36,7 @@ public:
     bool initialize(int width, int height, const char* title);
     InputState poll_input();
     void present(const Framebuffer& framebuffer);
+    void set_title(const std::string& title);
     const std::string& last_error() const;
 
 private:

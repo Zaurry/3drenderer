@@ -74,6 +74,7 @@ endif()
 add_library(renderer_core STATIC
     src/acceleration/bvh.cpp
     src/core/image.cpp
+    src/interactive/frame_rate_counter.cpp
     src/interactive/orbit_camera_controller.cpp
     src/render/depth_buffer.cpp
     src/render/framebuffer.cpp

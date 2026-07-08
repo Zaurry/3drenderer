@@ -1,6 +1,7 @@
 #include "render/interactive/path_interactive_session.h"
 
 #include <algorithm>
+#include <cstdint>
 
 namespace renderer {
 
@@ -26,6 +27,8 @@ void PathInteractiveSession::render_next_frame(
 
     RenderSettings one_sample_settings = settings;
     one_sample_settings.samples_per_pixel = 1;
+    one_sample_settings.sample_seed_offset =
+        settings.sample_seed_offset + static_cast<std::uint64_t>(accumulated_samples_) + 1ULL;
     const Image sample = renderer_.render(scene, camera, one_sample_settings).image;
     if (target.width() != sample.width() || target.height() != sample.height()) {
         target.resize(sample.width(), sample.height());

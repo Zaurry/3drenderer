@@ -1,4 +1,5 @@
 #include "interactive/orbit_camera_controller.h"
+#include "interactive/frame_rate_counter.h"
 #include "platform/sdl/sdl_display_backend.h"
 #include "render/framebuffer.h"
 #include "render/interactive/path_interactive_session.h"
@@ -206,6 +207,8 @@ int main(int argc, char** argv) {
         renderer::OrbitCameraController camera_controller(viewer_scene.bounds, static_cast<double>(options.width) / options.height);
         std::unique_ptr<renderer::InteractiveRenderSession> session = make_session(options.mode);
         session->reset(viewer_scene.scene, settings);
+        renderer::FrameRateCounter frame_rate_counter;
+        display.set_title(renderer::format_viewer_title(options.mode, frame_rate_counter.snapshot(), 0));
 
         int rendered_frames = 0;
         bool running = true;
@@ -232,6 +235,7 @@ int main(int argc, char** argv) {
             if (mode_changed) {
                 session = make_session(options.mode);
                 session->reset(viewer_scene.scene, settings);
+                frame_rate_counter.reset();
                 std::cout << "mode=" << mode_name(options.mode) << "\n";
             }
 
@@ -261,6 +265,18 @@ int main(int argc, char** argv) {
             display.present(framebuffer);
 
             ++rendered_frames;
+            int accumulated_path_samples = 0;
+            if (const auto* path_session = dynamic_cast<const renderer::PathInteractiveSession*>(session.get())) {
+                accumulated_path_samples = path_session->accumulated_samples();
+            }
+            const auto frame_end = std::chrono::steady_clock::now();
+            const double frame_seconds = std::chrono::duration<double>(frame_end - now).count();
+            if (frame_rate_counter.tick(frame_seconds) || mode_changed || rendered_frames == 1) {
+                display.set_title(renderer::format_viewer_title(
+                    options.mode,
+                    frame_rate_counter.snapshot(),
+                    accumulated_path_samples));
+            }
             if (options.frame_limit > 0 && rendered_frames >= options.frame_limit) {
                 running = false;
             }

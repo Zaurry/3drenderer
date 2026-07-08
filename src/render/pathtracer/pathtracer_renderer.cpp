@@ -40,7 +40,7 @@ Vec3 tangent_to_world(const Vec3& local_direction, const Vec3& normal) {
     return normalize(local_direction.x * u + local_direction.y * v + local_direction.z * w);
 }
 
-std::uint64_t pixel_seed(int x, int y, int width) {
+std::uint64_t pixel_seed(int x, int y, int width, std::uint64_t sample_seed_offset) {
     // The seed is deterministic per pixel so test renders are reproducible even
     // when tiles are processed by different worker threads.
     std::uint64_t seed = 1469598103934665603ULL;
@@ -49,6 +49,10 @@ std::uint64_t pixel_seed(int x, int y, int width) {
     seed ^= static_cast<std::uint64_t>((y + 1) * 65537);
     seed *= 1099511628211ULL;
     seed ^= static_cast<std::uint64_t>(width + 1);
+    if (sample_seed_offset != 0) {
+        seed *= 1099511628211ULL;
+        seed ^= sample_seed_offset;
+    }
     return seed;
 }
 
@@ -101,7 +105,7 @@ RenderResult PathTracerRenderer::render(const Scene& scene, const Camera& camera
 
             for (int y = start_y; y < end_y; ++y) {
                 for (int x = start_x; x < end_x; ++x) {
-                    PcgRandom rng(pixel_seed(x, y, settings.width));
+                    PcgRandom rng(pixel_seed(x, y, settings.width, settings.sample_seed_offset));
                     Color accumulated = black();
 
                     for (int sample = 0; sample < samples_per_pixel; ++sample) {

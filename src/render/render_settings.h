@@ -2,6 +2,8 @@
 
 #include "core/color.h"
 
+#include <cstdint>
+
 namespace renderer {
 
 enum class RenderMode {
@@ -17,6 +19,7 @@ struct RenderSettings {
     int max_depth = 5;
     int tile_size = 16;
     int thread_count = 0;
+    std::uint64_t sample_seed_offset = 0;
     Color background = Color(0.02, 0.03, 0.05);
 };
 

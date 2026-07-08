@@ -153,6 +153,12 @@ void SdlDisplayBackend::present(const Framebuffer& framebuffer) {
     }
 }
 
+void SdlDisplayBackend::set_title(const std::string& title) {
+    if (window_ && !SDL_SetWindowTitle(window_, title.c_str())) {
+        set_error_from_sdl("SDL_SetWindowTitle failed");
+    }
+}
+
 const std::string& SdlDisplayBackend::last_error() const {
     return last_error_;
 }

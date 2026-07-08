@@ -9,6 +9,7 @@
 #include "core/math/vec2.h"
 #include "core/math/vec3.h"
 #include "core/math/vec4.h"
+#include "interactive/frame_rate_counter.h"
 #include "interactive/orbit_camera_controller.h"
 #include "render/render_settings.h"
 #include "render/depth_buffer.h"
@@ -308,6 +309,59 @@ void test_orbit_camera_controller_zoom_and_orbit_change_camera() {
 
     RENDER_CHECK(renderer::length(after.eye() - before.eye()) > 0.001);
     RENDER_CHECK(after.viewport_width() > 0.0);
+}
+
+void test_orbit_camera_controller_horizontal_drag_tracks_scene_direction() {
+    renderer::Bounds3 bounds(renderer::Vec3(-1, 0, -1), renderer::Vec3(1, 2, 1));
+    renderer::OrbitCameraController controller(bounds, 1.0);
+    const double before_x = controller.camera().eye().x;
+
+    controller.orbit(25.0, 0.0);
+    const double after_x = controller.camera().eye().x;
+
+    RENDER_CHECK(after_x < before_x);
+}
+
+void test_frame_rate_counter_reports_window_average() {
+    renderer::FrameRateCounter counter(0.25);
+    RENDER_CHECK(!counter.snapshot().valid);
+    RENDER_CHECK(!counter.tick(0.10));
+
+    RENDER_CHECK(counter.tick(0.15));
+    const renderer::FrameRateSnapshot snapshot = counter.snapshot();
+    RENDER_CHECK(snapshot.valid);
+    RENDER_CHECK(snapshot.frames == 2);
+    RENDER_CHECK(nearly_equal(snapshot.frames_per_second, 8.0));
+    RENDER_CHECK(nearly_equal(snapshot.milliseconds_per_frame, 125.0));
+
+    counter.reset();
+    RENDER_CHECK(!counter.snapshot().valid);
+}
+
+void test_viewer_title_format_includes_fps_and_path_samples() {
+    renderer::FrameRateSnapshot warming_up;
+    const std::string raster_warming_title = renderer::format_viewer_title(
+        renderer::InteractiveRenderMode::Raster,
+        warming_up,
+        0);
+    RENDER_CHECK(raster_warming_title.find("raster") != std::string::npos);
+    RENDER_CHECK(raster_warming_title.find("FPS --") != std::string::npos);
+    RENDER_CHECK(raster_warming_title.find("spp") == std::string::npos);
+
+    renderer::FrameRateSnapshot snapshot;
+    snapshot.valid = true;
+    snapshot.frames = 3;
+    snapshot.frames_per_second = 60.0;
+    snapshot.milliseconds_per_frame = 16.666;
+
+    const std::string path_title = renderer::format_viewer_title(
+        renderer::InteractiveRenderMode::Path,
+        snapshot,
+        12);
+    RENDER_CHECK(path_title.find("path") != std::string::npos);
+    RENDER_CHECK(path_title.find("60.0 FPS") != std::string::npos);
+    RENDER_CHECK(path_title.find("16.7 ms") != std::string::npos);
+    RENDER_CHECK(path_title.find("12 spp") != std::string::npos);
 }
 
 void test_framebuffer_clear_set_and_rgba8_conversion() {
@@ -949,6 +1003,7 @@ void test_render_settings_defaults_are_useful() {
     RENDER_CHECK(settings.height == 512);
     RENDER_CHECK(settings.samples_per_pixel == 1);
     RENDER_CHECK(settings.max_depth == 5);
+    RENDER_CHECK(settings.sample_seed_offset == 0);
 }
 
 void test_raytracer_renders_visible_sphere() {
@@ -1062,6 +1117,39 @@ int count_lit_pixels(const renderer::Framebuffer& framebuffer) {
     return lit_pixels;
 }
 
+bool colors_differ(const renderer::Color& a, const renderer::Color& b, double eps = 1e-12) {
+    return std::abs(a.x - b.x) > eps || std::abs(a.y - b.y) > eps || std::abs(a.z - b.z) > eps;
+}
+
+bool framebuffers_differ(const renderer::Framebuffer& a, const renderer::Framebuffer& b) {
+    if (a.width() != b.width() || a.height() != b.height()) {
+        return true;
+    }
+
+    for (int y = 0; y < a.height(); ++y) {
+        for (int x = 0; x < a.width(); ++x) {
+            if (colors_differ(a.pixel(x, y), b.pixel(x, y))) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+renderer::Scene make_emissive_silhouette_scene() {
+    renderer::Scene scene;
+    scene.environment = renderer::Color(0.0, 0.0, 0.0);
+
+    renderer::Material light;
+    light.type = renderer::MaterialType::Emissive;
+    light.base_color = renderer::Color(1.0, 1.0, 1.0);
+    light.emission = renderer::Color(6.0, 6.0, 6.0);
+    scene.materials.push_back(light);
+    scene.spheres.emplace_back(renderer::Vec3(0.0, 0.0, -1.0), 0.55, 0);
+
+    return scene;
+}
+
 void test_interactive_sessions_render_visible_pixels() {
     renderer::RenderSettings settings;
     settings.width = 32;
@@ -1123,6 +1211,34 @@ void test_path_interactive_session_accumulates_and_resets() {
     frame_state.camera_changed = true;
     path.render_next_frame(scene, camera, settings, frame_state, framebuffer);
     RENDER_CHECK(path.accumulated_samples() == 1);
+}
+
+void test_path_interactive_session_accumulates_distinct_samples() {
+    renderer::Scene scene = make_emissive_silhouette_scene();
+    renderer::Camera camera(
+        renderer::Vec3(0.0, 0.0, 2.0),
+        renderer::Vec3(0.0, 0.0, -1.0),
+        renderer::Vec3(0.0, 1.0, 0.0),
+        45.0,
+        1.0);
+    renderer::RenderSettings settings;
+    settings.width = 32;
+    settings.height = 32;
+    settings.samples_per_pixel = 1;
+    settings.max_depth = 1;
+    settings.thread_count = 1;
+    renderer::Framebuffer framebuffer(32, 32);
+    renderer::InteractiveFrameState frame_state;
+
+    renderer::PathInteractiveSession path;
+    path.reset(scene, settings);
+    path.render_next_frame(scene, camera, settings, frame_state, framebuffer);
+    const renderer::Framebuffer first_frame = framebuffer;
+
+    path.render_next_frame(scene, camera, settings, frame_state, framebuffer);
+
+    RENDER_CHECK(path.accumulated_samples() == 2);
+    RENDER_CHECK(framebuffers_differ(first_frame, framebuffer));
 }
 
 void test_obj_loader_reads_single_triangle() {
@@ -1189,6 +1305,9 @@ int main() {
     test_camera_center_ray_points_forward();
     test_camera_rejects_non_finite_screen_coordinates();
     test_orbit_camera_controller_zoom_and_orbit_change_camera();
+    test_orbit_camera_controller_horizontal_drag_tracks_scene_direction();
+    test_frame_rate_counter_reports_window_average();
+    test_viewer_title_format_includes_fps_and_path_samples();
     test_ray_and_bounds_intersection();
     test_bounds_intersection_counts_corner_touch_as_hit();
     test_image_invalid_dimensions_throw_invalid_argument();
@@ -1229,6 +1348,7 @@ int main() {
     test_rasterizer_draws_triangle();
     test_interactive_sessions_render_visible_pixels();
     test_path_interactive_session_accumulates_and_resets();
+    test_path_interactive_session_accumulates_distinct_samples();
     test_obj_loader_reads_single_triangle();
     test_scene_asset_loader_preserves_obj_mtl_materials();
     std::cout << "renderer_tests: all tests passed\n";

@@ -1,5 +1,6 @@
 .worktrees/
 build/
+Computer Graphics Archive/
 output/*.png
 output/*.ppm
 output/*.jpg

@@ -42,7 +42,7 @@ void OrbitCameraController::set_aspect_ratio(double aspect_ratio) {
 
 void OrbitCameraController::orbit(double delta_x, double delta_y) {
     constexpr double sensitivity = 0.01;
-    yaw_ += delta_x * sensitivity;
+    yaw_ -= delta_x * sensitivity;
     pitch_ = std::clamp(pitch_ + delta_y * sensitivity, kMinPitch, kMaxPitch);
 }
 
