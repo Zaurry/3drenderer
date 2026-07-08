@@ -13,6 +13,10 @@
 #include "render/render_settings.h"
 #include "render/depth_buffer.h"
 #include "render/framebuffer.h"
+#include "render/interactive/interactive_render_session.h"
+#include "render/interactive/path_interactive_session.h"
+#include "render/interactive/raster_interactive_session.h"
+#include "render/interactive/ray_interactive_session.h"
 #include "render/pathtracer/pathtracer_renderer.h"
 #include "render/rasterizer/rasterizer_renderer.h"
 #include "render/raytracer/raytracer_renderer.h"
@@ -1045,6 +1049,82 @@ void test_rasterizer_draws_triangle() {
     RENDER_CHECK(lit_pixels > 20);
 }
 
+int count_lit_pixels(const renderer::Framebuffer& framebuffer) {
+    int lit_pixels = 0;
+    for (int y = 0; y < framebuffer.height(); ++y) {
+        for (int x = 0; x < framebuffer.width(); ++x) {
+            const renderer::Color c = framebuffer.pixel(x, y);
+            if (c.x + c.y + c.z > 0.05) {
+                ++lit_pixels;
+            }
+        }
+    }
+    return lit_pixels;
+}
+
+void test_interactive_sessions_render_visible_pixels() {
+    renderer::RenderSettings settings;
+    settings.width = 32;
+    settings.height = 32;
+    settings.max_depth = 2;
+    renderer::Framebuffer framebuffer(32, 32);
+    renderer::InteractiveFrameState frame_state;
+
+    renderer::RasterInteractiveSession raster;
+    renderer::Scene raster_scene = renderer::make_raster_triangle_scene();
+    renderer::Camera raster_camera(
+        renderer::Vec3(0, 0, 2),
+        renderer::Vec3(0, 0, 0),
+        renderer::Vec3(0, 1, 0),
+        45.0,
+        1.0);
+    raster.reset(raster_scene, settings);
+    raster.render_next_frame(raster_scene, raster_camera, settings, frame_state, framebuffer);
+    RENDER_CHECK(count_lit_pixels(framebuffer) > 0);
+
+    renderer::RayInteractiveSession ray;
+    renderer::Scene ray_scene = renderer::make_raster_triangle_scene();
+    renderer::Camera ray_camera(
+        renderer::Vec3(0, 0, 2),
+        renderer::Vec3(0, 0, -1),
+        renderer::Vec3(0, 1, 0),
+        45.0,
+        1.0);
+    ray.reset(ray_scene, settings);
+    ray.render_next_frame(ray_scene, ray_camera, settings, frame_state, framebuffer);
+    RENDER_CHECK(count_lit_pixels(framebuffer) > 0);
+}
+
+void test_path_interactive_session_accumulates_and_resets() {
+    renderer::Scene scene = renderer::make_cornell_box_scene();
+    renderer::Camera camera(
+        renderer::Vec3(0.0, 0.15, 1.5),
+        renderer::Vec3(0.0, 0.15, -2.0),
+        renderer::Vec3(0.0, 1.0, 0.0),
+        45.0,
+        1.0);
+    renderer::RenderSettings settings;
+    settings.width = 8;
+    settings.height = 8;
+    settings.samples_per_pixel = 1;
+    settings.max_depth = 3;
+    settings.thread_count = 1;
+    renderer::Framebuffer framebuffer(8, 8);
+    renderer::InteractiveFrameState frame_state;
+
+    renderer::PathInteractiveSession path;
+    path.reset(scene, settings);
+    path.render_next_frame(scene, camera, settings, frame_state, framebuffer);
+    RENDER_CHECK(path.accumulated_samples() == 1);
+
+    path.render_next_frame(scene, camera, settings, frame_state, framebuffer);
+    RENDER_CHECK(path.accumulated_samples() == 2);
+
+    frame_state.camera_changed = true;
+    path.render_next_frame(scene, camera, settings, frame_state, framebuffer);
+    RENDER_CHECK(path.accumulated_samples() == 1);
+}
+
 void test_obj_loader_reads_single_triangle() {
     const std::string path = "test_single_triangle.obj";
     {
@@ -1147,6 +1227,8 @@ int main() {
     test_raytracer_renders_triangle_scene_with_direct_light();
     test_pathtracer_renders_emissive_scene();
     test_rasterizer_draws_triangle();
+    test_interactive_sessions_render_visible_pixels();
+    test_path_interactive_session_accumulates_and_resets();
     test_obj_loader_reads_single_triangle();
     test_scene_asset_loader_preserves_obj_mtl_materials();
     std::cout << "renderer_tests: all tests passed\n";

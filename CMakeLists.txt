@@ -37,6 +37,9 @@ add_library(renderer_core STATIC
     src/interactive/orbit_camera_controller.cpp
     src/render/depth_buffer.cpp
     src/render/framebuffer.cpp
+    src/render/interactive/path_interactive_session.cpp
+    src/render/interactive/raster_interactive_session.cpp
+    src/render/interactive/ray_interactive_session.cpp
     src/render/pathtracer/pathtracer_renderer.cpp
     src/render/rasterizer/rasterizer_renderer.cpp
     src/render/raytracer/raytracer_renderer.cpp
