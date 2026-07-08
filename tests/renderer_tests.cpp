@@ -9,6 +9,7 @@
 #include "core/math/vec2.h"
 #include "core/math/vec3.h"
 #include "core/math/vec4.h"
+#include "interactive/orbit_camera_controller.h"
 #include "render/render_settings.h"
 #include "render/depth_buffer.h"
 #include "render/framebuffer.h"
@@ -290,6 +291,19 @@ void test_to_rgb8_sanitizes_non_finite_channels() {
     const renderer::Rgb8 infinity_pixel = renderer::to_rgb8(
         renderer::Color(std::numeric_limits<double>::infinity(), 0.0, 0.0));
     RENDER_CHECK(infinity_pixel.r == 255);
+}
+
+void test_orbit_camera_controller_zoom_and_orbit_change_camera() {
+    renderer::Bounds3 bounds(renderer::Vec3(-1, 0, -1), renderer::Vec3(1, 2, 1));
+    renderer::OrbitCameraController controller(bounds, 1.0);
+    renderer::Camera before = controller.camera();
+
+    controller.orbit(0.5, 0.25);
+    controller.zoom(-1.0);
+    renderer::Camera after = controller.camera();
+
+    RENDER_CHECK(renderer::length(after.eye() - before.eye()) > 0.001);
+    RENDER_CHECK(after.viewport_width() > 0.0);
 }
 
 void test_framebuffer_clear_set_and_rgba8_conversion() {
@@ -1094,6 +1108,7 @@ int main() {
     test_mat4_look_at_invalid_inputs_throw();
     test_camera_center_ray_points_forward();
     test_camera_rejects_non_finite_screen_coordinates();
+    test_orbit_camera_controller_zoom_and_orbit_change_camera();
     test_ray_and_bounds_intersection();
     test_bounds_intersection_counts_corner_touch_as_hit();
     test_image_invalid_dimensions_throw_invalid_argument();
