@@ -20,6 +20,7 @@
 #include "scene/material.h"
 #include "scene/obj_loader.h"
 #include "scene/primitive.h"
+#include "scene/scene_asset_loader.h"
 #include "scene/scene.h"
 #include "scene/texture.h"
 
@@ -1045,6 +1046,43 @@ void test_obj_loader_reads_single_triangle() {
     std::remove(path.c_str());
 }
 
+void test_scene_asset_loader_preserves_obj_mtl_materials() {
+    const std::string obj_path = "test_asset_loader.obj";
+    const std::string mtl_path = "test_asset_loader.mtl";
+    {
+        std::ofstream mtl(mtl_path);
+        mtl << "newmtl red\nKd 0.8 0.1 0.1\nKs 0 0 0\nillum 2\n";
+        mtl << "newmtl light\nKd 1 1 1\nKe 4 3 2\nillum 2\n";
+        mtl << "newmtl mirror\nKd 0.02 0.02 0.02\nKs 0.95 0.95 0.95\nNs 1000\nillum 5\n";
+        mtl << "newmtl glass\nKd 0.01 0.01 0.01\nKs 0.3 0.3 0.3\nNi 1.33\nillum 7\n";
+    }
+    {
+        std::ofstream obj(obj_path);
+        obj << "mtllib " << mtl_path << "\n";
+        obj << "v 0 0 0\n";
+        obj << "v 1 0 0\n";
+        obj << "v 0 1 0\n";
+        obj << "v 0 0 1\n";
+        obj << "v 1 0 1\n";
+        obj << "v 0 1 1\n";
+        obj << "usemtl red\nf 1 2 3\n";
+        obj << "usemtl light\nf 4 5 6\n";
+        obj << "usemtl mirror\nf 1 4 2\n";
+        obj << "usemtl glass\nf 2 5 3\n";
+    }
+
+    renderer::LoadedScene loaded = renderer::load_scene_asset(obj_path, 64, 64);
+    RENDER_CHECK(loaded.scene.triangles.size() == 4);
+    RENDER_CHECK(has_red_like_material(loaded.scene));
+    RENDER_CHECK(has_nonzero_emissive_material(loaded.scene));
+    RENDER_CHECK(has_material_type(loaded.scene, renderer::MaterialType::Metal));
+    RENDER_CHECK(has_material_type(loaded.scene, renderer::MaterialType::Dielectric));
+    RENDER_CHECK(loaded.camera.viewport_width() > 0.0);
+
+    std::remove(obj_path.c_str());
+    std::remove(mtl_path.c_str());
+}
+
 int main() {
     RENDER_CHECK(1 + 1 == 2);
     test_vec3_arithmetic();
@@ -1095,6 +1133,7 @@ int main() {
     test_pathtracer_renders_emissive_scene();
     test_rasterizer_draws_triangle();
     test_obj_loader_reads_single_triangle();
+    test_scene_asset_loader_preserves_obj_mtl_materials();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;
 }

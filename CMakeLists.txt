@@ -24,6 +24,7 @@ add_library(renderer_core STATIC
     src/scene/camera.cpp
     src/scene/mesh.cpp
     src/scene/obj_loader.cpp
+    src/scene/scene_asset_loader.cpp
     src/scene/scene.cpp
 )
 target_include_directories(renderer_core
