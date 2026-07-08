@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(cpu_3d_renderer VERSION 0.1.0 LANGUAGES CXX)
+project(cpu_3d_renderer VERSION 0.1.0 LANGUAGES C CXX)
 
 include(FetchContent)
 
@@ -29,6 +29,46 @@ if(NOT TARGET Eigen3::Eigen)
     set_target_properties(Eigen3::Eigen PROPERTIES
         INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${eigen3_SOURCE_DIR}"
     )
+endif()
+
+find_package(SDL3 CONFIG QUIET)
+if(NOT TARGET SDL3::SDL3)
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    set(SDL_AUDIO OFF CACHE BOOL "" FORCE)
+    set(SDL_CAMERA OFF CACHE BOOL "" FORCE)
+    set(SDL_DIALOG OFF CACHE BOOL "" FORCE)
+    set(SDL_GPU OFF CACHE BOOL "" FORCE)
+    set(SDL_HAPTIC OFF CACHE BOOL "" FORCE)
+    set(SDL_JOYSTICK OFF CACHE BOOL "" FORCE)
+    set(SDL_OPENGL OFF CACHE BOOL "" FORCE)
+    set(SDL_OPENGLES OFF CACHE BOOL "" FORCE)
+    set(SDL_RENDER OFF CACHE BOOL "" FORCE)
+    set(SDL_SENSOR OFF CACHE BOOL "" FORCE)
+    set(SDL_VULKAN OFF CACHE BOOL "" FORCE)
+    set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+    set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+    set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(SDL_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+    set(local_sdl3_source_dir "${CMAKE_BINARY_DIR}/_deps/sdl3-src")
+    if(EXISTS "${local_sdl3_source_dir}/CMakeLists.txt")
+        set(FETCHCONTENT_SOURCE_DIR_SDL3 "${local_sdl3_source_dir}" CACHE PATH "" FORCE)
+    endif()
+    FetchContent_Declare(
+        sdl3
+        URL https://www.libsdl.org/release/SDL3-3.2.30.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(sdl3)
+endif()
+
+set(RENDERER_SDL_TARGET "")
+if(TARGET SDL3::SDL3)
+    set(RENDERER_SDL_TARGET SDL3::SDL3)
+elseif(TARGET SDL3::SDL3-static)
+    set(RENDERER_SDL_TARGET SDL3::SDL3-static)
+elseif(TARGET SDL3-static)
+    set(RENDERER_SDL_TARGET SDL3-static)
 endif()
 
 add_library(renderer_core STATIC
@@ -61,6 +101,12 @@ target_link_libraries(renderer_core PUBLIC Eigen3::Eigen)
 add_executable(renderer src/main.cpp)
 target_link_libraries(renderer PRIVATE renderer_core)
 
+add_executable(viewer
+    src/platform/sdl/sdl_display_backend.cpp
+    src/viewer_main.cpp
+)
+target_link_libraries(viewer PRIVATE renderer_core ${RENDERER_SDL_TARGET})
+
 add_executable(renderer_tests tests/renderer_tests.cpp)
 target_link_libraries(renderer_tests PRIVATE renderer_core)
 
@@ -77,4 +123,5 @@ endfunction()
 
 target_enable_warnings(renderer)
 target_enable_warnings(renderer_core)
+target_enable_warnings(viewer)
 target_enable_warnings(renderer_tests)
