@@ -14,6 +14,7 @@ private:
     Color trace_path(const Ray& ray, const Scene& scene, const Bvh& bvh, PcgRandom& rng, int depth) const;
     bool scatter(
         const Ray& ray,
+        const Scene& scene,
         const HitRecord& hit,
         const Material& material,
         PcgRandom& rng,

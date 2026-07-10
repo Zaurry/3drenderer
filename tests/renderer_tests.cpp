@@ -36,6 +36,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <array>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -1136,6 +1137,17 @@ bool framebuffers_differ(const renderer::Framebuffer& a, const renderer::Framebu
     return false;
 }
 
+void write_test_ppm_texture(const std::string& path) {
+    std::ofstream out(path, std::ios::binary);
+    out << "P6\n2 2\n255\n";
+    const std::array<unsigned char, 12> pixels{
+        255, 0, 0,
+        0, 255, 0,
+        0, 0, 255,
+        255, 255, 255};
+    out.write(reinterpret_cast<const char*>(pixels.data()), static_cast<std::streamsize>(pixels.size()));
+}
+
 renderer::Scene make_emissive_silhouette_scene() {
     renderer::Scene scene;
     scene.environment = renderer::Color(0.0, 0.0, 0.0);
@@ -1256,6 +1268,71 @@ void test_obj_loader_reads_single_triangle() {
     std::remove(path.c_str());
 }
 
+void test_image_texture_samples_obj_uv_space() {
+    const std::string texture_path = "test_map_kd.ppm";
+    write_test_ppm_texture(texture_path);
+
+    const renderer::ImageTexture texture = renderer::ImageTexture::load(texture_path);
+
+    const renderer::Color top_left = texture.sample(renderer::Vec2(0.25, 0.75));
+    const renderer::Color bottom_left = texture.sample(renderer::Vec2(0.25, 0.25));
+    RENDER_CHECK(top_left.x > 0.9);
+    RENDER_CHECK(top_left.y < 0.1);
+    RENDER_CHECK(bottom_left.z > 0.9);
+
+    std::remove(texture_path.c_str());
+}
+
+void test_scene_asset_loader_loads_map_kd_and_triangle_uvs() {
+    const std::string obj_path = "test_textured_asset.obj";
+    const std::string mtl_path = "test_textured_asset.mtl";
+    const std::string texture_path = "test_textured_asset.ppm";
+    write_test_ppm_texture(texture_path);
+    {
+        std::ofstream mtl(mtl_path);
+        mtl << "newmtl textured\nKd 1 1 1\nmap_Kd " << texture_path << "\n";
+    }
+    {
+        std::ofstream obj(obj_path);
+        obj << "mtllib " << mtl_path << "\n";
+        obj << "v -1 -1 -1\n";
+        obj << "v 1 -1 -1\n";
+        obj << "v -1 1 -1\n";
+        obj << "vt 0 0\n";
+        obj << "vt 1 0\n";
+        obj << "vt 0 1\n";
+        obj << "usemtl textured\n";
+        obj << "f 1/1 2/2 3/3\n";
+    }
+
+    renderer::LoadedScene loaded = renderer::load_scene_asset(obj_path, 64, 64);
+    RENDER_CHECK(loaded.scene.textures.size() == 1);
+    RENDER_CHECK(!loaded.scene.materials.empty());
+    RENDER_CHECK(loaded.scene.materials[0].diffuse_texture_id == 0);
+
+    renderer::HitRecord hit;
+    const bool did_hit = loaded.scene.triangles[0].intersect(
+        renderer::Ray(renderer::Vec3(-0.5, 0.5, 0.0), renderer::Vec3(0.0, 0.0, -1.0)),
+        0.001,
+        10.0,
+        hit);
+    RENDER_CHECK(did_hit);
+    RENDER_CHECK(nearly_equal(hit.uv.x, 0.25));
+    RENDER_CHECK(nearly_equal(hit.uv.y, 0.75));
+
+    const renderer::Color textured_color = renderer::sample_material_base_color(
+        loaded.scene,
+        loaded.scene.materials[0],
+        hit.uv);
+    RENDER_CHECK(textured_color.x > 0.9);
+    RENDER_CHECK(textured_color.y < 0.1);
+    RENDER_CHECK(textured_color.z < 0.1);
+
+    std::remove(obj_path.c_str());
+    std::remove(mtl_path.c_str());
+    std::remove(texture_path.c_str());
+}
+
 void test_scene_asset_loader_preserves_obj_mtl_materials() {
     const std::string obj_path = "test_asset_loader.obj";
     const std::string mtl_path = "test_asset_loader.mtl";
@@ -1350,6 +1427,8 @@ int main() {
     test_path_interactive_session_accumulates_and_resets();
     test_path_interactive_session_accumulates_distinct_samples();
     test_obj_loader_reads_single_triangle();
+    test_image_texture_samples_obj_uv_space();
+    test_scene_asset_loader_loads_map_kd_and_triangle_uvs();
     test_scene_asset_loader_preserves_obj_mtl_materials();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;

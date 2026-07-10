@@ -5,8 +5,13 @@
 #include "core/math/vec3.h"
 
 #include <cmath>
+#include <string>
+#include <vector>
 
 namespace renderer {
+
+struct Material;
+struct Scene;
 
 struct ConstantTexture {
     Color color;
@@ -29,5 +34,26 @@ struct CheckerTexture {
         return static_cast<int>(checker) % 2 == 0 ? even : odd;
     }
 };
+
+class ImageTexture {
+public:
+    ImageTexture() = default;
+    ImageTexture(int width, int height, std::vector<Color> pixels);
+
+    static ImageTexture load(const std::string& path);
+
+    int width() const;
+    int height() const;
+    Color sample(const Vec2& uv) const;
+
+private:
+    int width_ = 0;
+    int height_ = 0;
+    std::vector<Color> pixels_;
+
+    const Color& pixel(int x, int y) const;
+};
+
+Color sample_material_base_color(const Scene& scene, const Material& material, const Vec2& uv);
 
 }  // namespace renderer

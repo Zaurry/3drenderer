@@ -13,6 +13,7 @@ struct Material {
     double roughness = 0.0;
     double metallic = 0.0;
     double ior = 1.5;
+    int diffuse_texture_id = -1;
 };
 
 }  // namespace renderer

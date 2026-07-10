@@ -1,6 +1,7 @@
 #include "render/rasterizer/rasterizer_renderer.h"
 
 #include "core/timer.h"
+#include "scene/texture.h"
 
 #include <algorithm>
 #include <cmath>
@@ -59,6 +60,7 @@ Color shade_surface(
     const Scene& scene,
     const Camera& camera,
     const Material& material,
+    const Color& base_color,
     const Vec3& position,
     const Vec3& normal) {
     if (material.type == MaterialType::Emissive) {
@@ -67,7 +69,7 @@ Color shade_surface(
 
     const Vec3 unit_normal = normalize(normal);
     const Vec3 view_dir = normalize(camera.eye() - position);
-    Color shaded = multiply(material.base_color, scene.environment) * 0.15;
+    Color shaded = multiply(base_color, scene.environment) * 0.15;
 
     for (const DirectionalLight& light : scene.directional_lights) {
         const Vec3 light_dir = normalize(-light.direction);
@@ -78,7 +80,7 @@ Color shade_surface(
 
         const Vec3 half_vector = normalize(light_dir + view_dir);
         const double specular = std::pow(std::max(0.0, dot(unit_normal, half_vector)), 32.0) * 0.2;
-        shaded += multiply(material.base_color, light.radiance) * n_dot_l + light.radiance * specular;
+        shaded += multiply(base_color, light.radiance) * n_dot_l + light.radiance * specular;
     }
 
     for (const PointLight& light : scene.point_lights) {
@@ -93,7 +95,7 @@ Color shade_surface(
         const Vec3 radiance = light.intensity / distance_squared;
         const Vec3 half_vector = normalize(light_dir + view_dir);
         const double specular = std::pow(std::max(0.0, dot(unit_normal, half_vector)), 32.0) * 0.2;
-        shaded += multiply(material.base_color, radiance) * n_dot_l + radiance * specular;
+        shaded += multiply(base_color, radiance) * n_dot_l + radiance * specular;
     }
 
     return shaded;
@@ -171,9 +173,16 @@ RenderResult RasterizerRenderer::render(const Scene& scene, const Camera& camera
                      v1.world * (b1 / v1.view_depth) +
                      v2.world * (b2 / v2.view_depth)) /
                     inverse_depth;
+                const Vec2 uv = triangle.interpolate_uv(b0, b1, b2);
 
                 const Color color = material
-                    ? shade_surface(scene, camera, *material, world_position, normal)
+                    ? shade_surface(
+                        scene,
+                        camera,
+                        *material,
+                        sample_material_base_color(scene, *material, uv),
+                        world_position,
+                        normal)
                     : Color(1.0, 0.0, 1.0);
                 image.set_pixel(x, y, color);
             }

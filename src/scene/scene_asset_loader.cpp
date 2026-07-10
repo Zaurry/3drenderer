@@ -13,11 +13,14 @@
 #endif
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
 #include <sstream>
 #include <stdexcept>
+#include <string>
+#include <unordered_map>
 
 namespace renderer {
 
@@ -51,6 +54,21 @@ Vec3 vertex_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t& 
         static_cast<double>(attrib.vertices[base + 2U]));
 }
 
+Vec2 texcoord_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t& index) {
+    if (index.texcoord_index < 0) {
+        return Vec2();
+    }
+
+    const std::size_t base = static_cast<std::size_t>(index.texcoord_index) * 2U;
+    if (base + 1U >= attrib.texcoords.size()) {
+        throw std::runtime_error("OBJ texcoord index is out of range");
+    }
+
+    return Vec2(
+        static_cast<double>(attrib.texcoords[base]),
+        static_cast<double>(attrib.texcoords[base + 1U]));
+}
+
 Color array_to_color(const tinyobj::real_t values[3]) {
     return Color(
         static_cast<double>(values[0]),
@@ -69,7 +87,76 @@ double roughness_from_shininess(double shininess) {
     return std::clamp(1.0 / std::sqrt(shininess), 0.0, 1.0);
 }
 
-Material convert_material(const tinyobj::material_t& source) {
+std::string lowercase_ascii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+std::filesystem::path resolve_texture_path(
+    const std::filesystem::path& material_directory,
+    const std::string& texture_name) {
+    std::filesystem::path texture_path(texture_name);
+    if (texture_path.is_relative()) {
+        texture_path = material_directory / texture_path;
+    }
+    if (std::filesystem::exists(texture_path)) {
+        return texture_path;
+    }
+
+    const std::filesystem::path directory = texture_path.parent_path().empty()
+        ? std::filesystem::path(".")
+        : texture_path.parent_path();
+    const std::string target_name = lowercase_ascii(texture_path.filename().string());
+    if (!std::filesystem::exists(directory)) {
+        return texture_path;
+    }
+
+    for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(directory)) {
+        if (entry.is_regular_file() && lowercase_ascii(entry.path().filename().string()) == target_name) {
+            return entry.path();
+        }
+    }
+
+    return texture_path;
+}
+
+int texture_id_for(
+    const std::filesystem::path& material_directory,
+    const std::string& texture_name,
+    Scene& scene,
+    std::unordered_map<std::string, int>& texture_cache) {
+    if (texture_name.empty()) {
+        return -1;
+    }
+
+    const std::filesystem::path resolved_path = resolve_texture_path(material_directory, texture_name);
+    if (!std::filesystem::exists(resolved_path)) {
+        return -1;
+    }
+
+    const std::string cache_key = lowercase_ascii(resolved_path.lexically_normal().string());
+    const auto found = texture_cache.find(cache_key);
+    if (found != texture_cache.end()) {
+        return found->second;
+    }
+
+    const int texture_id = static_cast<int>(scene.textures.size());
+    try {
+        scene.textures.push_back(ImageTexture::load(resolved_path.string()));
+    } catch (const std::exception&) {
+        return -1;
+    }
+    texture_cache.emplace(cache_key, texture_id);
+    return texture_id;
+}
+
+Material convert_material(
+    const tinyobj::material_t& source,
+    const std::filesystem::path& material_directory,
+    Scene& scene,
+    std::unordered_map<std::string, int>& texture_cache) {
     Material material;
     const Color diffuse = array_to_color(source.diffuse);
     const Color specular = array_to_color(source.specular);
@@ -80,6 +167,11 @@ Material convert_material(const tinyobj::material_t& source) {
     material.emission = emission;
     material.ior = source.ior > 0.0 ? static_cast<double>(source.ior) : material.ior;
     material.roughness = roughness_from_shininess(static_cast<double>(source.shininess));
+    material.diffuse_texture_id = texture_id_for(
+        material_directory,
+        source.diffuse_texname,
+        scene,
+        texture_cache);
 
     if (color_energy(emission) > 0.0) {
         material.type = MaterialType::Emissive;
@@ -144,8 +236,9 @@ LoadedScene load_scene_asset(const std::string& path, int width, int height) {
         Camera(Vec3(0.0, 0.0, 1.0), Vec3(0.0, 0.0, 0.0), Vec3(0.0, 1.0, 0.0), 45.0, 1.0),
         Bounds3()};
 
+    std::unordered_map<std::string, int> texture_cache;
     for (const tinyobj::material_t& source : reader.GetMaterials()) {
-        loaded.scene.materials.push_back(convert_material(source));
+        loaded.scene.materials.push_back(convert_material(source, parent_path, loaded.scene, texture_cache));
     }
     const int fallback_material_id = static_cast<int>(loaded.scene.materials.size());
     loaded.scene.materials.push_back(fallback_material());
@@ -174,7 +267,10 @@ LoadedScene load_scene_asset(const std::string& path, int width, int height) {
             const Vec3 a = vertex_from_index(attrib, i0);
             const Vec3 b = vertex_from_index(attrib, i1);
             const Vec3 c = vertex_from_index(attrib, i2);
-            loaded.scene.triangles.emplace_back(a, b, c, material_id);
+            const Vec2 uv0 = texcoord_from_index(attrib, i0);
+            const Vec2 uv1 = texcoord_from_index(attrib, i1);
+            const Vec2 uv2 = texcoord_from_index(attrib, i2);
+            loaded.scene.triangles.emplace_back(a, b, c, material_id, uv0, uv1, uv2);
             loaded.bounds.expand(a);
             loaded.bounds.expand(b);
             loaded.bounds.expand(c);

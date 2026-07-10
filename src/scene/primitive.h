@@ -95,7 +95,17 @@ private:
 class Triangle {
 public:
     Triangle(const Vec3& a, const Vec3& b, const Vec3& c, int material_id)
-        : a_(a), b_(b), c_(c), material_id_(material_id) {
+        : Triangle(a, b, c, material_id, Vec2(), Vec2(), Vec2()) {}
+
+    Triangle(
+        const Vec3& a,
+        const Vec3& b,
+        const Vec3& c,
+        int material_id,
+        const Vec2& uv0,
+        const Vec2& uv1,
+        const Vec2& uv2)
+        : a_(a), b_(b), c_(c), uv0_(uv0), uv1_(uv1), uv2_(uv2), material_id_(material_id) {
         if (!all_components_finite(a) || !all_components_finite(b) || !all_components_finite(c)) {
             throw std::invalid_argument("Triangle vertices must be finite");
         }
@@ -137,7 +147,7 @@ public:
         hit.t = t;
         hit.position = ray.at(t);
         hit.set_face_normal(ray, normalize(cross(edge1, edge2)));
-        hit.uv = Vec2(u, v);
+        hit.uv = interpolate_uv(1.0 - u - v, u, v);
         hit.material_id = material_id_;
         return true;
     }
@@ -170,10 +180,19 @@ public:
         return material_id_;
     }
 
+    Vec2 interpolate_uv(double w0, double w1, double w2) const {
+        return Vec2(
+            uv0_.x * w0 + uv1_.x * w1 + uv2_.x * w2,
+            uv0_.y * w0 + uv1_.y * w1 + uv2_.y * w2);
+    }
+
 private:
     Vec3 a_;
     Vec3 b_;
     Vec3 c_;
+    Vec2 uv0_;
+    Vec2 uv1_;
+    Vec2 uv2_;
     int material_id_;
 };
 

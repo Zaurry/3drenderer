@@ -2,6 +2,7 @@
 
 #include "core/timer.h"
 #include "sampling/sampler.h"
+#include "scene/texture.h"
 
 #include <algorithm>
 #include <atomic>
@@ -155,7 +156,7 @@ Color PathTracerRenderer::trace_path(const Ray& ray, const Scene& scene, const B
 
     Color attenuation;
     Ray scattered(hit.position, hit.normal);
-    if (!scatter(ray, hit, material, rng, attenuation, scattered)) {
+    if (!scatter(ray, scene, hit, material, rng, attenuation, scattered)) {
         return emitted;
     }
 
@@ -167,15 +168,17 @@ Color PathTracerRenderer::trace_path(const Ray& ray, const Scene& scene, const B
 
 bool PathTracerRenderer::scatter(
     const Ray& ray,
+    const Scene& scene,
     const HitRecord& hit,
     const Material& material,
     PcgRandom& rng,
     Color& attenuation,
     Ray& scattered) const {
+    const Color base_color = sample_material_base_color(scene, material, hit.uv);
     if (material.type == MaterialType::Diffuse) {
         const Vec3 local_direction = cosine_weighted_hemisphere(rng);
         const Vec3 scatter_direction = tangent_to_world(local_direction, hit.normal);
-        attenuation = material.base_color;
+        attenuation = base_color;
         scattered = Ray(hit.position, scatter_direction);
         return true;
     }
@@ -190,7 +193,7 @@ bool PathTracerRenderer::scatter(
             return false;
         }
 
-        attenuation = material.base_color;
+        attenuation = base_color;
         scattered = Ray(hit.position, scatter_direction);
         return true;
     }

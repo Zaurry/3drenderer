@@ -1,7 +1,7 @@
 #include "render/pathtracer/pathtracer_renderer.h"
 #include "render/rasterizer/rasterizer_renderer.h"
 #include "render/raytracer/raytracer_renderer.h"
-#include "scene/obj_loader.h"
+#include "scene/scene_asset_loader.h"
 #include "scene/scene.h"
 
 #include <algorithm>
@@ -119,40 +119,13 @@ renderer::Camera make_camera(
         static_cast<double>(width) / static_cast<double>(height));
 }
 
-renderer::Bounds3 mesh_bounds(const renderer::Mesh& mesh) {
-    renderer::Bounds3 bounds;
-    for (const renderer::Triangle& triangle : mesh.triangles) {
-        bounds.expand(triangle.bounds());
-    }
-    return bounds;
-}
-
 SceneBundle make_obj_scene(const CliOptions& options) {
     if (options.obj_path.empty()) {
         throw std::invalid_argument("--scene obj_viewer requires --obj");
     }
 
-    renderer::Mesh mesh = renderer::load_obj_mesh(options.obj_path, 0);
-    if (mesh.triangles.empty()) {
-        throw std::runtime_error("OBJ contains no triangles");
-    }
-
-    renderer::Scene scene;
-    scene.environment = renderer::Color(0.04, 0.05, 0.07);
-    renderer::Material material;
-    material.type = renderer::MaterialType::Diffuse;
-    material.base_color = renderer::Color(0.72, 0.74, 0.78);
-    scene.materials.push_back(material);
-    scene.triangles = mesh.triangles;
-    scene.directional_lights.push_back(
-        renderer::DirectionalLight{renderer::normalize(renderer::Vec3(-1.0, -1.0, -1.0)), renderer::Color(1.5, 1.5, 1.4)});
-
-    const renderer::Bounds3 bounds = mesh_bounds(mesh);
-    const renderer::Vec3 center = (bounds.min + bounds.max) * 0.5;
-    const double radius = std::max(0.5, renderer::length(bounds.max - bounds.min) * 0.5);
-    return SceneBundle{
-        scene,
-        make_camera(center + renderer::Vec3(0.0, 0.0, radius * 3.0), center, 45.0, options.width, options.height)};
+    const renderer::LoadedScene loaded = renderer::load_scene_asset(options.obj_path, options.width, options.height);
+    return SceneBundle{loaded.scene, loaded.camera};
 }
 
 SceneBundle make_scene_bundle(const CliOptions& options) {

@@ -2,6 +2,7 @@
 
 #include "core/timer.h"
 #include "sampling/sampler.h"
+#include "scene/texture.h"
 
 #include <algorithm>
 #include <cmath>
@@ -77,14 +78,15 @@ Color RayTracerRenderer::trace_ray(
     }
 
     const Material& material = scene.materials[hit.material_id];
+    const Color base_color = sample_material_base_color(scene, material, hit.uv);
     Color result = material.emission;
 
     if (material.type == MaterialType::Emissive) {
-        return result + material.base_color * 0.02;
+        return result + base_color * 0.02;
     }
 
     // 一点环境项让没有显式灯光的教学场景仍然可见；真实路径追踪会由间接光积分处理这部分。
-    result += multiply(material.base_color, background_color(scene, settings)) * 0.25;
+    result += multiply(base_color, background_color(scene, settings)) * 0.25;
 
     for (const PointLight& light : scene.point_lights) {
         const Vec3 to_light = light.position - hit.position;
@@ -103,7 +105,7 @@ Color RayTracerRenderer::trace_ray(
         }
 
         const double n_dot_l = std::max(0.0, dot(hit.normal, light_dir));
-        result += multiply(material.base_color, light.intensity) * (n_dot_l / distance_squared);
+        result += multiply(base_color, light.intensity) * (n_dot_l / distance_squared);
     }
 
     for (const DirectionalLight& light : scene.directional_lights) {
@@ -116,14 +118,14 @@ Color RayTracerRenderer::trace_ray(
         }
 
         const double n_dot_l = std::max(0.0, dot(hit.normal, light_dir));
-        result += multiply(material.base_color, light.radiance) * n_dot_l;
+        result += multiply(base_color, light.radiance) * n_dot_l;
     }
 
     if (material.type == MaterialType::Metal) {
         // Reflection ray：镜面材质沿法线反射入射方向，再递归查询反射方向看到的颜色。
         const Vec3 reflected = reflect(normalize(ray.direction), hit.normal);
         const Color reflected_color = trace_ray(Ray(hit.position, reflected), scene, bvh, depth - 1, settings);
-        result += multiply(material.base_color, reflected_color) * 0.8;
+        result += multiply(base_color, reflected_color) * 0.8;
     } else if (material.type == MaterialType::Dielectric) {
         // Refraction ray：玻璃材质根据相对折射率弯折光线，并用 Schlick 近似混合反射/折射。
         const double eta_ratio = hit.front_face ? (1.0 / material.ior) : material.ior;
