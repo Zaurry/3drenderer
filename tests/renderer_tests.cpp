@@ -24,6 +24,7 @@
 #include "sampling/sampler.h"
 #include "scene/camera.h"
 #include "scene/material.h"
+#include "scene/material_evaluator.h"
 #include "scene/obj_loader.h"
 #include "scene/primitive.h"
 #include "scene/scene_asset_loader.h"
@@ -1175,6 +1176,13 @@ void write_test_ppm_texture(const std::string& path) {
     out.write(reinterpret_cast<const char*>(pixels.data()), static_cast<std::streamsize>(pixels.size()));
 }
 
+void write_single_pixel_ppm(const std::string& path, unsigned char value) {
+    std::ofstream out(path, std::ios::binary);
+    out << "P6\n1 1\n255\n";
+    const std::array<unsigned char, 3> pixel{value, value, value};
+    out.write(reinterpret_cast<const char*>(pixel.data()), static_cast<std::streamsize>(pixel.size()));
+}
+
 renderer::Scene make_emissive_silhouette_scene() {
     renderer::Scene scene;
     scene.environment = renderer::Color(0.0, 0.0, 0.0);
@@ -1333,6 +1341,59 @@ void test_image_texture_samples_obj_uv_space() {
     std::remove(texture_path.c_str());
 }
 
+void test_texture_encoding_distinguishes_srgb_from_linear() {
+    const std::string texture_path = "test_texture_encoding.ppm";
+    write_single_pixel_ppm(texture_path, 128);
+
+    const renderer::ImageTexture srgb = renderer::ImageTexture::load(
+        texture_path,
+        renderer::TextureEncoding::Srgb);
+    const renderer::ImageTexture linear = renderer::ImageTexture::load(
+        texture_path,
+        renderer::TextureEncoding::Linear);
+
+    RENDER_CHECK(srgb.sample(renderer::Vec2()).x < 0.25);
+    RENDER_CHECK(linear.sample(renderer::Vec2()).x > 0.49);
+    RENDER_CHECK(linear.sample(renderer::Vec2()).x < 0.51);
+
+    std::remove(texture_path.c_str());
+}
+
+void test_material_evaluator_combines_opacity_and_perturbs_bump_normal() {
+    renderer::Scene scene;
+    scene.textures.emplace_back(
+        4,
+        2,
+        std::vector<renderer::Color>{
+            renderer::Color(0.0, 0.0, 0.0),
+            renderer::Color(0.25, 0.25, 0.25),
+            renderer::Color(0.5, 0.5, 0.5),
+            renderer::Color(1.0, 1.0, 1.0),
+            renderer::Color(0.0, 0.0, 0.0),
+            renderer::Color(0.25, 0.25, 0.25),
+            renderer::Color(0.5, 0.5, 0.5),
+            renderer::Color(1.0, 1.0, 1.0)});
+
+    renderer::Material material;
+    material.opacity = 0.8;
+    material.opacity_texture_id = 0;
+    material.bump_texture_id = 0;
+    material.bump_scale = 1.0;
+
+    renderer::HitRecord hit;
+    hit.uv = renderer::Vec2(0.375, 0.25);
+    hit.geometric_normal = renderer::Vec3(0.0, 0.0, 1.0);
+    hit.shading_normal = renderer::Vec3(0.0, 0.0, 1.0);
+    hit.tangent = renderer::Vec3(1.0, 0.0, 0.0);
+    hit.bitangent = renderer::Vec3(0.0, 1.0, 0.0);
+
+    const renderer::SurfaceMaterialSample sample =
+        renderer::evaluate_surface_material(scene, material, hit);
+    RENDER_CHECK(sample.opacity < material.opacity);
+    RENDER_CHECK(renderer::length(sample.shading_normal - hit.shading_normal) > 0.01);
+    RENDER_CHECK(renderer::dot(sample.shading_normal, hit.geometric_normal) > 0.0);
+}
+
 void test_scene_asset_loader_loads_map_kd_and_triangle_uvs() {
     const std::string obj_path = "test_textured_asset.obj";
     const std::string mtl_path = "test_textured_asset.mtl";
@@ -1480,6 +1541,8 @@ int main() {
     test_obj_loader_reads_single_triangle();
     test_scene_asset_loader_preserves_obj_vertex_normals();
     test_image_texture_samples_obj_uv_space();
+    test_texture_encoding_distinguishes_srgb_from_linear();
+    test_material_evaluator_combines_opacity_and_perturbs_bump_normal();
     test_scene_asset_loader_loads_map_kd_and_triangle_uvs();
     test_scene_asset_loader_preserves_obj_mtl_materials();
     std::cout << "renderer_tests: all tests passed\n";

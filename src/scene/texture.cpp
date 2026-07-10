@@ -40,8 +40,15 @@ Color lerp(const Color& a, const Color& b, double t) {
     return a * (1.0 - t) + b * t;
 }
 
-double srgb8_to_linear(unsigned char value) {
-    return std::pow(static_cast<double>(value) / 255.0, 2.2);
+double decode_channel(unsigned char value, TextureEncoding encoding) {
+    const double encoded = static_cast<double>(value) / 255.0;
+    if (encoding == TextureEncoding::Linear) {
+        return encoded;
+    }
+    if (encoded <= 0.04045) {
+        return encoded / 12.92;
+    }
+    return std::pow((encoded + 0.055) / 1.055, 2.4);
 }
 
 bool valid_texture_id(const Scene& scene, int texture_id) {
@@ -60,7 +67,7 @@ ImageTexture::ImageTexture(int width, int height, std::vector<Color> pixels)
     }
 }
 
-ImageTexture ImageTexture::load(const std::string& path) {
+ImageTexture ImageTexture::load(const std::string& path, TextureEncoding encoding) {
     int width = 0;
     int height = 0;
     int source_channels = 0;
@@ -81,9 +88,9 @@ ImageTexture ImageTexture::load(const std::string& path) {
     for (int i = 0; i < width * height; ++i) {
         const std::size_t base = static_cast<std::size_t>(i) * 3U;
         pixels.emplace_back(
-            srgb8_to_linear(data[base]),
-            srgb8_to_linear(data[base + 1U]),
-            srgb8_to_linear(data[base + 2U]));
+            decode_channel(data[base], encoding),
+            decode_channel(data[base + 1U], encoding),
+            decode_channel(data[base + 2U], encoding));
     }
     stbi_image_free(data);
     return ImageTexture(width, height, std::move(pixels));
@@ -116,6 +123,18 @@ Color ImageTexture::sample(const Vec2& uv) const {
     const Color c01 = pixel(wrap_index(x0, width_), wrap_index(y0 + 1, height_));
     const Color c11 = pixel(wrap_index(x0 + 1, width_), wrap_index(y0 + 1, height_));
     return lerp(lerp(c00, c10, tx), lerp(c01, c11, tx), ty);
+}
+
+double ImageTexture::sample_scalar(const Vec2& uv) const {
+    const Color color = sample(uv);
+    return color.x * 0.2126 + color.y * 0.7152 + color.z * 0.0722;
+}
+
+Vec2 ImageTexture::texel_size() const {
+    if (width_ <= 0 || height_ <= 0) {
+        return Vec2();
+    }
+    return Vec2(1.0 / static_cast<double>(width_), 1.0 / static_cast<double>(height_));
 }
 
 const Color& ImageTexture::pixel(int x, int y) const {

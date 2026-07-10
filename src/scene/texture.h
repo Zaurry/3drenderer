@@ -13,6 +13,8 @@ namespace renderer {
 struct Material;
 struct Scene;
 
+enum class TextureEncoding { Srgb, Linear };
+
 struct ConstantTexture {
     Color color;
 
@@ -40,11 +42,15 @@ public:
     ImageTexture() = default;
     ImageTexture(int width, int height, std::vector<Color> pixels);
 
-    static ImageTexture load(const std::string& path);
+    static ImageTexture load(
+        const std::string& path,
+        TextureEncoding encoding = TextureEncoding::Srgb);
 
     int width() const;
     int height() const;
     Color sample(const Vec2& uv) const;
+    double sample_scalar(const Vec2& uv) const;
+    Vec2 texel_size() const;
 
 private:
     int width_ = 0;

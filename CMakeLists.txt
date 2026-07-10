@@ -86,6 +86,7 @@ add_library(renderer_core STATIC
     src/render/raytracer/raytracer_renderer.cpp
     src/sampling/sampler.cpp
     src/scene/camera.cpp
+    src/scene/material_evaluator.cpp
     src/scene/mesh.cpp
     src/scene/obj_loader.cpp
     src/scene/scene_asset_loader.cpp
