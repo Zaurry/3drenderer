@@ -69,6 +69,28 @@ Vec2 texcoord_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t
         static_cast<double>(attrib.texcoords[base + 1U]));
 }
 
+Vec3 normal_from_index(
+    const tinyobj::attrib_t& attrib,
+    const tinyobj::index_t& index,
+    bool& valid) {
+    valid = false;
+    if (index.normal_index < 0) {
+        return Vec3();
+    }
+
+    const std::size_t base = static_cast<std::size_t>(index.normal_index) * 3U;
+    if (base + 2U >= attrib.normals.size()) {
+        return Vec3();
+    }
+
+    const Vec3 normal(
+        static_cast<double>(attrib.normals[base]),
+        static_cast<double>(attrib.normals[base + 1U]),
+        static_cast<double>(attrib.normals[base + 2U]));
+    valid = usable_direction(normal);
+    return valid ? normalize(normal) : Vec3();
+}
+
 Color array_to_color(const tinyobj::real_t values[3]) {
     return Color(
         static_cast<double>(values[0]),
@@ -270,7 +292,17 @@ LoadedScene load_scene_asset(const std::string& path, int width, int height) {
             const Vec2 uv0 = texcoord_from_index(attrib, i0);
             const Vec2 uv1 = texcoord_from_index(attrib, i1);
             const Vec2 uv2 = texcoord_from_index(attrib, i2);
-            loaded.scene.triangles.emplace_back(a, b, c, material_id, uv0, uv1, uv2);
+            bool has_normal0 = false;
+            bool has_normal1 = false;
+            bool has_normal2 = false;
+            const Vec3 normal0 = normal_from_index(attrib, i0, has_normal0);
+            const Vec3 normal1 = normal_from_index(attrib, i1, has_normal1);
+            const Vec3 normal2 = normal_from_index(attrib, i2, has_normal2);
+            loaded.scene.triangles.emplace_back(
+                TriangleVertex{a, uv0, normal0, has_normal0},
+                TriangleVertex{b, uv1, normal1, has_normal1},
+                TriangleVertex{c, uv2, normal2, has_normal2},
+                material_id);
             loaded.bounds.expand(a);
             loaded.bounds.expand(b);
             loaded.bounds.expand(c);

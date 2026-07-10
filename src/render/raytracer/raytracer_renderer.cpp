@@ -104,7 +104,7 @@ Color RayTracerRenderer::trace_ray(
             continue;
         }
 
-        const double n_dot_l = std::max(0.0, dot(hit.normal, light_dir));
+        const double n_dot_l = std::max(0.0, dot(hit.shading_normal, light_dir));
         result += multiply(base_color, light.intensity) * (n_dot_l / distance_squared);
     }
 
@@ -117,25 +117,25 @@ Color RayTracerRenderer::trace_ray(
             continue;
         }
 
-        const double n_dot_l = std::max(0.0, dot(hit.normal, light_dir));
+        const double n_dot_l = std::max(0.0, dot(hit.shading_normal, light_dir));
         result += multiply(base_color, light.radiance) * n_dot_l;
     }
 
     if (material.type == MaterialType::Metal) {
         // Reflection ray：镜面材质沿法线反射入射方向，再递归查询反射方向看到的颜色。
-        const Vec3 reflected = reflect(normalize(ray.direction), hit.normal);
+        const Vec3 reflected = reflect(normalize(ray.direction), hit.shading_normal);
         const Color reflected_color = trace_ray(Ray(hit.position, reflected), scene, bvh, depth - 1, settings);
         result += multiply(base_color, reflected_color) * 0.8;
     } else if (material.type == MaterialType::Dielectric) {
         // Refraction ray：玻璃材质根据相对折射率弯折光线，并用 Schlick 近似混合反射/折射。
         const double eta_ratio = hit.front_face ? (1.0 / material.ior) : material.ior;
         const Vec3 unit_direction = normalize(ray.direction);
-        const double cos_theta = std::min(dot(-unit_direction, hit.normal), 1.0);
+        const double cos_theta = std::min(dot(-unit_direction, hit.shading_normal), 1.0);
 
         Vec3 refracted;
-        const Vec3 reflected = reflect(unit_direction, hit.normal);
+        const Vec3 reflected = reflect(unit_direction, hit.shading_normal);
         const Color reflected_color = trace_ray(Ray(hit.position, reflected), scene, bvh, depth - 1, settings);
-        if (refract(unit_direction, hit.normal, eta_ratio, refracted)) {
+        if (refract(unit_direction, hit.shading_normal, eta_ratio, refracted)) {
             const Color refracted_color = trace_ray(Ray(hit.position, refracted), scene, bvh, depth - 1, settings);
             const double reflect_weight = reflectance(cos_theta, eta_ratio);
             result += reflected_color * reflect_weight + refracted_color * (1.0 - reflect_weight);

@@ -155,7 +155,7 @@ Color PathTracerRenderer::trace_path(const Ray& ray, const Scene& scene, const B
     }
 
     Color attenuation;
-    Ray scattered(hit.position, hit.normal);
+    Ray scattered(hit.position, hit.shading_normal);
     if (!scatter(ray, scene, hit, material, rng, attenuation, scattered)) {
         return emitted;
     }
@@ -177,19 +177,19 @@ bool PathTracerRenderer::scatter(
     const Color base_color = sample_material_base_color(scene, material, hit.uv);
     if (material.type == MaterialType::Diffuse) {
         const Vec3 local_direction = cosine_weighted_hemisphere(rng);
-        const Vec3 scatter_direction = tangent_to_world(local_direction, hit.normal);
+        const Vec3 scatter_direction = tangent_to_world(local_direction, hit.shading_normal);
         attenuation = base_color;
         scattered = Ray(hit.position, scatter_direction);
         return true;
     }
 
     if (material.type == MaterialType::Metal) {
-        Vec3 scatter_direction = reflect(normalize(ray.direction), hit.normal);
+        Vec3 scatter_direction = reflect(normalize(ray.direction), hit.shading_normal);
         if (material.roughness > 0.0) {
             scatter_direction += std::max(0.0, material.roughness) * random_in_unit_sphere(rng);
         }
         scatter_direction = normalize(scatter_direction);
-        if (dot(scatter_direction, hit.normal) <= 0.0) {
+        if (dot(scatter_direction, hit.shading_normal) <= 0.0) {
             return false;
         }
 
@@ -201,14 +201,14 @@ bool PathTracerRenderer::scatter(
     if (material.type == MaterialType::Dielectric) {
         const double refraction_ratio = hit.front_face ? (1.0 / material.ior) : material.ior;
         const Vec3 unit_direction = normalize(ray.direction);
-        const double cos_theta = std::min(dot(-unit_direction, hit.normal), 1.0);
+        const double cos_theta = std::min(dot(-unit_direction, hit.shading_normal), 1.0);
 
         Vec3 refracted;
-        const bool can_refract = refract(unit_direction, hit.normal, refraction_ratio, refracted);
+        const bool can_refract = refract(unit_direction, hit.shading_normal, refraction_ratio, refracted);
         const bool choose_reflection =
             !can_refract || reflectance(cos_theta, refraction_ratio) > rng.next_double();
         const Vec3 scatter_direction = choose_reflection
-            ? reflect(unit_direction, hit.normal)
+            ? reflect(unit_direction, hit.shading_normal)
             : refracted;
 
         attenuation = Color(1.0, 1.0, 1.0);

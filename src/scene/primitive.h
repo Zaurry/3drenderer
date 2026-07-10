@@ -14,17 +14,48 @@ inline bool all_components_finite(const Vec3& v) {
     return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
 }
 
+inline bool usable_direction(const Vec3& v) {
+    return all_components_finite(v) && length_squared(v) > 1e-24;
+}
+
+inline void make_orthonormal_basis(const Vec3& normal, Vec3& tangent, Vec3& bitangent) {
+    const Vec3 helper = std::abs(normal.x) > 0.9
+        ? Vec3(0.0, 1.0, 0.0)
+        : Vec3(1.0, 0.0, 0.0);
+    tangent = normalize(cross(helper, normal));
+    bitangent = normalize(cross(normal, tangent));
+}
+
+struct TriangleVertex {
+    Vec3 position;
+    Vec2 uv;
+    Vec3 normal;
+    bool has_normal = false;
+};
+
 struct HitRecord {
     double t = 0.0;
     Vec3 position;
-    Vec3 normal;
     Vec2 uv;
+    Vec3 geometric_normal;
+    Vec3 shading_normal;
+    Vec3 tangent;
+    Vec3 bitangent;
     int material_id = -1;
     bool front_face = true;
 
-    void set_face_normal(const Ray& ray, const Vec3& outward_normal) {
-        front_face = dot(ray.direction, outward_normal) < 0.0;
-        normal = front_face ? outward_normal : -outward_normal;
+    void set_normals(const Ray& ray, const Vec3& outward_geometric, const Vec3& outward_shading) {
+        const Vec3 unit_geometric = normalize(outward_geometric);
+        Vec3 unit_shading = usable_direction(outward_shading)
+            ? normalize(outward_shading)
+            : unit_geometric;
+        if (dot(unit_shading, unit_geometric) < 0.0) {
+            unit_shading = -unit_shading;
+        }
+
+        front_face = dot(ray.direction, unit_geometric) < 0.0;
+        geometric_normal = front_face ? unit_geometric : -unit_geometric;
+        shading_normal = front_face ? unit_shading : -unit_shading;
     }
 };
 
@@ -75,7 +106,8 @@ public:
         hit.t = root;
         hit.position = ray.at(root);
         const Vec3 outward_normal = (hit.position - center_) / radius_;
-        hit.set_face_normal(ray, outward_normal);
+        hit.set_normals(ray, outward_normal, outward_normal);
+        make_orthonormal_basis(hit.shading_normal, hit.tangent, hit.bitangent);
         hit.uv = Vec2();
         hit.material_id = material_id_;
         return true;
@@ -105,9 +137,28 @@ public:
         const Vec2& uv0,
         const Vec2& uv1,
         const Vec2& uv2)
-        : a_(a), b_(b), c_(c), uv0_(uv0), uv1_(uv1), uv2_(uv2), material_id_(material_id) {
-        if (!all_components_finite(a) || !all_components_finite(b) || !all_components_finite(c)) {
+        : Triangle(
+            TriangleVertex{a, uv0, Vec3(), false},
+            TriangleVertex{b, uv1, Vec3(), false},
+            TriangleVertex{c, uv2, Vec3(), false},
+            material_id) {}
+
+    Triangle(
+        const TriangleVertex& v0,
+        const TriangleVertex& v1,
+        const TriangleVertex& v2,
+        int material_id)
+        : vertices_{v0, v1, v2}, material_id_(material_id) {
+        if (!all_components_finite(v0.position) ||
+            !all_components_finite(v1.position) ||
+            !all_components_finite(v2.position)) {
             throw std::invalid_argument("Triangle vertices must be finite");
+        }
+        for (TriangleVertex& vertex : vertices_) {
+            vertex.has_normal = vertex.has_normal && usable_direction(vertex.normal);
+            if (vertex.has_normal) {
+                vertex.normal = normalize(vertex.normal);
+            }
         }
     }
 
@@ -117,8 +168,8 @@ public:
         }
 
         constexpr double epsilon = 1e-12;
-        const Vec3 edge1 = b_ - a_;
-        const Vec3 edge2 = c_ - a_;
+        const Vec3 edge1 = b() - a();
+        const Vec3 edge2 = c() - a();
         const Vec3 h = cross(ray.direction, edge2);
         const double determinant = dot(edge1, h);
         if (std::abs(determinant) < epsilon) {
@@ -126,7 +177,7 @@ public:
         }
 
         const double inv_determinant = 1.0 / determinant;
-        const Vec3 s = ray.origin - a_;
+        const Vec3 s = ray.origin - a();
         const double u = inv_determinant * dot(s, h);
         if (u < 0.0 || u > 1.0) {
             return false;
@@ -146,34 +197,45 @@ public:
 
         hit.t = t;
         hit.position = ray.at(t);
-        hit.set_face_normal(ray, normalize(cross(edge1, edge2)));
-        hit.uv = interpolate_uv(1.0 - u - v, u, v);
+        const double w0 = 1.0 - u - v;
+        const Vec3 outward_geometric = normalize(cross(edge1, edge2));
+        const Vec3 outward_shading = interpolate_shading_normal(w0, u, v);
+        hit.set_normals(ray, outward_geometric, outward_shading);
+        tangent_basis(hit.shading_normal, hit.tangent, hit.bitangent);
+        hit.uv = interpolate_uv(w0, u, v);
         hit.material_id = material_id_;
         return true;
     }
 
     Bounds3 bounds() const {
         Bounds3 box;
-        box.expand(a_);
-        box.expand(b_);
-        box.expand(c_);
+        box.expand(a());
+        box.expand(b());
+        box.expand(c());
         return box;
     }
 
     Vec3 centroid() const {
-        return (a_ + b_ + c_) / 3.0;
+        return (a() + b() + c()) / 3.0;
     }
 
     const Vec3& a() const {
-        return a_;
+        return vertices_[0].position;
     }
 
     const Vec3& b() const {
-        return b_;
+        return vertices_[1].position;
     }
 
     const Vec3& c() const {
-        return c_;
+        return vertices_[2].position;
+    }
+
+    const TriangleVertex& vertex(int index) const {
+        if (index < 0 || index > 2) {
+            throw std::out_of_range("Triangle vertex index is out of range");
+        }
+        return vertices_[index];
     }
 
     int material_id() const {
@@ -182,17 +244,61 @@ public:
 
     Vec2 interpolate_uv(double w0, double w1, double w2) const {
         return Vec2(
-            uv0_.x * w0 + uv1_.x * w1 + uv2_.x * w2,
-            uv0_.y * w0 + uv1_.y * w1 + uv2_.y * w2);
+            vertices_[0].uv.x * w0 + vertices_[1].uv.x * w1 + vertices_[2].uv.x * w2,
+            vertices_[0].uv.y * w0 + vertices_[1].uv.y * w1 + vertices_[2].uv.y * w2);
+    }
+
+    Vec3 geometric_normal() const {
+        return normalize(cross(b() - a(), c() - a()));
+    }
+
+    Vec3 interpolate_shading_normal(double w0, double w1, double w2) const {
+        const Vec3 face_normal = geometric_normal();
+        if (!vertices_[0].has_normal || !vertices_[1].has_normal || !vertices_[2].has_normal) {
+            return face_normal;
+        }
+
+        Vec3 interpolated =
+            vertices_[0].normal * w0 +
+            vertices_[1].normal * w1 +
+            vertices_[2].normal * w2;
+        if (!usable_direction(interpolated)) {
+            return face_normal;
+        }
+        interpolated = normalize(interpolated);
+        return dot(interpolated, face_normal) < 0.0 ? -interpolated : interpolated;
+    }
+
+    void tangent_basis(const Vec3& shading_normal, Vec3& tangent, Vec3& bitangent) const {
+        const Vec3 edge1 = b() - a();
+        const Vec3 edge2 = c() - a();
+        const double du1 = vertices_[1].uv.x - vertices_[0].uv.x;
+        const double dv1 = vertices_[1].uv.y - vertices_[0].uv.y;
+        const double du2 = vertices_[2].uv.x - vertices_[0].uv.x;
+        const double dv2 = vertices_[2].uv.y - vertices_[0].uv.y;
+        const double determinant = du1 * dv2 - dv1 * du2;
+        if (std::abs(determinant) <= 1e-12) {
+            make_orthonormal_basis(shading_normal, tangent, bitangent);
+            return;
+        }
+
+        const double inverse = 1.0 / determinant;
+        const Vec3 raw_tangent = (edge1 * dv2 - edge2 * dv1) * inverse;
+        const Vec3 raw_bitangent = (edge2 * du1 - edge1 * du2) * inverse;
+        tangent = raw_tangent - shading_normal * dot(raw_tangent, shading_normal);
+        if (!usable_direction(tangent)) {
+            make_orthonormal_basis(shading_normal, tangent, bitangent);
+            return;
+        }
+        tangent = normalize(tangent);
+        bitangent = normalize(cross(shading_normal, tangent));
+        if (usable_direction(raw_bitangent) && dot(bitangent, raw_bitangent) < 0.0) {
+            bitangent = -bitangent;
+        }
     }
 
 private:
-    Vec3 a_;
-    Vec3 b_;
-    Vec3 c_;
-    Vec2 uv0_;
-    Vec2 uv1_;
-    Vec2 uv2_;
+    TriangleVertex vertices_[3];
     int material_id_;
 };
 

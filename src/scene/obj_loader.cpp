@@ -51,6 +51,36 @@ Vec3 vertex_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t& 
         static_cast<double>(attrib.vertices[base + 2U]));
 }
 
+Vec2 texcoord_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t& index) {
+    if (index.texcoord_index < 0) {
+        return Vec2();
+    }
+    const std::size_t base = static_cast<std::size_t>(index.texcoord_index) * 2U;
+    if (base + 1U >= attrib.texcoords.size()) {
+        return Vec2();
+    }
+    return Vec2(
+        static_cast<double>(attrib.texcoords[base]),
+        static_cast<double>(attrib.texcoords[base + 1U]));
+}
+
+Vec3 normal_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t& index, bool& valid) {
+    valid = false;
+    if (index.normal_index < 0) {
+        return Vec3();
+    }
+    const std::size_t base = static_cast<std::size_t>(index.normal_index) * 3U;
+    if (base + 2U >= attrib.normals.size()) {
+        return Vec3();
+    }
+    const Vec3 normal(
+        static_cast<double>(attrib.normals[base]),
+        static_cast<double>(attrib.normals[base + 1U]),
+        static_cast<double>(attrib.normals[base + 2U]));
+    valid = usable_direction(normal);
+    return valid ? normalize(normal) : Vec3();
+}
+
 }  // namespace
 
 Mesh load_obj_mesh(const std::string& path, int material_id) {
@@ -75,10 +105,25 @@ Mesh load_obj_mesh(const std::string& path, int material_id) {
             const tinyobj::index_t& i0 = shape.mesh.indices[index_offset + 0U];
             const tinyobj::index_t& i1 = shape.mesh.indices[index_offset + 1U];
             const tinyobj::index_t& i2 = shape.mesh.indices[index_offset + 2U];
+            bool has_normal0 = false;
+            bool has_normal1 = false;
+            bool has_normal2 = false;
             mesh.triangles.emplace_back(
-                vertex_from_index(attrib, i0),
-                vertex_from_index(attrib, i1),
-                vertex_from_index(attrib, i2),
+                TriangleVertex{
+                    vertex_from_index(attrib, i0),
+                    texcoord_from_index(attrib, i0),
+                    normal_from_index(attrib, i0, has_normal0),
+                    has_normal0},
+                TriangleVertex{
+                    vertex_from_index(attrib, i1),
+                    texcoord_from_index(attrib, i1),
+                    normal_from_index(attrib, i1, has_normal1),
+                    has_normal1},
+                TriangleVertex{
+                    vertex_from_index(attrib, i2),
+                    texcoord_from_index(attrib, i2),
+                    normal_from_index(attrib, i2, has_normal2),
+                    has_normal2},
                 material_id);
 
             index_offset += static_cast<std::size_t>(vertex_count);

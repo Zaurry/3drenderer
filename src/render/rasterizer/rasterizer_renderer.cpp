@@ -133,7 +133,6 @@ RenderResult RasterizerRenderer::render(const Scene& scene, const Camera& camera
         const int start_y = std::max(0, static_cast<int>(std::floor(min_y)));
         const int end_y = std::min(settings.height - 1, static_cast<int>(std::ceil(max_y)));
 
-        const Vec3 normal = normalize(cross(triangle.b() - triangle.a(), triangle.c() - triangle.a()));
         const Material* material = nullptr;
         if (material_exists(scene, triangle.material_id())) {
             material = &scene.materials[static_cast<std::size_t>(triangle.material_id())];
@@ -174,6 +173,10 @@ RenderResult RasterizerRenderer::render(const Scene& scene, const Camera& camera
                      v2.world * (b2 / v2.view_depth)) /
                     inverse_depth;
                 const Vec2 uv = triangle.interpolate_uv(b0, b1, b2);
+                Vec3 shading_normal = triangle.interpolate_shading_normal(b0, b1, b2);
+                if (dot(shading_normal, camera.eye() - world_position) < 0.0) {
+                    shading_normal = -shading_normal;
+                }
 
                 const Color color = material
                     ? shade_surface(
@@ -182,7 +185,7 @@ RenderResult RasterizerRenderer::render(const Scene& scene, const Camera& camera
                         *material,
                         sample_material_base_color(scene, *material, uv),
                         world_position,
-                        normal)
+                        shading_normal)
                     : Color(1.0, 0.0, 1.0);
                 image.set_pixel(x, y, color);
             }

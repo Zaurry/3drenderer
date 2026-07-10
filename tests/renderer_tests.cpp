@@ -408,7 +408,7 @@ void test_sphere_intersection() {
     RENDER_CHECK(sphere.intersect(ray, 0.001, 1000.0, hit));
     RENDER_CHECK(nearly_equal(hit.t, 4.0));
     RENDER_CHECK(nearly_equal(hit.position.z, -1.0));
-    RENDER_CHECK(nearly_equal(renderer::length(hit.normal), 1.0));
+    RENDER_CHECK(nearly_equal(renderer::length(hit.shading_normal), 1.0));
     RENDER_CHECK(hit.material_id == 0);
 }
 
@@ -516,7 +516,7 @@ void test_sphere_inside_ray_reports_back_face() {
     RENDER_CHECK(sphere.intersect(ray, 0.001, 1000.0, hit));
     RENDER_CHECK(!hit.front_face);
     RENDER_CHECK(nearly_equal(hit.t, 1.0));
-    RENDER_CHECK(nearly_equal(hit.normal.z, -1.0));
+    RENDER_CHECK(nearly_equal(hit.shading_normal.z, -1.0));
 }
 
 void test_sphere_bounds_include_center_and_radius() {
@@ -543,6 +543,33 @@ void test_triangle_intersection() {
     RENDER_CHECK(nearly_equal(hit.position.x, 0.0));
     RENDER_CHECK(nearly_equal(hit.position.y, 0.25));
     RENDER_CHECK(hit.material_id == 2);
+}
+
+void test_triangle_interpolates_shading_normal_separately_from_geometry() {
+    const renderer::Triangle triangle(
+        renderer::TriangleVertex{
+            renderer::Vec3(-1.0, -1.0, -1.0),
+            renderer::Vec2(0.0, 0.0),
+            renderer::normalize(renderer::Vec3(0.0, 1.0, 1.0)),
+            true},
+        renderer::TriangleVertex{
+            renderer::Vec3(1.0, -1.0, -1.0),
+            renderer::Vec2(1.0, 0.0),
+            renderer::normalize(renderer::Vec3(1.0, 0.0, 1.0)),
+            true},
+        renderer::TriangleVertex{
+            renderer::Vec3(0.0, 1.0, -1.0),
+            renderer::Vec2(0.5, 1.0),
+            renderer::Vec3(0.0, 0.0, 1.0),
+            true},
+        0);
+
+    renderer::HitRecord hit;
+    const renderer::Ray ray(renderer::Vec3(0.0, 0.0, 0.0), renderer::Vec3(0.0, 0.0, -1.0));
+    RENDER_CHECK(triangle.intersect(ray, 1e-6, 10.0, hit));
+    RENDER_CHECK(renderer::dot(hit.geometric_normal, renderer::Vec3(0.0, 0.0, 1.0)) > 0.999);
+    RENDER_CHECK(renderer::dot(hit.shading_normal, hit.geometric_normal) > 0.0);
+    RENDER_CHECK(renderer::length(hit.shading_normal - hit.geometric_normal) > 0.01);
 }
 
 void test_triangle_invalid_vertices_throw() {
@@ -602,7 +629,7 @@ void test_triangle_back_side_hit_reports_back_face() {
     renderer::HitRecord hit;
     RENDER_CHECK(tri.intersect(ray, 0.001, 1000.0, hit));
     RENDER_CHECK(!hit.front_face);
-    RENDER_CHECK(renderer::dot(hit.normal, ray.direction) < 0.0);
+    RENDER_CHECK(renderer::dot(hit.shading_normal, ray.direction) < 0.0);
 }
 
 void test_triangle_boundary_hits_succeed() {
@@ -674,7 +701,7 @@ void check_bvh_matches_bruteforce(
     RENDER_CHECK(nearly_equal(bvh_hit.position.x, brute_force_hit.position.x));
     RENDER_CHECK(nearly_equal(bvh_hit.position.y, brute_force_hit.position.y));
     RENDER_CHECK(nearly_equal(bvh_hit.position.z, brute_force_hit.position.z));
-    RENDER_CHECK(dot(bvh_hit.normal, brute_force_hit.normal) > 0.999);
+    RENDER_CHECK(dot(bvh_hit.shading_normal, brute_force_hit.shading_normal) > 0.999);
 }
 
 void test_empty_bvh_has_no_nodes_or_hits() {
@@ -986,7 +1013,7 @@ void test_cornell_box_light_uses_emissive_material_and_faces_downward() {
     RENDER_CHECK(scene.materials[hit.material_id].type == renderer::MaterialType::Emissive);
     RENDER_CHECK(renderer::length_squared(scene.materials[hit.material_id].emission) > 0.0);
     RENDER_CHECK(hit.front_face);
-    RENDER_CHECK(hit.normal.y < -0.999);
+    RENDER_CHECK(hit.shading_normal.y < -0.999);
 }
 
 void test_cosine_sample_is_in_upper_hemisphere() {
@@ -1268,6 +1295,29 @@ void test_obj_loader_reads_single_triangle() {
     std::remove(path.c_str());
 }
 
+void test_scene_asset_loader_preserves_obj_vertex_normals() {
+    const std::string obj_path = "test_smooth_normals.obj";
+    {
+        std::ofstream obj(obj_path);
+        obj << "v -1 -1 -1\n";
+        obj << "v 1 -1 -1\n";
+        obj << "v 0 1 -1\n";
+        obj << "vn 0 1 1\n";
+        obj << "vn 1 0 1\n";
+        obj << "vn 0 0 1\n";
+        obj << "f 1//1 2//2 3//3\n";
+    }
+
+    const renderer::LoadedScene loaded = renderer::load_scene_asset(obj_path, 64, 64);
+    renderer::HitRecord hit;
+    const renderer::Ray ray(renderer::Vec3(0.0, 0.0, 0.0), renderer::Vec3(0.0, 0.0, -1.0));
+    RENDER_CHECK(loaded.scene.triangles[0].intersect(ray, 1e-6, 10.0, hit));
+    RENDER_CHECK(renderer::length(hit.shading_normal - hit.geometric_normal) > 0.01);
+    RENDER_CHECK(renderer::dot(hit.shading_normal, hit.geometric_normal) > 0.0);
+
+    std::remove(obj_path.c_str());
+}
+
 void test_image_texture_samples_obj_uv_space() {
     const std::string texture_path = "test_map_kd.ppm";
     write_test_ppm_texture(texture_path);
@@ -1401,6 +1451,7 @@ int main() {
     test_sphere_inside_ray_reports_back_face();
     test_sphere_bounds_include_center_and_radius();
     test_triangle_intersection();
+    test_triangle_interpolates_shading_normal_separately_from_geometry();
     test_triangle_invalid_vertices_throw();
     test_triangle_rejects_non_finite_rays();
     test_triangle_back_side_hit_reports_back_face();
@@ -1427,6 +1478,7 @@ int main() {
     test_path_interactive_session_accumulates_and_resets();
     test_path_interactive_session_accumulates_distinct_samples();
     test_obj_loader_reads_single_triangle();
+    test_scene_asset_loader_preserves_obj_vertex_normals();
     test_image_texture_samples_obj_uv_space();
     test_scene_asset_loader_loads_map_kd_and_triangle_uvs();
     test_scene_asset_loader_preserves_obj_mtl_materials();
