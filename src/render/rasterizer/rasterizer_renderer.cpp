@@ -173,10 +173,14 @@ RenderResult RasterizerRenderer::render(
             const double max_x = std::max({v0.screen.x, v1.screen.x, v2.screen.x});
             const double min_y = std::min({v0.screen.y, v1.screen.y, v2.screen.y});
             const double max_y = std::max({v0.screen.y, v1.screen.y, v2.screen.y});
-            const int start_x = std::max(0, static_cast<int>(std::floor(min_x)));
-            const int end_x = std::min(settings.width - 1, static_cast<int>(std::ceil(max_x)));
-            const int start_y = std::max(0, static_cast<int>(std::floor(min_y)));
-            const int end_y = std::min(settings.height - 1, static_cast<int>(std::ceil(max_y)));
+            const int start_x = static_cast<int>(std::clamp(
+                std::floor(min_x), 0.0, static_cast<double>(settings.width - 1)));
+            const int end_x = static_cast<int>(std::clamp(
+                std::ceil(max_x), 0.0, static_cast<double>(settings.width - 1)));
+            const int start_y = static_cast<int>(std::clamp(
+                std::floor(min_y), 0.0, static_cast<double>(settings.height - 1)));
+            const int end_y = static_cast<int>(std::clamp(
+                std::ceil(max_y), 0.0, static_cast<double>(settings.height - 1)));
 
             for (int y = start_y; y <= end_y; ++y) {
                 for (int x = start_x; x <= end_x; ++x) {
@@ -241,6 +245,7 @@ RenderResult RasterizerRenderer::render(
                         geometric_normal,
                         interpolated_normal);
                     triangle.tangent_basis(hit.shading_normal, hit.tangent, hit.bitangent);
+                    hit.has_valid_uv_basis = triangle.has_valid_uv_basis();
 
                     Color color(1.0, 0.0, 1.0);
                     if (material) {

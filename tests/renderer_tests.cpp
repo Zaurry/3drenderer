@@ -292,6 +292,11 @@ void test_image_stores_gamma_corrected_pixels() {
     RENDER_CHECK(pixel.b == 0);
 }
 
+void test_to_rgb8_uses_standard_srgb_transfer_curve() {
+    RENDER_CHECK(renderer::channel_to_rgb8(0.0031308) == 10);
+    RENDER_CHECK(renderer::channel_to_rgb8(0.5) == 188);
+}
+
 void test_to_rgb8_sanitizes_non_finite_channels() {
     const renderer::Rgb8 nan_pixel = renderer::to_rgb8(
         renderer::Color(std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0));
@@ -1605,12 +1610,19 @@ void test_material_evaluator_combines_opacity_and_perturbs_bump_normal() {
     hit.shading_normal = renderer::Vec3(0.0, 0.0, 1.0);
     hit.tangent = renderer::Vec3(1.0, 0.0, 0.0);
     hit.bitangent = renderer::Vec3(0.0, 1.0, 0.0);
+    hit.has_valid_uv_basis = true;
 
     const renderer::SurfaceMaterialSample sample =
         renderer::evaluate_surface_material(scene, material, hit);
     RENDER_CHECK(sample.opacity < material.opacity);
     RENDER_CHECK(renderer::length(sample.shading_normal - hit.shading_normal) > 0.01);
     RENDER_CHECK(renderer::dot(sample.shading_normal, hit.geometric_normal) > 0.0);
+    RENDER_CHECK(renderer::dot(sample.shading_normal, hit.shading_normal) > 0.9);
+
+    hit.has_valid_uv_basis = false;
+    const renderer::SurfaceMaterialSample fallback =
+        renderer::evaluate_surface_material(scene, material, hit);
+    RENDER_CHECK(renderer::length(fallback.shading_normal - hit.shading_normal) < 1e-12);
 }
 
 void test_scene_asset_loader_loads_map_kd_and_triangle_uvs() {
@@ -1797,6 +1809,7 @@ int main() {
     test_bounds_intersection_counts_corner_touch_as_hit();
     test_image_invalid_dimensions_throw_invalid_argument();
     test_image_stores_gamma_corrected_pixels();
+    test_to_rgb8_uses_standard_srgb_transfer_curve();
     test_to_rgb8_sanitizes_non_finite_channels();
     test_framebuffer_clear_set_and_rgba8_conversion();
     test_depth_buffer_clear_resize_and_access();

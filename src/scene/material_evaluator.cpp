@@ -21,6 +21,7 @@ Vec3 bumped_normal(
     const Material& material,
     const HitRecord& hit) {
     if (!valid_texture_id(scene, material.bump_texture_id) ||
+        !hit.has_valid_uv_basis ||
         !usable_direction(hit.shading_normal) ||
         !usable_direction(hit.tangent) ||
         !usable_direction(hit.bitangent)) {
@@ -37,8 +38,8 @@ Vec3 bumped_normal(
     const double right = texture.sample_scalar(Vec2(hit.uv.x + step.x, hit.uv.y));
     const double down = texture.sample_scalar(Vec2(hit.uv.x, hit.uv.y - step.y));
     const double up = texture.sample_scalar(Vec2(hit.uv.x, hit.uv.y + step.y));
-    const double dh_du = (right - left) / (2.0 * step.x);
-    const double dh_dv = (up - down) / (2.0 * step.y);
+    const double dh_du = (right - left) * 0.5;
+    const double dh_dv = (up - down) * 0.5;
     const Vec3 gradient = hit.tangent * dh_du + hit.bitangent * dh_dv;
     Vec3 perturbed = normalize(hit.shading_normal - gradient * material.bump_scale);
     if (!usable_direction(perturbed)) {

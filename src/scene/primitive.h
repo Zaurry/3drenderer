@@ -41,6 +41,7 @@ struct HitRecord {
     Vec3 shading_normal;
     Vec3 tangent;
     Vec3 bitangent;
+    bool has_valid_uv_basis = false;
     int material_id = -1;
     bool front_face = true;
 
@@ -202,6 +203,7 @@ public:
         const Vec3 outward_shading = interpolate_shading_normal(w0, u, v);
         hit.set_normals(ray, outward_geometric, outward_shading);
         tangent_basis(hit.shading_normal, hit.tangent, hit.bitangent);
+        hit.has_valid_uv_basis = has_valid_uv_basis();
         hit.uv = interpolate_uv(w0, u, v);
         hit.material_id = material_id_;
         return true;

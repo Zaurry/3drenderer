@@ -6,8 +6,9 @@
 
 - 离线 PNG 渲染：`raster`、`ray`、`path` 三种模式。
 - 实时交互窗口：SDL3 窗口 + 自己的 CPU framebuffer，支持鼠标拖动、滚轮缩放和模式切换。
-- OBJ/MTL 场景加载：可加载 Computer Graphics Archive 的 CornellBox OBJ 场景。
+- OBJ/MTL 场景加载：保留顶点法线和 UV，支持漫反射、alpha cutout、bump 与双面材质。
 - Path 模式渐进式累积：交互窗口中每帧推进随机种子并累积样本。
+- Path 显式直接光：点光与方向光参与 Lambert 直接照明、硬阴影和距离平方衰减。
 - 标题栏性能显示：viewer 标题栏显示 FPS、单帧毫秒数，path 模式额外显示当前累计 spp。
 
 ## 构建
@@ -25,7 +26,7 @@ cmake --build build --config Release
 - Eigen3: 优先使用本机 CMake package，找不到时通过 FetchContent 下载 Eigen 3.4.0。
 - SDL3: 优先使用本机 CMake package，找不到时通过 FetchContent 下载 SDL 3.2.30。
 - `stb_image_write.h`: 写 PNG。
-- `stb_image.h`: 读取 `map_Kd` 使用的 PNG/JPG/PPM 等图片贴图。
+- `stb_image.h`: 读取 `map_Kd`、`map_d`、`bump/map_bump` 使用的 PNG/JPG/PPM 等图片贴图。
 - `tiny_obj_loader.h`: 读取 OBJ/MTL 文本并三角化面。
 
 如果 SDL3 已经手动解压到 `build/_deps/sdl3-src`，CMake 会优先使用这个本地目录。
@@ -42,6 +43,13 @@ OBJ 离线查看器示例：
 
 ```powershell
 .\build\bin\renderer.exe --mode raster --scene obj_viewer --obj path\to\model.obj --width 512 --height 512 --output output\obj_viewer.png
+```
+
+Mary 和 Sponza 示例：
+
+```powershell
+.\build\bin\viewer.exe --scene asset --asset "Computer Graphics Archive\mary\Marry.obj" --mode path --width 1920 --height 1080
+.\build\bin\viewer.exe --scene asset --asset "Computer Graphics Archive\sponza\sponza.obj" --mode raster --width 1280 --height 720
 ```
 
 CLI 参数：
@@ -107,9 +115,18 @@ D:\Github\3drenderer\Computer Graphics Archive\CornellBox\CornellBox-Original.ob
 
 ## 渲染模式
 
-- `raster`: 手写 CPU 光栅化器，包含世界到屏幕投影、edge function 重心坐标、深度缓冲、Lambert 和 Blinn-Phong 光照。
-- `ray`: Whitted 风格光线追踪器，支持球和三角形求交、BVH、硬阴影、镜面反射、介质折射。
-- `path`: 基础 Monte Carlo 路径追踪器，支持 tile 多线程、像素内抖动采样、漫反射半球采样、金属粗糙反射、介质反射/折射和自发光材质。
+- `raster`: 手写 CPU 光栅化器，包含近面裁剪、透视正确属性插值、深度缓冲、平滑/bump 法线、alpha cutout、Lambert 和 Blinn-Phong 光照。
+- `ray`: Whitted 风格光线追踪器，支持球和三角形求交、BVH、alpha-aware 硬阴影、平滑/bump 法线、镜面反射和介质折射。
+- `path`: 基础 Monte Carlo 路径追踪器，支持 tile 多线程、像素内抖动采样、渐进累积、点光/方向光直接照明、漫反射半球采样、金属粗糙反射、介质反射/折射和自发光材质。
+
+## OBJ/MTL 表面支持
+
+- `vn`: 按重心坐标插值顶点法线；缺失或退化时回退到几何法线。
+- `Kd`、`map_Kd`: 漫反射基色；颜色纹理从 sRGB 解码到线性空间。
+- `d`、`Tr`、`map_d`: alpha cutout；常量与线性 opacity 纹理相乘。
+- `bump`、`map_bump`: 线性高度图，通过 UV 导数构建的 TBN 扰动着色法线。
+- OBJ 导入材质默认双面着色；几何法线和着色法线分离，次级光线使用几何法线偏移。
+- 可选纹理缺失或解码失败时输出 warning 并回退到常量材质；结构损坏的 OBJ 仍明确报错退出。
 
 ## 现代 PBR 材质路线图
 
@@ -117,11 +134,11 @@ D:\Github\3drenderer\Computer Graphics Archive\CornellBox\CornellBox-Original.ob
 
 - 资产格式：优先支持 glTF 2.0 的 metallic-roughness 工作流，再兼容 OBJ/MTL 的 PBR 扩展字段，例如 `Pr`、`Pm`、`map_Pr`、`map_Pm`、`norm`、`map_Ke`。glTF 更适合作为现代 PBR 的主格式，因为它明确规定了贴图通道、颜色空间、alpha 模式和材质参数含义。
 - 材质数据结构：把当前 `Material` 扩展成 PBR 参数集，包括 base color、metallic、roughness、normal、occlusion、emissive、alpha mode、alpha cutoff、ior、transmission、clearcoat 等字段。第一阶段可以只做 base color、metallic、roughness、normal、emissive 和 alpha cutout。
-- 贴图系统：支持多贴图槽、UV set、贴图 wrap/filter、UV transform、mipmap，以及颜色空间区分。base color/emissive 通常按 sRGB 读取，normal/roughness/metallic/occlusion 必须按线性数据读取，不能做 sRGB gamma 转换。
-- 几何属性：保存 OBJ/glTF 顶点 normal、tangent、bitangent 和多套 UV。normal map 需要切线空间 TBN；如果资产没有 tangent，需要生成 tangent，后续可对齐 MikkTSpace 规则。
+- 贴图系统：当前已经区分 sRGB 颜色纹理与线性数据纹理；后续还需支持多 UV set、独立 wrap/filter、UV transform、mipmap 和各向异性过滤。emissive 通常按 sRGB 读取，normal/roughness/metallic/occlusion 必须保持线性数据。
+- 几何属性：当前保存 OBJ 顶点 normal 和 UV，并能从三角形 UV 导数建立 bump 所需 TBN。normal map 仍需要更可靠的 tangent 生成，后续可对齐 MikkTSpace 规则并支持 glTF tangent 和多套 UV。
 - 着色模型：实现基于微表面的 BRDF，例如 GGX/Trowbridge-Reitz 法线分布、Smith 几何遮蔽、Fresnel-Schlick、能量守恒的 diffuse/specular 混合。raster/ray/path 三条管线都应通过同一个材质评估接口取样和求值。
-- 路径追踪采样：PBR 不能只“算颜色”，还需要 BSDF sample/pdf/evaluate 三件套。后续应加入 next event estimation、MIS、Russian roulette、HDR 环境光和面积光采样，否则粗糙金属、室内间接光和小光源会很难收敛。
-- Alpha 与透明：先支持 alpha cutout，用于树叶、栏杆、镂空贴图；再考虑 alpha blend、折射 transmission、薄表面和体积吸收。path tracer 中 alpha cutout 命中透明区域时需要继续追射线。
+- 路径追踪采样：当前点光与方向光已经做显式直接采样，但 PBR 还需要 BSDF sample/pdf/evaluate 三件套、面积光与环境光采样、MIS 和 Russian roulette，否则粗糙金属、室内间接光和小面积光源会很难收敛。
+- Alpha 与透明：当前三个渲染器均支持 alpha cutout，ray/path 会跳过透明命中并继续追踪。后续再考虑 alpha blend、折射 transmission、薄表面和体积吸收。
 - 色彩与输出：补齐线性工作流、HDR framebuffer、tone mapping、曝光、白平衡和 sRGB 输出转换。PBR 结果是否可信，很大一部分取决于颜色空间是否正确。
 - 测试与参考：加入小型 glTF/OBJ PBR fixture，分别覆盖 base color、metallic/roughness、normal、emissive、alpha cutout 和纹理颜色空间；再用 Khronos glTF sample models 或自制参考图做视觉回归。
 
@@ -140,8 +157,9 @@ D:\Github\3drenderer\Computer Graphics Archive\CornellBox\CornellBox-Original.ob
 
 ## 当前限制
 
-- 光栅化 v0.1 还没有完整三角形裁剪。
-- 路径追踪没有 next event estimation、MIS、Russian roulette、降噪或 PBR 微表面模型。
+- 光栅化已支持近面三角形裁剪，但还没有通用六平面齐次裁剪、MSAA 或 mipmap。
+- 路径追踪只对点光和方向光做显式直接采样；还没有面积光/环境光重要性采样、MIS、Russian roulette、降噪或 PBR 微表面模型。
 - 实时 path 模式已经能渐进累积，但低 spp 下噪声很重，帧率也取决于分辨率、场景复杂度和 CPU。
-- OBJ/MTL 已支持 `map_Kd` diffuse 贴图；还没有 normal/bump/alpha、metallic/roughness、occlusion 或 emissive 贴图解析。
+- OBJ/MTL 已支持 `vn`、`map_Kd`、`d/Tr/map_d` 和 `bump/map_bump`；还没有 tangent-space normal map、alpha blend、metallic/roughness、occlusion 或 emissive 贴图解析。
+- Bump 采用逐像素高度有限差分，没有 mipmap，远距离或高频高度图可能出现走样。
 - 当前 UI 只有窗口标题栏 FPS 和键盘热键，还没有 ImGui 风格的画面内参数面板。

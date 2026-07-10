@@ -28,9 +28,10 @@ inline unsigned char channel_to_rgb8(double linear_channel) {
     }
 
     const double clamped = std::clamp(linear_channel, 0.0, 1.0);
-    // Gamma 校正：渲染计算在线性空间中进行，写入图片前转成接近屏幕显示的 sRGB 亮度。
-    const double gamma_corrected = std::pow(clamped, 1.0 / 2.2);
-    return static_cast<unsigned char>(std::round(gamma_corrected * 255.0));
+    const double srgb = clamped <= 0.0031308
+        ? clamped * 12.92
+        : 1.055 * std::pow(clamped, 1.0 / 2.4) - 0.055;
+    return static_cast<unsigned char>(std::round(srgb * 255.0));
 }
 
 inline Rgb8 to_rgb8(const Color& linear_color) {
