@@ -297,6 +297,16 @@ public:
         }
     }
 
+    bool has_valid_uv_basis() const {
+        const double du1 = vertices_[1].uv.x - vertices_[0].uv.x;
+        const double dv1 = vertices_[1].uv.y - vertices_[0].uv.y;
+        const double du2 = vertices_[2].uv.x - vertices_[0].uv.x;
+        const double dv2 = vertices_[2].uv.y - vertices_[0].uv.y;
+        return std::isfinite(du1) && std::isfinite(dv1) &&
+            std::isfinite(du2) && std::isfinite(dv2) &&
+            std::abs(du1 * dv2 - dv1 * du2) > 1e-12;
+    }
+
 private:
     TriangleVertex vertices_[3];
     int material_id_;

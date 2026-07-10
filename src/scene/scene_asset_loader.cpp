@@ -17,10 +17,13 @@
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
+#include <functional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace renderer {
 
@@ -116,6 +119,32 @@ std::string lowercase_ascii(std::string value) {
     return value;
 }
 
+struct TextureCacheKey {
+    std::string normalized_path;
+    TextureEncoding encoding = TextureEncoding::Srgb;
+
+    bool operator==(const TextureCacheKey&) const = default;
+};
+
+struct TextureCacheKeyHash {
+    std::size_t operator()(const TextureCacheKey& key) const {
+        const std::size_t path_hash = std::hash<std::string>{}(key.normalized_path);
+        const std::size_t encoding_hash = std::hash<int>{}(static_cast<int>(key.encoding));
+        return path_hash ^
+            (encoding_hash + 0x9e3779b9U + (path_hash << 6U) + (path_hash >> 2U));
+    }
+};
+
+void add_warning(
+    std::vector<std::string>& warnings,
+    std::unordered_set<std::string>& warning_keys,
+    const std::string& key,
+    const std::string& message) {
+    if (warning_keys.insert(key).second) {
+        warnings.push_back(message);
+    }
+}
+
 std::filesystem::path resolve_texture_path(
     const std::filesystem::path& material_directory,
     const std::string& texture_name) {
@@ -147,18 +176,28 @@ std::filesystem::path resolve_texture_path(
 int texture_id_for(
     const std::filesystem::path& material_directory,
     const std::string& texture_name,
+    TextureEncoding encoding,
+    const std::string& semantic,
     Scene& scene,
-    std::unordered_map<std::string, int>& texture_cache) {
+    std::unordered_map<TextureCacheKey, int, TextureCacheKeyHash>& texture_cache,
+    std::vector<std::string>& warnings,
+    std::unordered_set<std::string>& warning_keys) {
     if (texture_name.empty()) {
         return -1;
     }
 
     const std::filesystem::path resolved_path = resolve_texture_path(material_directory, texture_name);
+    const std::string normalized_path = lowercase_ascii(resolved_path.lexically_normal().string());
     if (!std::filesystem::exists(resolved_path)) {
+        add_warning(
+            warnings,
+            warning_keys,
+            "missing:" + semantic + ":" + normalized_path,
+            "Missing " + semantic + " texture: " + resolved_path.string());
         return -1;
     }
 
-    const std::string cache_key = lowercase_ascii(resolved_path.lexically_normal().string());
+    const TextureCacheKey cache_key{normalized_path, encoding};
     const auto found = texture_cache.find(cache_key);
     if (found != texture_cache.end()) {
         return found->second;
@@ -166,8 +205,14 @@ int texture_id_for(
 
     const int texture_id = static_cast<int>(scene.textures.size());
     try {
-        scene.textures.push_back(ImageTexture::load(resolved_path.string()));
-    } catch (const std::exception&) {
+        scene.textures.push_back(ImageTexture::load(resolved_path.string(), encoding));
+    } catch (const std::exception& error) {
+        add_warning(
+            warnings,
+            warning_keys,
+            "decode:" + semantic + ":" + normalized_path,
+            "Failed to decode " + semantic + " texture '" + resolved_path.string() +
+                "': " + error.what());
         return -1;
     }
     texture_cache.emplace(cache_key, texture_id);
@@ -178,7 +223,9 @@ Material convert_material(
     const tinyobj::material_t& source,
     const std::filesystem::path& material_directory,
     Scene& scene,
-    std::unordered_map<std::string, int>& texture_cache) {
+    std::unordered_map<TextureCacheKey, int, TextureCacheKeyHash>& texture_cache,
+    std::vector<std::string>& warnings,
+    std::unordered_set<std::string>& warning_keys) {
     Material material;
     const Color diffuse = array_to_color(source.diffuse);
     const Color specular = array_to_color(source.specular);
@@ -189,11 +236,36 @@ Material convert_material(
     material.emission = emission;
     material.ior = source.ior > 0.0 ? static_cast<double>(source.ior) : material.ior;
     material.roughness = roughness_from_shininess(static_cast<double>(source.shininess));
+    material.opacity = std::clamp(static_cast<double>(source.dissolve), 0.0, 1.0);
+    material.bump_scale = static_cast<double>(source.bump_texopt.bump_multiplier);
+    material.two_sided = true;
     material.diffuse_texture_id = texture_id_for(
         material_directory,
         source.diffuse_texname,
+        TextureEncoding::Srgb,
+        "diffuse",
         scene,
-        texture_cache);
+        texture_cache,
+        warnings,
+        warning_keys);
+    material.opacity_texture_id = texture_id_for(
+        material_directory,
+        source.alpha_texname,
+        TextureEncoding::Linear,
+        "opacity",
+        scene,
+        texture_cache,
+        warnings,
+        warning_keys);
+    material.bump_texture_id = texture_id_for(
+        material_directory,
+        source.bump_texname,
+        TextureEncoding::Linear,
+        "bump",
+        scene,
+        texture_cache,
+        warnings,
+        warning_keys);
 
     if (color_energy(emission) > 0.0) {
         material.type = MaterialType::Emissive;
@@ -258,9 +330,19 @@ LoadedScene load_scene_asset(const std::string& path, int width, int height) {
         Camera(Vec3(0.0, 0.0, 1.0), Vec3(0.0, 0.0, 0.0), Vec3(0.0, 1.0, 0.0), 45.0, 1.0),
         Bounds3()};
 
-    std::unordered_map<std::string, int> texture_cache;
+    std::unordered_set<std::string> warning_keys;
+    if (!reader.Warning().empty()) {
+        add_warning(loaded.warnings, warning_keys, "tinyobj", reader.Warning());
+    }
+    std::unordered_map<TextureCacheKey, int, TextureCacheKeyHash> texture_cache;
     for (const tinyobj::material_t& source : reader.GetMaterials()) {
-        loaded.scene.materials.push_back(convert_material(source, parent_path, loaded.scene, texture_cache));
+        loaded.scene.materials.push_back(convert_material(
+            source,
+            parent_path,
+            loaded.scene,
+            texture_cache,
+            loaded.warnings,
+            warning_keys));
     }
     const int fallback_material_id = static_cast<int>(loaded.scene.materials.size());
     loaded.scene.materials.push_back(fallback_material());
@@ -298,11 +380,29 @@ LoadedScene load_scene_asset(const std::string& path, int width, int height) {
             const Vec3 normal0 = normal_from_index(attrib, i0, has_normal0);
             const Vec3 normal1 = normal_from_index(attrib, i1, has_normal1);
             const Vec3 normal2 = normal_from_index(attrib, i2, has_normal2);
+            if (!has_normal0 || !has_normal1 || !has_normal2) {
+                add_warning(
+                    loaded.warnings,
+                    warning_keys,
+                    "normal-fallback",
+                    "OBJ contains faces without valid vertex normals; using geometric normals.");
+            }
             loaded.scene.triangles.emplace_back(
                 TriangleVertex{a, uv0, normal0, has_normal0},
                 TriangleVertex{b, uv1, normal1, has_normal1},
                 TriangleVertex{c, uv2, normal2, has_normal2},
                 material_id);
+            if (material_id >= 0 &&
+                static_cast<std::size_t>(material_id) < loaded.scene.materials.size() &&
+                loaded.scene.materials[static_cast<std::size_t>(material_id)].bump_texture_id >= 0 &&
+                !loaded.scene.triangles.back().has_valid_uv_basis()) {
+                add_warning(
+                    loaded.warnings,
+                    warning_keys,
+                    "degenerate-bump-uv:" + std::to_string(material_id),
+                    "Material " + std::to_string(material_id) +
+                        " has a bump map on a triangle with degenerate UVs; using the unperturbed normal.");
+            }
             loaded.bounds.expand(a);
             loaded.bounds.expand(b);
             loaded.bounds.expand(c);

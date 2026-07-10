@@ -125,6 +125,9 @@ SceneBundle make_obj_scene(const CliOptions& options) {
     }
 
     const renderer::LoadedScene loaded = renderer::load_scene_asset(options.obj_path, options.width, options.height);
+    for (const std::string& warning : loaded.warnings) {
+        std::cerr << "warning: " << warning << '\n';
+    }
     return SceneBundle{loaded.scene, loaded.camera};
 }
 

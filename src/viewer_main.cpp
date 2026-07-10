@@ -152,6 +152,9 @@ ViewerScene load_viewer_scene(const ViewerOptions& options) {
             : options.asset_path;
         if (std::filesystem::exists(asset_path)) {
             renderer::LoadedScene loaded = renderer::load_scene_asset(asset_path, options.width, options.height);
+            for (const std::string& warning : loaded.warnings) {
+                std::cerr << "warning: " << warning << '\n';
+            }
             return ViewerScene{loaded.scene, loaded.bounds, loaded.camera};
         }
         if (!options.asset_path.empty()) {

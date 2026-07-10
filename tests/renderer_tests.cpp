@@ -1444,6 +1444,84 @@ void test_scene_asset_loader_loads_map_kd_and_triangle_uvs() {
     std::remove(texture_path.c_str());
 }
 
+void test_scene_asset_loader_imports_alpha_and_bump_maps() {
+    const std::string obj_path = "test_surface_maps.obj";
+    const std::string mtl_path = "test_surface_maps.mtl";
+    const std::string texture_path = "test_surface_maps.ppm";
+    write_single_pixel_ppm(texture_path, 128);
+    {
+        std::ofstream mtl(mtl_path);
+        mtl << "newmtl surface\n";
+        mtl << "Kd 1 1 1\n";
+        mtl << "d 0.8\n";
+        mtl << "map_Kd " << texture_path << "\n";
+        mtl << "map_d " << texture_path << "\n";
+        mtl << "bump -bm 0.25 " << texture_path << "\n";
+    }
+    {
+        std::ofstream obj(obj_path);
+        obj << "mtllib " << mtl_path << "\n";
+        obj << "v -1 -1 -1\n";
+        obj << "v 1 -1 -1\n";
+        obj << "v 0 1 -1\n";
+        obj << "vt 0 0\nvt 1 0\nvt 0.5 1\n";
+        obj << "vn 0 0 1\n";
+        obj << "usemtl surface\n";
+        obj << "f 1/1/1 2/2/1 3/3/1\n";
+    }
+
+    const renderer::LoadedScene loaded = renderer::load_scene_asset(obj_path, 64, 64);
+    const renderer::Material& material = loaded.scene.materials[0];
+    RENDER_CHECK(nearly_equal(material.opacity, 0.8, 1e-6));
+    RENDER_CHECK(material.diffuse_texture_id >= 0);
+    RENDER_CHECK(material.opacity_texture_id >= 0);
+    RENDER_CHECK(material.bump_texture_id >= 0);
+    RENDER_CHECK(material.diffuse_texture_id != material.opacity_texture_id);
+    RENDER_CHECK(material.opacity_texture_id == material.bump_texture_id);
+    RENDER_CHECK(loaded.scene.textures.size() == 2);
+    RENDER_CHECK(nearly_equal(material.bump_scale, 0.25, 1e-6));
+    RENDER_CHECK(
+        loaded.scene.textures[static_cast<std::size_t>(material.opacity_texture_id)]
+            .sample_scalar(renderer::Vec2()) > 0.49);
+
+    std::remove(obj_path.c_str());
+    std::remove(mtl_path.c_str());
+    std::remove(texture_path.c_str());
+}
+
+void test_scene_asset_loader_warns_for_missing_optional_maps() {
+    const std::string obj_path = "test_missing_maps.obj";
+    const std::string mtl_path = "test_missing_maps.mtl";
+    {
+        std::ofstream mtl(mtl_path);
+        mtl << "newmtl missing\nKd 0.8 0.8 0.8\n";
+        mtl << "map_d missing-opacity.png\n";
+        mtl << "bump missing-height.png\n";
+    }
+    {
+        std::ofstream obj(obj_path);
+        obj << "mtllib " << mtl_path << "\n";
+        obj << "v 0 0 0\nv 1 0 0\nv 0 1 0\n";
+        obj << "usemtl missing\nf 1 2 3\n";
+    }
+
+    const renderer::LoadedScene loaded = renderer::load_scene_asset(obj_path, 64, 64);
+    RENDER_CHECK(loaded.scene.triangles.size() == 1);
+    RENDER_CHECK(loaded.scene.materials[0].opacity_texture_id == -1);
+    RENDER_CHECK(loaded.scene.materials[0].bump_texture_id == -1);
+    bool saw_opacity_warning = false;
+    bool saw_bump_warning = false;
+    for (const std::string& warning : loaded.warnings) {
+        saw_opacity_warning = saw_opacity_warning || warning.find("opacity") != std::string::npos;
+        saw_bump_warning = saw_bump_warning || warning.find("bump") != std::string::npos;
+    }
+    RENDER_CHECK(saw_opacity_warning);
+    RENDER_CHECK(saw_bump_warning);
+
+    std::remove(obj_path.c_str());
+    std::remove(mtl_path.c_str());
+}
+
 void test_scene_asset_loader_preserves_obj_mtl_materials() {
     const std::string obj_path = "test_asset_loader.obj";
     const std::string mtl_path = "test_asset_loader.mtl";
@@ -1544,6 +1622,8 @@ int main() {
     test_texture_encoding_distinguishes_srgb_from_linear();
     test_material_evaluator_combines_opacity_and_perturbs_bump_normal();
     test_scene_asset_loader_loads_map_kd_and_triangle_uvs();
+    test_scene_asset_loader_imports_alpha_and_bump_maps();
+    test_scene_asset_loader_warns_for_missing_optional_maps();
     test_scene_asset_loader_preserves_obj_mtl_materials();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;
