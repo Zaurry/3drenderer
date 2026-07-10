@@ -19,6 +19,7 @@
 #include "render/interactive/raster_interactive_session.h"
 #include "render/interactive/ray_interactive_session.h"
 #include "render/pathtracer/pathtracer_renderer.h"
+#include "render/rasterizer/raster_geometry.h"
 #include "render/rasterizer/rasterizer_renderer.h"
 #include "render/raytracer/raytracer_renderer.h"
 #include "render/scene_intersector.h"
@@ -1210,6 +1211,95 @@ void test_rasterizer_draws_triangle() {
     RENDER_CHECK(lit_pixels > 20);
 }
 
+int count_lit_pixels(const renderer::Image& image) {
+    int lit_pixels = 0;
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            const renderer::Color color = image.pixel(x, y);
+            if (renderer::length_squared(color) > 1e-8) {
+                ++lit_pixels;
+            }
+        }
+    }
+    return lit_pixels;
+}
+
+void test_perspective_correct_weights_favor_near_vertex() {
+    const renderer::Vec3 corrected = renderer::perspective_correct_weights(
+        renderer::Vec3(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0),
+        renderer::Vec3(1.0, 2.0, 4.0));
+    RENDER_CHECK(corrected.x > corrected.y);
+    RENDER_CHECK(corrected.y > corrected.z);
+    RENDER_CHECK(nearly_equal(corrected.x + corrected.y + corrected.z, 1.0));
+}
+
+void test_near_plane_clipping_keeps_visible_triangle_portion() {
+    const std::array<renderer::RasterVertex, 3> vertices{
+        renderer::RasterVertex{renderer::Vec3(-1.0, -1.0, 1.0)},
+        renderer::RasterVertex{renderer::Vec3(1.0, -1.0, 1.0)},
+        renderer::RasterVertex{renderer::Vec3(0.0, 1.0, -0.1)}};
+    const std::vector<renderer::RasterVertex> clipped =
+        renderer::clip_triangle_to_near_plane(vertices, 1e-4);
+    RENDER_CHECK(clipped.size() == 4);
+    for (const renderer::RasterVertex& vertex : clipped) {
+        RENDER_CHECK(vertex.view.z >= 1e-4);
+    }
+}
+
+renderer::RenderResult render_test_raster_triangle(
+    bool two_sided,
+    double opacity,
+    bool reverse_winding,
+    bool crosses_near_plane) {
+    renderer::Scene scene;
+    scene.environment = renderer::Color();
+    renderer::Material material;
+    material.type = renderer::MaterialType::Emissive;
+    material.emission = renderer::Color(1.0, 1.0, 1.0);
+    material.two_sided = two_sided;
+    material.opacity = opacity;
+    scene.materials.push_back(material);
+
+    const renderer::Vec3 a(-1.0, -1.0, -1.0);
+    const renderer::Vec3 b(1.0, -1.0, -1.0);
+    const renderer::Vec3 c(0.0, 1.0, crosses_near_plane ? 0.1 : -1.0);
+    if (reverse_winding) {
+        scene.triangles.emplace_back(a, c, b, 0);
+    } else {
+        scene.triangles.emplace_back(a, b, c, 0);
+    }
+
+    const renderer::Camera camera(
+        renderer::Vec3(0.0, 0.0, 0.0),
+        renderer::Vec3(0.0, 0.0, -1.0),
+        renderer::Vec3(0.0, 1.0, 0.0),
+        45.0,
+        1.0);
+    renderer::RenderSettings settings;
+    settings.width = 32;
+    settings.height = 32;
+    return renderer::RasterizerRenderer().render(scene, camera, settings);
+}
+
+void test_rasterizer_clips_triangles_crossing_near_plane() {
+    const renderer::RenderResult result = render_test_raster_triangle(true, 1.0, false, true);
+    RENDER_CHECK(count_lit_pixels(result.image) > 0);
+}
+
+void test_rasterizer_applies_alpha_cutout_before_depth_write() {
+    const renderer::RenderResult result = render_test_raster_triangle(true, 0.0, false, false);
+    RENDER_CHECK(count_lit_pixels(result.image) == 0);
+}
+
+void test_rasterizer_respects_single_and_two_sided_materials() {
+    const renderer::RenderResult single_sided =
+        render_test_raster_triangle(false, 1.0, true, false);
+    const renderer::RenderResult two_sided =
+        render_test_raster_triangle(true, 1.0, true, false);
+    RENDER_CHECK(count_lit_pixels(single_sided.image) == 0);
+    RENDER_CHECK(count_lit_pixels(two_sided.image) > 0);
+}
+
 int count_lit_pixels(const renderer::Framebuffer& framebuffer) {
     int lit_pixels = 0;
     for (int y = 0; y < framebuffer.height(); ++y) {
@@ -1748,6 +1838,11 @@ int main() {
     test_pathtracer_point_light_uses_inverse_square_falloff();
     test_pathtracer_direct_light_respects_shadow_blockers();
     test_rasterizer_draws_triangle();
+    test_perspective_correct_weights_favor_near_vertex();
+    test_near_plane_clipping_keeps_visible_triangle_portion();
+    test_rasterizer_clips_triangles_crossing_near_plane();
+    test_rasterizer_applies_alpha_cutout_before_depth_write();
+    test_rasterizer_respects_single_and_two_sided_materials();
     test_interactive_sessions_render_visible_pixels();
     test_path_interactive_session_accumulates_and_resets();
     test_path_interactive_session_accumulates_distinct_samples();
