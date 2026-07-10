@@ -1106,6 +1106,82 @@ void test_pathtracer_renders_emissive_scene() {
     RENDER_CHECK(luminance_sum > 0.1);
 }
 
+renderer::Scene make_path_direct_light_scene() {
+    renderer::Scene scene;
+    scene.environment = renderer::Color();
+    renderer::Material material;
+    material.type = renderer::MaterialType::Diffuse;
+    material.base_color = renderer::Color(1.0, 1.0, 1.0);
+    scene.materials.push_back(material);
+    scene.triangles.emplace_back(
+        renderer::Vec3(-10.0, -10.0, -1.0),
+        renderer::Vec3(10.0, -10.0, -1.0),
+        renderer::Vec3(0.0, 10.0, -1.0),
+        0);
+    return scene;
+}
+
+renderer::Color render_one_path_pixel(const renderer::Scene& scene) {
+    const renderer::Camera camera(
+        renderer::Vec3(0.0, 0.0, 0.0),
+        renderer::Vec3(0.0, 0.0, -1.0),
+        renderer::Vec3(0.0, 1.0, 0.0),
+        20.0,
+        1.0);
+    renderer::RenderSettings settings;
+    settings.width = 1;
+    settings.height = 1;
+    settings.samples_per_pixel = 1;
+    settings.max_depth = 1;
+    settings.thread_count = 1;
+    return renderer::PathTracerRenderer().render(scene, camera, settings).image.pixel(0, 0);
+}
+
+void test_pathtracer_receives_directional_light() {
+    renderer::Scene dark = make_path_direct_light_scene();
+    const renderer::Color unlit = render_one_path_pixel(dark);
+
+    renderer::Scene lit = dark;
+    lit.directional_lights.push_back(renderer::DirectionalLight{
+        renderer::Vec3(0.0, 0.0, -1.0),
+        renderer::Color(2.0, 2.0, 2.0)});
+    const renderer::Color illuminated = render_one_path_pixel(lit);
+
+    RENDER_CHECK(illuminated.x > unlit.x + 0.5);
+}
+
+void test_pathtracer_point_light_uses_inverse_square_falloff() {
+    renderer::Scene near_scene = make_path_direct_light_scene();
+    near_scene.point_lights.push_back(renderer::PointLight{
+        renderer::Vec3(0.0, 0.0, 1.0),
+        renderer::Color(8.0, 8.0, 8.0)});
+    renderer::Scene far_scene = make_path_direct_light_scene();
+    far_scene.point_lights.push_back(renderer::PointLight{
+        renderer::Vec3(0.0, 0.0, 3.0),
+        renderer::Color(8.0, 8.0, 8.0)});
+
+    const renderer::Color near_value = render_one_path_pixel(near_scene);
+    const renderer::Color far_value = render_one_path_pixel(far_scene);
+    RENDER_CHECK(near_value.x > far_value.x * 3.5);
+}
+
+void test_pathtracer_direct_light_respects_shadow_blockers() {
+    renderer::Scene visible = make_path_direct_light_scene();
+    visible.point_lights.push_back(renderer::PointLight{
+        renderer::Vec3(2.0, 0.0, 0.0),
+        renderer::Color(20.0, 20.0, 20.0)});
+    renderer::Scene blocked = visible;
+    blocked.triangles.emplace_back(
+        renderer::Vec3(1.0, -10.0, -2.0),
+        renderer::Vec3(1.0, 10.0, -2.0),
+        renderer::Vec3(1.0, 0.0, 1.0),
+        0);
+
+    const renderer::Color visible_value = render_one_path_pixel(visible);
+    const renderer::Color blocked_value = render_one_path_pixel(blocked);
+    RENDER_CHECK(visible_value.x > blocked_value.x + 0.05);
+}
+
 void test_rasterizer_draws_triangle() {
     renderer::Scene scene = renderer::make_raster_triangle_scene();
     renderer::Camera camera(
@@ -1668,6 +1744,9 @@ int main() {
     test_raytracer_renders_visible_sphere();
     test_raytracer_renders_triangle_scene_with_direct_light();
     test_pathtracer_renders_emissive_scene();
+    test_pathtracer_receives_directional_light();
+    test_pathtracer_point_light_uses_inverse_square_falloff();
+    test_pathtracer_direct_light_respects_shadow_blockers();
     test_rasterizer_draws_triangle();
     test_interactive_sessions_render_visible_pixels();
     test_path_interactive_session_accumulates_and_resets();

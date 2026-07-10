@@ -171,10 +171,14 @@ Color PathTracerRenderer::trace_path(
         return emitted;
     }
 
+    const Color direct = material.type == MaterialType::Diffuse
+        ? estimate_direct_lighting(scene, intersector, hit, surface)
+        : black();
+
     // This is the recursive path-tracing estimator for the rendering equation:
     // emitted radiance at the hit point plus material throughput (attenuation)
     // multiplied by the incoming radiance sampled along one new bounce.
-    return emitted + multiply(
+    return emitted + direct + multiply(
         attenuation,
         trace_path(scattered, scene, intersector, rng, depth - 1));
 }
@@ -238,5 +242,56 @@ bool PathTracerRenderer::scatter(
     }
 
     return false;
+}
+
+Color PathTracerRenderer::estimate_direct_lighting(
+    const Scene& scene,
+    const SceneIntersector& intersector,
+    const HitRecord& hit,
+    const SurfaceMaterialSample& surface) const {
+    constexpr double inverse_pi = 0.31830988618379067154;
+    Color direct = black();
+
+    for (const DirectionalLight& light : scene.directional_lights) {
+        const Vec3 light_dir = normalize(-light.direction);
+        if (!usable_direction(light_dir)) {
+            continue;
+        }
+        const double n_dot_l = std::max(0.0, dot(surface.shading_normal, light_dir));
+        if (n_dot_l <= 0.0) {
+            continue;
+        }
+        const Ray shadow_ray(
+            offset_ray_origin(hit.position, hit.geometric_normal, light_dir),
+            light_dir);
+        if (intersector.occluded(shadow_ray, 0.0, 1.0e30)) {
+            continue;
+        }
+        direct += multiply(surface.base_color, light.radiance) * (n_dot_l * inverse_pi);
+    }
+
+    for (const PointLight& light : scene.point_lights) {
+        const Vec3 to_light = light.position - hit.position;
+        const double distance_squared = length_squared(to_light);
+        if (distance_squared <= 1e-12) {
+            continue;
+        }
+        const double distance = std::sqrt(distance_squared);
+        const Vec3 light_dir = to_light / distance;
+        const double n_dot_l = std::max(0.0, dot(surface.shading_normal, light_dir));
+        if (n_dot_l <= 0.0) {
+            continue;
+        }
+        const Ray shadow_ray(
+            offset_ray_origin(hit.position, hit.geometric_normal, light_dir),
+            light_dir);
+        if (intersector.occluded(shadow_ray, 0.0, distance - 1e-7)) {
+            continue;
+        }
+        const Color incoming = light.intensity / distance_squared;
+        direct += multiply(surface.base_color, incoming) * (n_dot_l * inverse_pi);
+    }
+
+    return direct;
 }
 }  // namespace renderer

@@ -26,6 +26,11 @@ private:
         PcgRandom& rng,
         Color& attenuation,
         Ray& scattered) const;
+    Color estimate_direct_lighting(
+        const Scene& scene,
+        const SceneIntersector& intersector,
+        const HitRecord& hit,
+        const SurfaceMaterialSample& surface) const;
 };
 
 }  // namespace renderer
