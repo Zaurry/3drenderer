@@ -1,8 +1,9 @@
 #include "render/pathtracer/pathtracer_renderer.h"
 
 #include "core/timer.h"
+#include "render/scene_intersector.h"
 #include "sampling/sampler.h"
-#include "scene/texture.h"
+#include "scene/material_evaluator.h"
 
 #include <algorithm>
 #include <atomic>
@@ -75,8 +76,7 @@ int worker_count_for(const RenderSettings& settings, int total_tiles) {
 RenderResult PathTracerRenderer::render(const Scene& scene, const Camera& camera, const RenderSettings& settings) {
     Timer timer;
     Image image(settings.width, settings.height);
-    Bvh bvh;
-    bvh.build(scene.triangles);
+    const SceneIntersector intersector(scene);
 
     const int samples_per_pixel = std::max(1, settings.samples_per_pixel);
     const int max_depth = std::max(0, settings.max_depth);
@@ -115,7 +115,12 @@ RenderResult PathTracerRenderer::render(const Scene& scene, const Camera& camera
                         const double v =
                             1.0 -
                             (static_cast<double>(y) + rng.next_double()) / static_cast<double>(settings.height);
-                        accumulated += trace_path(camera.generate_ray(u, v), scene, bvh, rng, max_depth);
+                        accumulated += trace_path(
+                            camera.generate_ray(u, v),
+                            scene,
+                            intersector,
+                            rng,
+                            max_depth);
                     }
 
                     image.set_pixel(x, y, accumulated / static_cast<double>(samples_per_pixel));
@@ -134,13 +139,18 @@ RenderResult PathTracerRenderer::render(const Scene& scene, const Camera& camera
     return RenderResult{image, timer.elapsed_seconds()};
 }
 
-Color PathTracerRenderer::trace_path(const Ray& ray, const Scene& scene, const Bvh& bvh, PcgRandom& rng, int depth) const {
+Color PathTracerRenderer::trace_path(
+    const Ray& ray,
+    const Scene& scene,
+    const SceneIntersector& intersector,
+    PcgRandom& rng,
+    int depth) const {
     if (depth <= 0) {
         return black();
     }
 
     HitRecord hit;
-    if (!hit_scene(ray, scene, bvh, 0.001, 1.0e30, hit)) {
+    if (!intersector.intersect(ray, 0.0, 1.0e30, hit)) {
         return scene.environment;
     }
 
@@ -149,102 +159,84 @@ Color PathTracerRenderer::trace_path(const Ray& ray, const Scene& scene, const B
     }
 
     const Material& material = scene.materials[hit.material_id];
+    const SurfaceMaterialSample surface = evaluate_surface_material(scene, material, hit);
     const Color emitted = material.emission;
     if (material.type == MaterialType::Emissive) {
         return emitted;
     }
 
     Color attenuation;
-    Ray scattered(hit.position, hit.shading_normal);
-    if (!scatter(ray, scene, hit, material, rng, attenuation, scattered)) {
+    Ray scattered(hit.position, surface.shading_normal);
+    if (!scatter(ray, hit, material, surface, rng, attenuation, scattered)) {
         return emitted;
     }
 
     // This is the recursive path-tracing estimator for the rendering equation:
     // emitted radiance at the hit point plus material throughput (attenuation)
     // multiplied by the incoming radiance sampled along one new bounce.
-    return emitted + multiply(attenuation, trace_path(scattered, scene, bvh, rng, depth - 1));
+    return emitted + multiply(
+        attenuation,
+        trace_path(scattered, scene, intersector, rng, depth - 1));
 }
 
 bool PathTracerRenderer::scatter(
     const Ray& ray,
-    const Scene& scene,
     const HitRecord& hit,
     const Material& material,
+    const SurfaceMaterialSample& surface,
     PcgRandom& rng,
     Color& attenuation,
     Ray& scattered) const {
-    const Color base_color = sample_material_base_color(scene, material, hit.uv);
+    const Color base_color = surface.base_color;
+    const Vec3 shading_normal = surface.shading_normal;
     if (material.type == MaterialType::Diffuse) {
         const Vec3 local_direction = cosine_weighted_hemisphere(rng);
-        const Vec3 scatter_direction = tangent_to_world(local_direction, hit.shading_normal);
+        const Vec3 scatter_direction = tangent_to_world(local_direction, shading_normal);
         attenuation = base_color;
-        scattered = Ray(hit.position, scatter_direction);
+        scattered = Ray(
+            offset_ray_origin(hit.position, hit.geometric_normal, scatter_direction),
+            scatter_direction);
         return true;
     }
 
     if (material.type == MaterialType::Metal) {
-        Vec3 scatter_direction = reflect(normalize(ray.direction), hit.shading_normal);
+        Vec3 scatter_direction = reflect(normalize(ray.direction), shading_normal);
         if (material.roughness > 0.0) {
             scatter_direction += std::max(0.0, material.roughness) * random_in_unit_sphere(rng);
         }
         scatter_direction = normalize(scatter_direction);
-        if (dot(scatter_direction, hit.shading_normal) <= 0.0) {
+        if (dot(scatter_direction, shading_normal) <= 0.0) {
             return false;
         }
 
         attenuation = base_color;
-        scattered = Ray(hit.position, scatter_direction);
+        scattered = Ray(
+            offset_ray_origin(hit.position, hit.geometric_normal, scatter_direction),
+            scatter_direction);
         return true;
     }
 
     if (material.type == MaterialType::Dielectric) {
         const double refraction_ratio = hit.front_face ? (1.0 / material.ior) : material.ior;
         const Vec3 unit_direction = normalize(ray.direction);
-        const double cos_theta = std::min(dot(-unit_direction, hit.shading_normal), 1.0);
+        const double cos_theta = std::min(dot(-unit_direction, shading_normal), 1.0);
 
         Vec3 refracted;
-        const bool can_refract = refract(unit_direction, hit.shading_normal, refraction_ratio, refracted);
+        const bool can_refract = refract(unit_direction, shading_normal, refraction_ratio, refracted);
         const bool choose_reflection =
             !can_refract || reflectance(cos_theta, refraction_ratio) > rng.next_double();
         const Vec3 scatter_direction = choose_reflection
-            ? reflect(unit_direction, hit.shading_normal)
+            ? reflect(unit_direction, shading_normal)
             : refracted;
 
         attenuation = Color(1.0, 1.0, 1.0);
-        scattered = Ray(hit.position, normalize(scatter_direction));
+        const Vec3 unit_scatter = normalize(scatter_direction);
+        scattered = Ray(
+            offset_ray_origin(hit.position, hit.geometric_normal, unit_scatter),
+            unit_scatter);
         return true;
     }
 
     return false;
 }
-
-bool PathTracerRenderer::hit_scene(
-    const Ray& ray,
-    const Scene& scene,
-    const Bvh& bvh,
-    double t_min,
-    double t_max,
-    HitRecord& hit) const {
-    bool hit_anything = false;
-    double closest_t = t_max;
-
-    for (const Sphere& sphere : scene.spheres) {
-        HitRecord candidate;
-        if (sphere.intersect(ray, t_min, closest_t, candidate)) {
-            hit_anything = true;
-            closest_t = candidate.t;
-            hit = candidate;
-        }
-    }
-
-    HitRecord triangle_hit;
-    if (bvh.intersect(ray, t_min, closest_t, triangle_hit)) {
-        hit_anything = true;
-        hit = triangle_hit;
-    }
-
-    return hit_anything;
-}
-
 }  // namespace renderer

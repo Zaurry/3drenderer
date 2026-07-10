@@ -21,6 +21,7 @@
 #include "render/pathtracer/pathtracer_renderer.h"
 #include "render/rasterizer/rasterizer_renderer.h"
 #include "render/raytracer/raytracer_renderer.h"
+#include "render/scene_intersector.h"
 #include "sampling/sampler.h"
 #include "scene/camera.h"
 #include "scene/material.h"
@@ -1165,6 +1166,58 @@ bool framebuffers_differ(const renderer::Framebuffer& a, const renderer::Framebu
     return false;
 }
 
+renderer::Triangle make_test_triangle_at_z(double z, int material_id) {
+    return renderer::Triangle(
+        renderer::Vec3(-1.0, -1.0, z),
+        renderer::Vec3(1.0, -1.0, z),
+        renderer::Vec3(0.0, 1.0, z),
+        material_id);
+}
+
+void test_scene_intersector_skips_alpha_cutout_hits() {
+    renderer::Scene scene;
+    renderer::Material transparent;
+    transparent.opacity = 0.0;
+    transparent.alpha_cutoff = 0.5;
+    scene.materials.push_back(transparent);
+    scene.materials.push_back(renderer::Material());
+    scene.triangles.push_back(make_test_triangle_at_z(-1.0, 0));
+    scene.triangles.push_back(make_test_triangle_at_z(-2.0, 1));
+
+    const renderer::SceneIntersector intersector(scene);
+    renderer::HitRecord hit;
+    const renderer::Ray ray(renderer::Vec3(0.0, 0.0, 0.0), renderer::Vec3(0.0, 0.0, -1.0));
+    RENDER_CHECK(intersector.intersect(ray, 0.0, 100.0, hit));
+    RENDER_CHECK(hit.material_id == 1);
+    RENDER_CHECK(hit.position.z < -1.5);
+}
+
+void test_scene_intersector_respects_single_and_two_sided_materials() {
+    renderer::Scene scene;
+    renderer::Material material;
+    material.two_sided = false;
+    scene.materials.push_back(material);
+    scene.triangles.push_back(make_test_triangle_at_z(-1.0, 0));
+    const renderer::Ray back_ray(
+        renderer::Vec3(0.0, 0.0, -2.0),
+        renderer::Vec3(0.0, 0.0, 1.0));
+
+    renderer::HitRecord hit;
+    RENDER_CHECK(!renderer::SceneIntersector(scene).intersect(back_ray, 0.0, 100.0, hit));
+
+    scene.materials[0].two_sided = true;
+    RENDER_CHECK(renderer::SceneIntersector(scene).intersect(back_ray, 0.0, 100.0, hit));
+    RENDER_CHECK(renderer::dot(hit.geometric_normal, back_ray.direction) < 0.0);
+    RENDER_CHECK(renderer::dot(hit.shading_normal, hit.geometric_normal) > 0.0);
+}
+
+void test_offset_ray_origin_moves_to_outgoing_side() {
+    const renderer::Vec3 position(1000.0, 0.0, 0.0);
+    const renderer::Vec3 normal(1.0, 0.0, 0.0);
+    RENDER_CHECK(renderer::offset_ray_origin(position, normal, normal).x > position.x);
+    RENDER_CHECK(renderer::offset_ray_origin(position, normal, -normal).x < position.x);
+}
+
 void write_test_ppm_texture(const std::string& path) {
     std::ofstream out(path, std::ios::binary);
     out << "P6\n2 2\n255\n";
@@ -1599,6 +1652,9 @@ int main() {
     test_empty_bvh_has_no_nodes_or_hits();
     test_bvh_matches_bruteforce_triangle_hit();
     test_bvh_splits_and_traverses_interior_nodes();
+    test_scene_intersector_skips_alpha_cutout_hits();
+    test_scene_intersector_respects_single_and_two_sided_materials();
+    test_offset_ray_origin_moves_to_outgoing_side();
     test_checker_texture_is_deterministic_for_positive_and_negative_coordinates();
     test_builtin_scene_contains_renderable_geometry();
     test_raster_triangle_scene_contains_triangle_and_light();
