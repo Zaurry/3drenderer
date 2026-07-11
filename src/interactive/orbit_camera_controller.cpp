@@ -8,64 +8,53 @@ namespace renderer {
 
 namespace {
 
-constexpr double kMinPitch = -1.5;
-constexpr double kMaxPitch = 1.5;
-constexpr double kMinDistance = 0.05;
+constexpr float kMinPitch = -1.5f;
+constexpr float kMaxPitch = 1.5f;
+constexpr float kMinDistance = 0.05f;
 
 }  // namespace
 
-Eigen::Vector3d to_eigen(const Vec3& value) {
-    return Eigen::Vector3d(value.x(), value.y(), value.z());
-}
-
-Vec3 to_vec3(const Eigen::Vector3d& value) {
-    return Vec3(
-        static_cast<float>(value.x()),
-        static_cast<float>(value.y()),
-        static_cast<float>(value.z()));
-}
-
-OrbitCameraController::OrbitCameraController(const Bounds3& bounds, double aspect_ratio)
-    : target_(to_eigen((bounds.min + bounds.max) * 0.5f)), aspect_ratio_(aspect_ratio) {
-    if (!std::isfinite(aspect_ratio) || aspect_ratio <= 0.0) {
+OrbitCameraController::OrbitCameraController(const Bounds3& bounds, float aspect_ratio)
+    : target_((bounds.min + bounds.max) * 0.5f), aspect_ratio_(aspect_ratio) {
+    if (!std::isfinite(aspect_ratio) || aspect_ratio <= 0.0f) {
         throw std::invalid_argument("OrbitCameraController aspect ratio must be positive");
     }
 
-    const double radius = std::max(0.5, static_cast<double>(length(bounds.max - bounds.min)) * 0.5);
-    distance_ = radius * 2.6;
-    pitch_ = 0.12;
+    const float radius = std::max(0.5f, (bounds.max - bounds.min).norm() * 0.5f);
+    distance_ = radius * 2.6f;
+    pitch_ = 0.12f;
 }
 
-void OrbitCameraController::set_aspect_ratio(double aspect_ratio) {
-    if (!std::isfinite(aspect_ratio) || aspect_ratio <= 0.0) {
+void OrbitCameraController::set_aspect_ratio(float aspect_ratio) {
+    if (!std::isfinite(aspect_ratio) || aspect_ratio <= 0.0f) {
         throw std::invalid_argument("OrbitCameraController aspect ratio must be positive");
     }
     aspect_ratio_ = aspect_ratio;
 }
 
-void OrbitCameraController::orbit(double delta_x, double delta_y) {
-    constexpr double sensitivity = 0.01;
+void OrbitCameraController::orbit(float delta_x, float delta_y) {
+    constexpr float sensitivity = 0.01f;
     yaw_ -= delta_x * sensitivity;
     pitch_ = std::clamp(pitch_ + delta_y * sensitivity, kMinPitch, kMaxPitch);
 }
 
-void OrbitCameraController::zoom(double wheel_delta) {
-    distance_ *= std::exp(-wheel_delta * 0.12);
+void OrbitCameraController::zoom(float wheel_delta) {
+    distance_ *= std::exp(-wheel_delta * 0.12f);
     distance_ = std::max(distance_, kMinDistance);
 }
 
 Camera OrbitCameraController::camera() const {
     return Camera(
-        to_vec3(eye()),
-        to_vec3(target_),
-        Vec3(0.0, 1.0, 0.0),
+        eye(),
+        target_,
+        Vec3(0.0f, 1.0f, 0.0f),
         vertical_fov_degrees_,
         aspect_ratio_);
 }
 
-Eigen::Vector3d OrbitCameraController::eye() const {
-    const double cos_pitch = std::cos(pitch_);
-    const Eigen::Vector3d offset(
+Vec3 OrbitCameraController::eye() const {
+    const float cos_pitch = std::cos(pitch_);
+    const Vec3 offset(
         std::sin(yaw_) * cos_pitch * distance_,
         std::sin(pitch_) * distance_,
         std::cos(yaw_) * cos_pitch * distance_);

@@ -29,20 +29,20 @@ int DepthBuffer::height() const {
 }
 
 void DepthBuffer::resize(int width, int height) {
-    values_.assign(validated_value_count(width, height), 0.0);
+    values_.assign(validated_value_count(width, height), 0.0f);
     width_ = width;
     height_ = height;
 }
 
-void DepthBuffer::clear(double value) {
+void DepthBuffer::clear(float value) {
     std::fill(values_.begin(), values_.end(), value);
 }
 
-double DepthBuffer::get(int x, int y) const {
+float DepthBuffer::get(int x, int y) const {
     return values_[static_cast<std::size_t>(index(x, y))];
 }
 
-void DepthBuffer::set(int x, int y, double value) {
+void DepthBuffer::set(int x, int y, float value) {
     values_[static_cast<std::size_t>(index(x, y))] = value;
 }
 

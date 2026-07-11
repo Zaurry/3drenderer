@@ -56,7 +56,10 @@ bool Bvh::intersect(const Ray& ray, double t_min, double t_max, HitRecord& hit) 
         const BvhNode& node = nodes_[node_index];
         // BVH 先用 AABB 测试整组三角形：如果光线没有打到包围盒，就能一次性跳过盒内所有三角形。
         // 这样很多光线不再逐个检查场景里的每个三角形，而是快速拒绝大片空间中的几何体。
-        if (!node.bounds.intersect(ray, t_min, closest_t)) {
+        if (!node.bounds.intersect(
+                ray,
+                static_cast<float>(t_min),
+                static_cast<float>(closest_t))) {
             continue;
         }
 

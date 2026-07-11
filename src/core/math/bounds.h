@@ -27,8 +27,8 @@ struct Bounds3 {
         : min(min_point), max(max_point) {}
 
     void expand(const Vec3& p) {
-        min = min_components(min, p);
-        max = max_components(max, p);
+        min = min.cwiseMin(p);
+        max = max.cwiseMax(p);
     }
 
     void expand(const Bounds3& bounds) {
@@ -51,26 +51,26 @@ struct Bounds3 {
         return 2;
     }
 
-    bool intersect(const Ray& ray, double t_min, double t_max) const {
-        const double origins[3] = {ray.origin.x(), ray.origin.y(), ray.origin.z()};
-        const double directions[3] = {ray.direction.x(), ray.direction.y(), ray.direction.z()};
-        const double bounds_min[3] = {min.x(), min.y(), min.z()};
-        const double bounds_max[3] = {max.x(), max.y(), max.z()};
-        constexpr double parallel_epsilon = 1e-12;
+    bool intersect(const Ray& ray, float t_min, float t_max) const {
+        constexpr float kParallelDirectionEpsilon = 1e-12f;
 
         // Slab 法：每个坐标轴给出一段可命中的 t 区间，三个区间的交集非空才算射中 AABB。
         for (int axis = 0; axis < 3; ++axis) {
-            if (std::abs(directions[axis]) < parallel_epsilon) {
+            const float direction = ray.direction[axis];
+            if (std::abs(direction) < kParallelDirectionEpsilon) {
                 // 射线几乎平行于该轴的 slab；如果起点不在 slab 内，就永远无法进入盒子。
-                if (origins[axis] < bounds_min[axis] || origins[axis] > bounds_max[axis]) {
+                if (ray.origin[axis] < min[axis] || ray.origin[axis] > max[axis]) {
                     return false;
                 }
                 continue;
             }
 
-            const double inv_direction = 1.0 / directions[axis];
-            double near_t = (bounds_min[axis] - origins[axis]) * inv_direction;
-            double far_t = (bounds_max[axis] - origins[axis]) * inv_direction;
+            const float safe_direction = std::copysign(
+                std::max(std::abs(direction), kParallelDirectionEpsilon),
+                direction);
+            const float inv_direction = 1.0f / safe_direction;
+            float near_t = (min[axis] - ray.origin[axis]) * inv_direction;
+            float far_t = (max[axis] - ray.origin[axis]) * inv_direction;
             if (near_t > far_t) {
                 std::swap(near_t, far_t);
             }

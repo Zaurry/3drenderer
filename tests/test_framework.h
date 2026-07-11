@@ -12,7 +12,7 @@ inline void test_check(bool condition, const char* expression, const char* file,
     }
 }
 
-inline bool nearly_equal(double a, double b, double eps = 1e-9) {
+inline bool nearly_equal(float a, float b, float eps = 1e-5f) {
     return std::abs(a - b) <= eps;
 }
 

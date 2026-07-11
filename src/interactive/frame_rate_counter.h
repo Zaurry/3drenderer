@@ -9,21 +9,21 @@ namespace renderer {
 struct FrameRateSnapshot {
     bool valid = false;
     int frames = 0;
-    double frames_per_second = 0.0;
-    double milliseconds_per_frame = 0.0;
+    float frames_per_second = 0.0f;
+    float milliseconds_per_frame = 0.0f;
 };
 
 class FrameRateCounter {
 public:
-    explicit FrameRateCounter(double update_interval_seconds = 0.5);
+    explicit FrameRateCounter(float update_interval_seconds = 0.5f);
 
-    bool tick(double frame_seconds);
+    bool tick(float frame_seconds);
     void reset();
     const FrameRateSnapshot& snapshot() const;
 
 private:
-    double update_interval_seconds_ = 0.5;
-    double accumulated_seconds_ = 0.0;
+    float update_interval_seconds_ = 0.5f;
+    float accumulated_seconds_ = 0.0f;
     int accumulated_frames_ = 0;
     FrameRateSnapshot snapshot_;
 };

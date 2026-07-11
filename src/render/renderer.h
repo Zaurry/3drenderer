@@ -9,7 +9,7 @@ namespace renderer {
 
 struct RenderResult {
     Image image;
-    double seconds = 0.0;
+    float seconds = 0.0f;
 };
 
 class IRenderer {

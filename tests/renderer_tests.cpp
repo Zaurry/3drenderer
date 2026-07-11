@@ -10,8 +10,11 @@
 #include "core/math/vec2.h"
 #include "core/math/vec3.h"
 #include "core/math/vec4.h"
+#include "core/random.h"
+#include "core/timer.h"
 #include "interactive/frame_rate_counter.h"
 #include "interactive/orbit_camera_controller.h"
+#include "render/renderer.h"
 #include "render/render_settings.h"
 #include "render/depth_buffer.h"
 #include "render/framebuffer.h"
@@ -44,6 +47,7 @@
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 static_assert(std::is_same_v<renderer::Scalar, float>);
@@ -53,6 +57,11 @@ static_assert(std::is_same_v<renderer::Vec4, Eigen::Vector4f>);
 static_assert(std::is_same_v<renderer::Mat3, Eigen::Matrix3f>);
 static_assert(std::is_same_v<renderer::Mat4, Eigen::Matrix4f>);
 static_assert(std::is_same_v<renderer::Color, Eigen::Vector3f>);
+static_assert(std::is_same_v<decltype(renderer::PcgRandom().next_float()), float>);
+static_assert(std::is_same_v<decltype(renderer::Timer().elapsed_seconds()), float>);
+static_assert(std::is_same_v<decltype(std::declval<renderer::RenderResult>().seconds), float>);
+static_assert(std::is_same_v<decltype(std::declval<renderer::FrameRateSnapshot>().frames_per_second), float>);
+static_assert(std::is_same_v<decltype(std::declval<renderer::Camera>().viewport_width()), float>);
 
 void test_vec3_arithmetic() {
     renderer::Vec3 a(1.0, 2.0, 3.0);
@@ -107,8 +116,8 @@ void test_vec3_arithmetic() {
 
     renderer::Vec3 n = renderer::normalize(renderer::Vec3(0, 3, 4));
     RENDER_CHECK(nearly_equal(renderer::length(n), 1.0));
-    RENDER_CHECK(nearly_equal(n.y(), 0.6, 1e-6));
-    RENDER_CHECK(nearly_equal(n.z(), 0.8, 1e-6));
+    RENDER_CHECK(nearly_equal(n.y(), 0.6f, 1e-6f));
+    RENDER_CHECK(nearly_equal(n.z(), 0.8f, 1e-6f));
 }
 
 void test_mat4_composition_order() {
@@ -132,10 +141,10 @@ void test_mat4_perspective_uses_degrees_and_ndc_depth() {
     RENDER_CHECK(nearly_equal(p(3, 2), -1.0));
 
     const renderer::Vec4 near_clip = p * renderer::Vec4(0.0f, 0.0f, -1.0f, 1.0f);
-    RENDER_CHECK(nearly_equal(near_clip.z() / near_clip.w(), -1.0, 1e-6));
+    RENDER_CHECK(nearly_equal(near_clip.z() / near_clip.w(), -1.0f, 1e-6f));
 
     const renderer::Vec4 far_clip = p * renderer::Vec4(0.0f, 0.0f, -10.0f, 1.0f);
-    RENDER_CHECK(nearly_equal(far_clip.z() / far_clip.w(), 1.0, 1e-6));
+    RENDER_CHECK(nearly_equal(far_clip.z() / far_clip.w(), 1.0f, 1e-6f));
 }
 
 void check_perspective_invalid_input_throws(
@@ -263,8 +272,8 @@ void test_camera_center_ray_points_forward() {
         1.0);
 
     renderer::Ray ray = camera.generate_ray(0.5, 0.5);
-    RENDER_CHECK(nearly_equal(ray.direction.x(), 0.0, 1e-6));
-    RENDER_CHECK(nearly_equal(ray.direction.y(), 0.0, 1e-6));
+    RENDER_CHECK(nearly_equal(ray.direction.x(), 0.0f, 1e-6f));
+    RENDER_CHECK(nearly_equal(ray.direction.y(), 0.0f, 1e-6f));
     RENDER_CHECK(ray.direction.z() < -0.999);
 }
 
@@ -278,7 +287,7 @@ void test_camera_rejects_non_finite_screen_coordinates() {
 
     bool threw_nan_u = false;
     try {
-        camera.generate_ray(std::numeric_limits<double>::quiet_NaN(), 0.5);
+        camera.generate_ray(std::numeric_limits<float>::quiet_NaN(), 0.5f);
     } catch (const std::invalid_argument&) {
         threw_nan_u = true;
     }
@@ -286,7 +295,7 @@ void test_camera_rejects_non_finite_screen_coordinates() {
 
     bool threw_infinite_v = false;
     try {
-        camera.generate_ray(0.5, std::numeric_limits<double>::infinity());
+        camera.generate_ray(0.5f, std::numeric_limits<float>::infinity());
     } catch (const std::invalid_argument&) {
         threw_infinite_v = true;
     }
@@ -296,16 +305,16 @@ void test_camera_rejects_non_finite_screen_coordinates() {
 void test_ray_and_bounds_intersection() {
     renderer::Ray ray(renderer::Vec3(0, 0, -5), renderer::Vec3(0, 0, 1));
     renderer::Bounds3 box(renderer::Vec3(-1, -1, -1), renderer::Vec3(1, 1, 1));
-    RENDER_CHECK(box.intersect(ray, 0.001, 1000.0));
+    RENDER_CHECK(box.intersect(ray, 0.001f, 1000.0f));
 
     renderer::Ray miss(renderer::Vec3(5, 5, -5), renderer::Vec3(0, 0, 1));
-    RENDER_CHECK(!box.intersect(miss, 0.001, 1000.0));
+    RENDER_CHECK(!box.intersect(miss, 0.001f, 1000.0f));
 }
 
 void test_bounds_intersection_counts_corner_touch_as_hit() {
     renderer::Bounds3 box(renderer::Vec3(-1, -1, -1), renderer::Vec3(1, 1, 1));
     renderer::Ray corner_touch(renderer::Vec3(-2, -2, 1), renderer::Vec3(1, 1, 0));
-    RENDER_CHECK(box.intersect(corner_touch, 0.001, 1000.0));
+    RENDER_CHECK(box.intersect(corner_touch, 0.001f, 1000.0f));
 }
 
 void test_image_invalid_dimensions_throw_invalid_argument() {
@@ -344,8 +353,8 @@ void test_image_stores_gamma_corrected_pixels() {
 }
 
 void test_to_rgb8_uses_standard_srgb_transfer_curve() {
-    RENDER_CHECK(renderer::channel_to_rgb8(0.0031308) == 10);
-    RENDER_CHECK(renderer::channel_to_rgb8(0.5) == 188);
+    RENDER_CHECK(renderer::channel_to_rgb8(0.0031308f) == 10);
+    RENDER_CHECK(renderer::channel_to_rgb8(0.5f) == 188);
 }
 
 void test_to_rgb8_sanitizes_non_finite_channels() {
@@ -360,11 +369,11 @@ void test_to_rgb8_sanitizes_non_finite_channels() {
 
 void test_orbit_camera_controller_zoom_and_orbit_change_camera() {
     renderer::Bounds3 bounds(renderer::Vec3(-1, 0, -1), renderer::Vec3(1, 2, 1));
-    renderer::OrbitCameraController controller(bounds, 1.0);
+    renderer::OrbitCameraController controller(bounds, 1.0f);
     renderer::Camera before = controller.camera();
 
-    controller.orbit(0.5, 0.25);
-    controller.zoom(-1.0);
+    controller.orbit(0.5f, 0.25f);
+    controller.zoom(-1.0f);
     renderer::Camera after = controller.camera();
 
     RENDER_CHECK(renderer::length(after.eye() - before.eye()) > 0.001);
@@ -373,21 +382,21 @@ void test_orbit_camera_controller_zoom_and_orbit_change_camera() {
 
 void test_orbit_camera_controller_horizontal_drag_tracks_scene_direction() {
     renderer::Bounds3 bounds(renderer::Vec3(-1, 0, -1), renderer::Vec3(1, 2, 1));
-    renderer::OrbitCameraController controller(bounds, 1.0);
-    const double before_x = controller.camera().eye().x();
+    renderer::OrbitCameraController controller(bounds, 1.0f);
+    const float before_x = controller.camera().eye().x();
 
-    controller.orbit(25.0, 0.0);
-    const double after_x = controller.camera().eye().x();
+    controller.orbit(25.0f, 0.0f);
+    const float after_x = controller.camera().eye().x();
 
     RENDER_CHECK(after_x < before_x);
 }
 
 void test_frame_rate_counter_reports_window_average() {
-    renderer::FrameRateCounter counter(0.25);
+    renderer::FrameRateCounter counter(0.25f);
     RENDER_CHECK(!counter.snapshot().valid);
-    RENDER_CHECK(!counter.tick(0.10));
+    RENDER_CHECK(!counter.tick(0.10f));
 
-    RENDER_CHECK(counter.tick(0.15));
+    RENDER_CHECK(counter.tick(0.15f));
     const renderer::FrameRateSnapshot snapshot = counter.snapshot();
     RENDER_CHECK(snapshot.valid);
     RENDER_CHECK(snapshot.frames == 2);
@@ -412,7 +421,7 @@ void test_viewer_title_format_includes_fps_and_path_samples() {
     snapshot.valid = true;
     snapshot.frames = 3;
     snapshot.frames_per_second = 60.0;
-    snapshot.milliseconds_per_frame = 16.666;
+    snapshot.milliseconds_per_frame = 16.666f;
 
     const std::string path_title = renderer::format_viewer_title(
         renderer::InteractiveRenderMode::Path,
@@ -465,7 +474,7 @@ void test_sphere_intersection() {
     renderer::Ray ray(renderer::Vec3(0, 0, -5), renderer::Vec3(0, 0, 1));
     renderer::HitRecord hit;
     RENDER_CHECK(sphere.intersect(ray, 0.001, 1000.0, hit));
-    RENDER_CHECK(nearly_equal(hit.t, 4.0));
+    RENDER_CHECK(nearly_equal(static_cast<float>(hit.t), 4.0f));
     RENDER_CHECK(nearly_equal(hit.position.z(), -1.0));
     RENDER_CHECK(nearly_equal(renderer::length(hit.shading_normal), 1.0));
     RENDER_CHECK(hit.material_id == 0);
@@ -574,7 +583,7 @@ void test_sphere_inside_ray_reports_back_face() {
     renderer::HitRecord hit;
     RENDER_CHECK(sphere.intersect(ray, 0.001, 1000.0, hit));
     RENDER_CHECK(!hit.front_face);
-    RENDER_CHECK(nearly_equal(hit.t, 1.0));
+    RENDER_CHECK(nearly_equal(static_cast<float>(hit.t), 1.0f));
     RENDER_CHECK(nearly_equal(hit.shading_normal.z(), -1.0));
 }
 
@@ -755,7 +764,7 @@ void check_bvh_matches_bruteforce(
         return;
     }
 
-    RENDER_CHECK(nearly_equal(bvh_hit.t, brute_force_hit.t));
+    RENDER_CHECK(nearly_equal(static_cast<float>(bvh_hit.t), static_cast<float>(brute_force_hit.t)));
     RENDER_CHECK(bvh_hit.material_id == brute_force_hit.material_id);
     RENDER_CHECK(nearly_equal(bvh_hit.position.x(), brute_force_hit.position.x()));
     RENDER_CHECK(nearly_equal(bvh_hit.position.y(), brute_force_hit.position.y()));
@@ -1082,7 +1091,7 @@ void test_cosine_sample_is_in_upper_hemisphere() {
     for (int i = 0; i < 100; ++i) {
         renderer::Vec3 d = renderer::cosine_weighted_hemisphere(rng);
         RENDER_CHECK(d.z() >= -1e-9);
-        RENDER_CHECK(nearly_equal(renderer::length(d), 1.0, 1e-6));
+        RENDER_CHECK(nearly_equal(renderer::length(d), 1.0f, 1e-6f));
     }
 }
 
@@ -1288,7 +1297,7 @@ void test_perspective_correct_weights_favor_near_vertex() {
         renderer::Vec3(1.0f, 2.0f, 4.0f));
     RENDER_CHECK(corrected.x() > corrected.y());
     RENDER_CHECK(corrected.y() > corrected.z());
-    RENDER_CHECK(nearly_equal(corrected.x() + corrected.y() + corrected.z(), 1.0, 1e-6));
+    RENDER_CHECK(nearly_equal(corrected.x() + corrected.y() + corrected.z(), 1.0f, 1e-6f));
 }
 
 void test_near_plane_clipping_keeps_visible_triangle_portion() {
@@ -1758,14 +1767,14 @@ void test_scene_asset_loader_imports_alpha_and_bump_maps() {
 
     const renderer::LoadedScene loaded = renderer::load_scene_asset(obj_path, 64, 64);
     const renderer::Material& material = loaded.scene.materials[0];
-    RENDER_CHECK(nearly_equal(material.opacity, 0.8, 1e-6));
+    RENDER_CHECK(nearly_equal(static_cast<float>(material.opacity), 0.8f, 1e-6f));
     RENDER_CHECK(material.diffuse_texture_id >= 0);
     RENDER_CHECK(material.opacity_texture_id >= 0);
     RENDER_CHECK(material.bump_texture_id >= 0);
     RENDER_CHECK(material.diffuse_texture_id != material.opacity_texture_id);
     RENDER_CHECK(material.opacity_texture_id == material.bump_texture_id);
     RENDER_CHECK(loaded.scene.textures.size() == 2);
-    RENDER_CHECK(nearly_equal(material.bump_scale, 0.25, 1e-6));
+    RENDER_CHECK(nearly_equal(static_cast<float>(material.bump_scale), 0.25f, 1e-6f));
     RENDER_CHECK(
         loaded.scene.textures[static_cast<std::size_t>(material.opacity_texture_id)]
             .sample_scalar(renderer::Vec2::Zero()) > 0.49);

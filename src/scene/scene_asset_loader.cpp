@@ -306,8 +306,8 @@ Camera make_default_camera(const Bounds3& bounds, int width, int height) {
             static_cast<float>(radius * 2.4)),
         center,
         Vec3(0.0f, 1.0f, 0.0f),
-        45.0,
-        aspect);
+        45.0f,
+        static_cast<float>(aspect));
 }
 
 }  // namespace

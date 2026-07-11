@@ -11,8 +11,8 @@ struct Ray {
     Ray(const Vec3& ray_origin, const Vec3& ray_direction)
         : origin(ray_origin), direction(ray_direction) {}
 
-    Vec3 at(double t) const {
-        return origin + direction * static_cast<float>(t);
+    Vec3 at(float t) const {
+        return origin + direction * t;
     }
 };
 

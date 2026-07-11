@@ -114,9 +114,9 @@ renderer::Camera make_camera(
     return renderer::Camera(
         eye,
         target,
-        renderer::Vec3(0.0, 1.0, 0.0),
-        vertical_fov_degrees,
-        static_cast<double>(width) / static_cast<double>(height));
+        renderer::Vec3(0.0f, 1.0f, 0.0f),
+        static_cast<float>(vertical_fov_degrees),
+        static_cast<float>(width) / static_cast<float>(height));
 }
 
 SceneBundle make_obj_scene(const CliOptions& options) {

@@ -22,16 +22,16 @@ inline Color clamp_color(const Color& color) {
         std::clamp(color.z(), 0.0f, 1.0f));
 }
 
-inline unsigned char channel_to_rgb8(double linear_channel) {
+inline unsigned char channel_to_rgb8(float linear_channel) {
     if (!std::isfinite(linear_channel)) {
-        return linear_channel > 0.0 ? 255 : 0;
+        return linear_channel > 0.0f ? 255 : 0;
     }
 
-    const double clamped = std::clamp(linear_channel, 0.0, 1.0);
-    const double srgb = clamped <= 0.0031308
-        ? clamped * 12.92
-        : 1.055 * std::pow(clamped, 1.0 / 2.4) - 0.055;
-    return static_cast<unsigned char>(std::round(srgb * 255.0));
+    const float clamped = std::clamp(linear_channel, 0.0f, 1.0f);
+    const float srgb = clamped <= 0.0031308f
+        ? clamped * 12.92f
+        : 1.055f * std::pow(clamped, 1.0f / 2.4f) - 0.055f;
+    return static_cast<unsigned char>(std::round(srgb * 255.0f));
 }
 
 inline Rgb8 to_rgb8(const Color& linear_color) {

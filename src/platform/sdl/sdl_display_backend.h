@@ -15,9 +15,9 @@ struct InputState {
     int window_height = 0;
 
     bool left_mouse_down = false;
-    double mouse_delta_x = 0.0;
-    double mouse_delta_y = 0.0;
-    double wheel_delta = 0.0;
+    float mouse_delta_x = 0.0f;
+    float mouse_delta_y = 0.0f;
+    float wheel_delta = 0.0f;
 
     bool select_raster = false;
     bool select_ray = false;

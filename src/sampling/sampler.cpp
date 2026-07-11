@@ -12,8 +12,8 @@ constexpr double kPi = 3.14159265358979323846;
 }
 
 Vec3 cosine_weighted_hemisphere(PcgRandom& rng) {
-    const double r1 = rng.next_double();
-    const double r2 = rng.next_double();
+    const float r1 = rng.next_float();
+    const float r2 = rng.next_float();
     const double phi = 2.0 * kPi * r1;
     const double radius = std::sqrt(r2);
     const double x = radius * std::cos(phi);
@@ -28,9 +28,9 @@ Vec3 cosine_weighted_hemisphere(PcgRandom& rng) {
 Vec3 random_in_unit_sphere(PcgRandom& rng) {
     for (int attempt = 0; attempt < 1024; ++attempt) {
         const Vec3 p(
-            static_cast<float>(2.0 * rng.next_double() - 1.0),
-            static_cast<float>(2.0 * rng.next_double() - 1.0),
-            static_cast<float>(2.0 * rng.next_double() - 1.0));
+            2.0f * rng.next_float() - 1.0f,
+            2.0f * rng.next_float() - 1.0f,
+            2.0f * rng.next_float() - 1.0f);
         if (length_squared(p) < 1.0f) {
             return p;
         }

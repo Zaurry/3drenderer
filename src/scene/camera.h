@@ -11,24 +11,24 @@ public:
         const Vec3& eye,
         const Vec3& target,
         const Vec3& up,
-        double vertical_fov_degrees,
-        double aspect_ratio);
+        float vertical_fov_degrees,
+        float aspect_ratio);
 
-    Ray generate_ray(double u, double v) const;
+    Ray generate_ray(float u, float v) const;
     const Vec3& eye() const;
     const Vec3& forward() const;
     const Vec3& right() const;
     const Vec3& up() const;
-    double viewport_width() const;
-    double viewport_height() const;
+    float viewport_width() const;
+    float viewport_height() const;
 
 private:
     Vec3 eye_;
     Vec3 forward_;
     Vec3 right_;
     Vec3 true_up_;
-    double viewport_width_;
-    double viewport_height_;
+    float viewport_width_ = 0.0f;
+    float viewport_height_ = 0.0f;
 };
 
 }  // namespace renderer

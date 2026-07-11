@@ -46,8 +46,8 @@ RenderResult RayTracerRenderer::render(const Scene& scene, const Camera& camera,
 
     for (int y = 0; y < settings.height; ++y) {
         for (int x = 0; x < settings.width; ++x) {
-            const double u = (static_cast<double>(x) + 0.5) / static_cast<double>(settings.width);
-            const double v = 1.0 - (static_cast<double>(y) + 0.5) / static_cast<double>(settings.height);
+            const float u = (static_cast<float>(x) + 0.5f) / static_cast<float>(settings.width);
+            const float v = 1.0f - (static_cast<float>(y) + 0.5f) / static_cast<float>(settings.height);
             // Primary ray：每个像素从相机出发打一条主光线，找到屏幕上能看到的第一个表面。
             const Ray ray = camera.generate_ray(u, v);
             image.set_pixel(x, y, trace_ray(ray, scene, intersector, settings.max_depth, settings));

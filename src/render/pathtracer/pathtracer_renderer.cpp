@@ -110,11 +110,11 @@ RenderResult PathTracerRenderer::render(const Scene& scene, const Camera& camera
                     Color accumulated = black();
 
                     for (int sample = 0; sample < samples_per_pixel; ++sample) {
-                        const double u =
-                            (static_cast<double>(x) + rng.next_double()) / static_cast<double>(settings.width);
-                        const double v =
-                            1.0 -
-                            (static_cast<double>(y) + rng.next_double()) / static_cast<double>(settings.height);
+                        const float u =
+                            (static_cast<float>(x) + rng.next_float()) / static_cast<float>(settings.width);
+                        const float v =
+                            1.0f -
+                            (static_cast<float>(y) + rng.next_float()) / static_cast<float>(settings.height);
                         accumulated += trace_path(
                             camera.generate_ray(u, v),
                             scene,
@@ -230,7 +230,7 @@ bool PathTracerRenderer::scatter(
         Vec3 refracted;
         const bool can_refract = refract(unit_direction, shading_normal, refraction_ratio, refracted);
         const bool choose_reflection =
-            !can_refract || reflectance(cos_theta, refraction_ratio) > rng.next_double();
+            !can_refract || reflectance(cos_theta, refraction_ratio) > rng.next_float();
         const Vec3 scatter_direction = choose_reflection
             ? reflect(unit_direction, shading_normal)
             : refracted;

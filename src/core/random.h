@@ -24,9 +24,9 @@ public:
         return (xorshifted >> rot) | (xorshifted << ((0U - rot) & 31U));
     }
 
-    double next_double() {
-        constexpr double scale = 1.0 / 4294967296.0;
-        return static_cast<double>(next_u32()) * scale;
+    float next_float() {
+        constexpr float scale = 1.0f / 16777216.0f;
+        return static_cast<float>(next_u32() >> 8U) * scale;
     }
 
 private:
@@ -38,17 +38,17 @@ class Random {
 public:
     explicit Random(unsigned int seed = 1) : engine_(seed) {}
 
-    double next_double() {
+    float next_float() {
         return distribution_(engine_);
     }
 
-    double next_double(double min_value, double max_value) {
-        return min_value + (max_value - min_value) * next_double();
+    float next_float(float min_value, float max_value) {
+        return min_value + (max_value - min_value) * next_float();
     }
 
 private:
     std::mt19937 engine_;
-    std::uniform_real_distribution<double> distribution_{0.0, 1.0};
+    std::uniform_real_distribution<float> distribution_{0.0f, 1.0f};
 };
 
 }  // namespace renderer

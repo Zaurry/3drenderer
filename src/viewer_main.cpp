@@ -140,8 +140,8 @@ renderer::Camera make_camera_from_bounds(const renderer::Bounds3& bounds, int wi
             static_cast<float>(radius * 2.4)),
         center,
         renderer::Vec3(0.0f, 1.0f, 0.0f),
-        45.0,
-        static_cast<double>(width) / static_cast<double>(height));
+        45.0f,
+        static_cast<float>(width) / static_cast<float>(height));
 }
 
 ViewerScene load_viewer_scene(const ViewerOptions& options) {
@@ -211,7 +211,9 @@ int main(int argc, char** argv) {
         settings.max_depth = 4;
         settings.thread_count = 1;
 
-        renderer::OrbitCameraController camera_controller(viewer_scene.bounds, static_cast<double>(options.width) / options.height);
+        renderer::OrbitCameraController camera_controller(
+            viewer_scene.bounds,
+            static_cast<float>(options.width) / static_cast<float>(options.height));
         std::unique_ptr<renderer::InteractiveRenderSession> session = make_session(options.mode);
         session->reset(viewer_scene.scene, settings);
         renderer::FrameRateCounter frame_rate_counter;
@@ -255,7 +257,8 @@ int main(int argc, char** argv) {
                 settings.width = input.window_width;
                 settings.height = input.window_height;
                 framebuffer.resize(settings.width, settings.height);
-                camera_controller.set_aspect_ratio(static_cast<double>(settings.width) / settings.height);
+                camera_controller.set_aspect_ratio(
+                    static_cast<float>(settings.width) / static_cast<float>(settings.height));
                 frame_state.framebuffer_resized = true;
             }
             if (input.left_mouse_down && (input.mouse_delta_x != 0.0 || input.mouse_delta_y != 0.0)) {
@@ -277,7 +280,7 @@ int main(int argc, char** argv) {
                 accumulated_path_samples = path_session->accumulated_samples();
             }
             const auto frame_end = std::chrono::steady_clock::now();
-            const double frame_seconds = std::chrono::duration<double>(frame_end - now).count();
+            const float frame_seconds = std::chrono::duration<float>(frame_end - now).count();
             if (frame_rate_counter.tick(frame_seconds) || mode_changed || rendered_frames == 1) {
                 display.set_title(renderer::format_viewer_title(
                     options.mode,

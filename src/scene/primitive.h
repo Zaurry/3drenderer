@@ -105,7 +105,7 @@ public:
         }
 
         hit.t = root;
-        hit.position = ray.at(root);
+        hit.position = ray.at(static_cast<float>(root));
         const Vec3 outward_normal = (hit.position - center_) / static_cast<float>(radius_);
         hit.set_normals(ray, outward_normal, outward_normal);
         make_orthonormal_basis(hit.shading_normal, hit.tangent, hit.bitangent);
@@ -198,7 +198,7 @@ public:
         }
 
         hit.t = t;
-        hit.position = ray.at(t);
+        hit.position = ray.at(static_cast<float>(t));
         const double w0 = 1.0 - u - v;
         const Vec3 outward_geometric = normalize(cross(edge1, edge2));
         const Vec3 outward_shading = interpolate_shading_normal(w0, u, v);

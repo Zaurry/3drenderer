@@ -12,8 +12,8 @@ public:
         start_ = Clock::now();
     }
 
-    double elapsed_seconds() const {
-        return std::chrono::duration<double>(Clock::now() - start_).count();
+    float elapsed_seconds() const {
+        return std::chrono::duration<float>(Clock::now() - start_).count();
     }
 
 private:
