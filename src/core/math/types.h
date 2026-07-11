@@ -10,9 +10,8 @@ using Vec2 = Eigen::Vector2f;
 using Vec3 = Eigen::Vector3f;
 using Vec4 = Eigen::Vector4f;
 using Mat3 = Eigen::Matrix3f;
+using Mat4 = Eigen::Matrix4f;
 using Color = Eigen::Vector3f;
-
-// Mat4 deliberately remains the custom implementation until Task 3.
 
 inline float dot(const Vec3& a, const Vec3& b) { return a.dot(b); }
 inline Vec3 cross(const Vec3& a, const Vec3& b) { return a.cross(b); }

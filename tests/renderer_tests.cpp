@@ -51,6 +51,7 @@ static_assert(std::is_same_v<renderer::Vec2, Eigen::Vector2f>);
 static_assert(std::is_same_v<renderer::Vec3, Eigen::Vector3f>);
 static_assert(std::is_same_v<renderer::Vec4, Eigen::Vector4f>);
 static_assert(std::is_same_v<renderer::Mat3, Eigen::Matrix3f>);
+static_assert(std::is_same_v<renderer::Mat4, Eigen::Matrix4f>);
 static_assert(std::is_same_v<renderer::Color, Eigen::Vector3f>);
 
 void test_vec3_arithmetic() {
@@ -110,20 +111,12 @@ void test_vec3_arithmetic() {
     RENDER_CHECK(nearly_equal(n.z(), 0.8, 1e-6));
 }
 
-void test_mat4_translation_and_perspective_divide() {
-    renderer::Mat4 t = renderer::Mat4::translation(renderer::Vec3(2, 3, 4));
-    renderer::Vec4 p = t * renderer::Vec4(1, 1, 1, 1);
-    RENDER_CHECK(nearly_equal(p.x(), 3.0));
-    RENDER_CHECK(nearly_equal(p.y(), 4.0));
-    RENDER_CHECK(nearly_equal(p.z(), 5.0));
-    RENDER_CHECK(nearly_equal(p.w(), 1.0));
-}
-
 void test_mat4_composition_order() {
-    renderer::Mat4 transform =
-        renderer::Mat4::translation(renderer::Vec3(1, 2, 3)) *
-        renderer::Mat4::scale(renderer::Vec3(2, 3, 4));
-    renderer::Vec4 p = transform * renderer::Vec4(1, 1, 1, 1);
+    const renderer::Mat4 transform =
+        (Eigen::Translation3f(renderer::Vec3(1.0f, 2.0f, 3.0f)) *
+         Eigen::Scaling(2.0f, 3.0f, 4.0f))
+            .matrix();
+    const renderer::Vec4 p = transform * renderer::Vec4(1.0f, 1.0f, 1.0f, 1.0f);
     RENDER_CHECK(nearly_equal(p.x(), 3.0));
     RENDER_CHECK(nearly_equal(p.y(), 5.0));
     RENDER_CHECK(nearly_equal(p.z(), 7.0));
@@ -131,24 +124,28 @@ void test_mat4_composition_order() {
 }
 
 void test_mat4_perspective_uses_degrees_and_ndc_depth() {
-    renderer::Mat4 p = renderer::Mat4::perspective(90.0, 1.0, 1.0, 10.0);
-    RENDER_CHECK(nearly_equal(p.m[1][1], 1.0));
+    const renderer::Mat4 p = renderer::make_perspective_matrix(90.0f, 1.0f, 1.0f, 10.0f);
+    RENDER_CHECK(nearly_equal(p(0, 0), 1.0));
+    RENDER_CHECK(nearly_equal(p(1, 1), 1.0));
+    RENDER_CHECK(nearly_equal(p(2, 2), -11.0f / 9.0f));
+    RENDER_CHECK(nearly_equal(p(2, 3), -20.0f / 9.0f));
+    RENDER_CHECK(nearly_equal(p(3, 2), -1.0));
 
-    renderer::Vec4 near_clip = p * renderer::Vec4(0, 0, -1, 1);
-    RENDER_CHECK(nearly_equal(near_clip.z() / near_clip.w(), -1.0));
+    const renderer::Vec4 near_clip = p * renderer::Vec4(0.0f, 0.0f, -1.0f, 1.0f);
+    RENDER_CHECK(nearly_equal(near_clip.z() / near_clip.w(), -1.0, 1e-6));
 
-    renderer::Vec4 far_clip = p * renderer::Vec4(0, 0, -10, 1);
-    RENDER_CHECK(nearly_equal(far_clip.z() / far_clip.w(), 1.0));
+    const renderer::Vec4 far_clip = p * renderer::Vec4(0.0f, 0.0f, -10.0f, 1.0f);
+    RENDER_CHECK(nearly_equal(far_clip.z() / far_clip.w(), 1.0, 1e-6));
 }
 
 void check_perspective_invalid_input_throws(
-    double vertical_fov_degrees,
-    double aspect,
-    double near_z,
-    double far_z) {
+    float vertical_fov_degrees,
+    float aspect,
+    float near_z,
+    float far_z) {
     bool threw = false;
     try {
-        renderer::Mat4::perspective(vertical_fov_degrees, aspect, near_z, far_z);
+        renderer::make_perspective_matrix(vertical_fov_degrees, aspect, near_z, far_z);
     } catch (const std::invalid_argument&) {
         threw = true;
     }
@@ -166,24 +163,36 @@ void test_mat4_perspective_invalid_inputs_throw() {
     check_perspective_invalid_input_throws(90.0, 1.0, -1.0, 10.0);
     check_perspective_invalid_input_throws(90.0, 1.0, 1.0, 1.0);
     check_perspective_invalid_input_throws(90.0, 1.0, 10.0, 1.0);
+    check_perspective_invalid_input_throws(
+        std::numeric_limits<float>::quiet_NaN(), 1.0f, 1.0f, 10.0f);
+    check_perspective_invalid_input_throws(
+        90.0f, std::numeric_limits<float>::infinity(), 1.0f, 10.0f);
+    check_perspective_invalid_input_throws(
+        90.0f, 1.0f, std::numeric_limits<float>::quiet_NaN(), 10.0f);
+    check_perspective_invalid_input_throws(
+        90.0f, 1.0f, 1.0f, -std::numeric_limits<float>::infinity());
 }
 
 void test_mat4_look_at() {
-    renderer::Mat4 view = renderer::Mat4::look_at(
-        renderer::Vec3(0, 0, 0),
-        renderer::Vec3(0, 0, -1),
-        renderer::Vec3(0, 1, 0));
-    renderer::Vec4 p = view * renderer::Vec4(0, 0, -1, 1);
+    const renderer::Mat4 view = renderer::make_look_at_matrix(
+        renderer::Vec3(0.0f, 0.0f, 0.0f),
+        renderer::Vec3(0.0f, 0.0f, -1.0f),
+        renderer::Vec3(0.0f, 1.0f, 0.0f));
+    RENDER_CHECK(nearly_equal(view(0, 0), 1.0));
+    RENDER_CHECK(nearly_equal(view(1, 1), 1.0));
+    RENDER_CHECK(nearly_equal(view(2, 2), 1.0));
+    RENDER_CHECK(nearly_equal(view(3, 3), 1.0));
+    const renderer::Vec4 p = view * renderer::Vec4(0.0f, 0.0f, -1.0f, 1.0f);
     RENDER_CHECK(nearly_equal(p.z(), -1.0));
 }
 
 void test_mat4_look_at_invalid_inputs_throw() {
     bool threw_eye_equals_target = false;
     try {
-        renderer::Mat4::look_at(
-            renderer::Vec3(0, 0, 0),
-            renderer::Vec3(0, 0, 0),
-            renderer::Vec3(0, 1, 0));
+        renderer::make_look_at_matrix(
+            renderer::Vec3(0.0f, 0.0f, 0.0f),
+            renderer::Vec3(0.0f, 0.0f, 0.0f),
+            renderer::Vec3(0.0f, 1.0f, 0.0f));
     } catch (const std::invalid_argument&) {
         threw_eye_equals_target = true;
     }
@@ -191,10 +200,10 @@ void test_mat4_look_at_invalid_inputs_throw() {
 
     bool threw_zero_up = false;
     try {
-        renderer::Mat4::look_at(
-            renderer::Vec3(0, 0, 0),
-            renderer::Vec3(0, 0, -1),
-            renderer::Vec3(0, 0, 0));
+        renderer::make_look_at_matrix(
+            renderer::Vec3(0.0f, 0.0f, 0.0f),
+            renderer::Vec3(0.0f, 0.0f, -1.0f),
+            renderer::Vec3(0.0f, 0.0f, 0.0f));
     } catch (const std::invalid_argument&) {
         threw_zero_up = true;
     }
@@ -202,14 +211,47 @@ void test_mat4_look_at_invalid_inputs_throw() {
 
     bool threw_parallel_up = false;
     try {
-        renderer::Mat4::look_at(
-            renderer::Vec3(0, 0, 0),
-            renderer::Vec3(0, 0, -1),
-            renderer::Vec3(0, 0, 1));
+        renderer::make_look_at_matrix(
+            renderer::Vec3(0.0f, 0.0f, 0.0f),
+            renderer::Vec3(0.0f, 0.0f, -1.0f),
+            renderer::Vec3(0.0f, 0.0f, 1.0f));
     } catch (const std::invalid_argument&) {
         threw_parallel_up = true;
     }
     RENDER_CHECK(threw_parallel_up);
+
+    bool threw_non_finite_eye = false;
+    try {
+        renderer::make_look_at_matrix(
+            renderer::Vec3(std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f),
+            renderer::Vec3(0.0f, 0.0f, -1.0f),
+            renderer::Vec3(0.0f, 1.0f, 0.0f));
+    } catch (const std::invalid_argument&) {
+        threw_non_finite_eye = true;
+    }
+    RENDER_CHECK(threw_non_finite_eye);
+
+    bool threw_non_finite_target = false;
+    try {
+        renderer::make_look_at_matrix(
+            renderer::Vec3(0.0f, 0.0f, 0.0f),
+            renderer::Vec3(0.0f, std::numeric_limits<float>::infinity(), -1.0f),
+            renderer::Vec3(0.0f, 1.0f, 0.0f));
+    } catch (const std::invalid_argument&) {
+        threw_non_finite_target = true;
+    }
+    RENDER_CHECK(threw_non_finite_target);
+
+    bool threw_non_finite_up = false;
+    try {
+        renderer::make_look_at_matrix(
+            renderer::Vec3(0.0f, 0.0f, 0.0f),
+            renderer::Vec3(0.0f, 0.0f, -1.0f),
+            renderer::Vec3(0.0f, 1.0f, -std::numeric_limits<float>::infinity()));
+    } catch (const std::invalid_argument&) {
+        threw_non_finite_up = true;
+    }
+    RENDER_CHECK(threw_non_finite_up);
 }
 
 void test_camera_center_ray_points_forward() {
@@ -1806,7 +1848,6 @@ void test_scene_asset_loader_preserves_obj_mtl_materials() {
 int main() {
     RENDER_CHECK(1 + 1 == 2);
     test_vec3_arithmetic();
-    test_mat4_translation_and_perspective_divide();
     test_mat4_composition_order();
     test_mat4_perspective_uses_degrees_and_ndc_depth();
     test_mat4_perspective_invalid_inputs_throw();
