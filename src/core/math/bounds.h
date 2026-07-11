@@ -15,15 +15,15 @@ struct Bounds3 {
 
     Bounds3()
         : min(
-              std::numeric_limits<double>::infinity(),
-              std::numeric_limits<double>::infinity(),
-              std::numeric_limits<double>::infinity()),
+              std::numeric_limits<float>::infinity(),
+              std::numeric_limits<float>::infinity(),
+              std::numeric_limits<float>::infinity()),
           max(
-              -std::numeric_limits<double>::infinity(),
-              -std::numeric_limits<double>::infinity(),
-              -std::numeric_limits<double>::infinity()) {}
+              -std::numeric_limits<float>::infinity(),
+              -std::numeric_limits<float>::infinity(),
+              -std::numeric_limits<float>::infinity()) {}
 
-    constexpr Bounds3(const Vec3& min_point, const Vec3& max_point)
+    Bounds3(const Vec3& min_point, const Vec3& max_point)
         : min(min_point), max(max_point) {}
 
     void expand(const Vec3& p) {
@@ -36,26 +36,26 @@ struct Bounds3 {
         expand(bounds.max);
     }
 
-    constexpr Vec3 extent() const {
+    Vec3 extent() const {
         return max - min;
     }
 
     int longest_axis() const {
         const Vec3 size = extent();
-        if (size.x >= size.y && size.x >= size.z) {
+        if (size.x() >= size.y() && size.x() >= size.z()) {
             return 0;
         }
-        if (size.y >= size.z) {
+        if (size.y() >= size.z()) {
             return 1;
         }
         return 2;
     }
 
     bool intersect(const Ray& ray, double t_min, double t_max) const {
-        const double origins[3] = {ray.origin.x, ray.origin.y, ray.origin.z};
-        const double directions[3] = {ray.direction.x, ray.direction.y, ray.direction.z};
-        const double bounds_min[3] = {min.x, min.y, min.z};
-        const double bounds_max[3] = {max.x, max.y, max.z};
+        const double origins[3] = {ray.origin.x(), ray.origin.y(), ray.origin.z()};
+        const double directions[3] = {ray.direction.x(), ray.direction.y(), ray.direction.z()};
+        const double bounds_min[3] = {min.x(), min.y(), min.z()};
+        const double bounds_max[3] = {max.x(), max.y(), max.z()};
         constexpr double parallel_epsilon = 1e-12;
 
         // Slab 法：每个坐标轴给出一段可命中的 t 区间，三个区间的交集非空才算射中 AABB。

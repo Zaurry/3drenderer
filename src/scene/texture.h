@@ -16,7 +16,7 @@ struct Scene;
 enum class TextureEncoding { Srgb, Linear };
 
 struct ConstantTexture {
-    Color color;
+    Color color = Color::Zero();
 
     Color sample(const Vec2& uv, const Vec3& p) const {
         (void)uv;
@@ -26,13 +26,13 @@ struct ConstantTexture {
 };
 
 struct CheckerTexture {
-    Color even;
-    Color odd;
+    Color even = Color::Zero();
+    Color odd = Color::Zero();
     double scale = 8.0;
 
     Color sample(const Vec2& uv, const Vec3& p) const {
         (void)uv;
-        const double checker = std::floor(p.x * scale) + std::floor(p.y * scale) + std::floor(p.z * scale);
+        const double checker = std::floor(p.x() * scale) + std::floor(p.y() * scale) + std::floor(p.z() * scale);
         return static_cast<int>(checker) % 2 == 0 ? even : odd;
     }
 };

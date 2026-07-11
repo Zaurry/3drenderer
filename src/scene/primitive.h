@@ -11,7 +11,7 @@
 namespace renderer {
 
 inline bool all_components_finite(const Vec3& v) {
-    return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+    return std::isfinite(v.x()) && std::isfinite(v.y()) && std::isfinite(v.z());
 }
 
 inline bool usable_direction(const Vec3& v) {
@@ -19,7 +19,7 @@ inline bool usable_direction(const Vec3& v) {
 }
 
 inline void make_orthonormal_basis(const Vec3& normal, Vec3& tangent, Vec3& bitangent) {
-    const Vec3 helper = std::abs(normal.x) > 0.9
+    const Vec3 helper = std::abs(normal.x()) > 0.9
         ? Vec3(0.0, 1.0, 0.0)
         : Vec3(1.0, 0.0, 0.0);
     tangent = normalize(cross(helper, normal));
@@ -27,20 +27,20 @@ inline void make_orthonormal_basis(const Vec3& normal, Vec3& tangent, Vec3& bita
 }
 
 struct TriangleVertex {
-    Vec3 position;
-    Vec2 uv;
-    Vec3 normal;
+    Vec3 position = Vec3::Zero();
+    Vec2 uv = Vec2::Zero();
+    Vec3 normal = Vec3::Zero();
     bool has_normal = false;
 };
 
 struct HitRecord {
     double t = 0.0;
-    Vec3 position;
-    Vec2 uv;
-    Vec3 geometric_normal;
-    Vec3 shading_normal;
-    Vec3 tangent;
-    Vec3 bitangent;
+    Vec3 position = Vec3::Zero();
+    Vec2 uv = Vec2::Zero();
+    Vec3 geometric_normal = Vec3::Zero();
+    Vec3 shading_normal = Vec3::Zero();
+    Vec3 tangent = Vec3::Zero();
+    Vec3 bitangent = Vec3::Zero();
     bool has_valid_uv_basis = false;
     int material_id = -1;
     bool front_face = true;
@@ -109,7 +109,7 @@ public:
         const Vec3 outward_normal = (hit.position - center_) / radius_;
         hit.set_normals(ray, outward_normal, outward_normal);
         make_orthonormal_basis(hit.shading_normal, hit.tangent, hit.bitangent);
-        hit.uv = Vec2();
+        hit.uv = Vec2::Zero();
         hit.material_id = material_id_;
         return true;
     }
@@ -128,7 +128,7 @@ private:
 class Triangle {
 public:
     Triangle(const Vec3& a, const Vec3& b, const Vec3& c, int material_id)
-        : Triangle(a, b, c, material_id, Vec2(), Vec2(), Vec2()) {}
+        : Triangle(a, b, c, material_id, Vec2::Zero(), Vec2::Zero(), Vec2::Zero()) {}
 
     Triangle(
         const Vec3& a,
@@ -139,9 +139,9 @@ public:
         const Vec2& uv1,
         const Vec2& uv2)
         : Triangle(
-            TriangleVertex{a, uv0, Vec3(), false},
-            TriangleVertex{b, uv1, Vec3(), false},
-            TriangleVertex{c, uv2, Vec3(), false},
+            TriangleVertex{a, uv0, Vec3::Zero(), false},
+            TriangleVertex{b, uv1, Vec3::Zero(), false},
+            TriangleVertex{c, uv2, Vec3::Zero(), false},
             material_id) {}
 
     Triangle(
@@ -246,8 +246,8 @@ public:
 
     Vec2 interpolate_uv(double w0, double w1, double w2) const {
         return Vec2(
-            vertices_[0].uv.x * w0 + vertices_[1].uv.x * w1 + vertices_[2].uv.x * w2,
-            vertices_[0].uv.y * w0 + vertices_[1].uv.y * w1 + vertices_[2].uv.y * w2);
+            vertices_[0].uv.x() * w0 + vertices_[1].uv.x() * w1 + vertices_[2].uv.x() * w2,
+            vertices_[0].uv.y() * w0 + vertices_[1].uv.y() * w1 + vertices_[2].uv.y() * w2);
     }
 
     Vec3 geometric_normal() const {
@@ -274,10 +274,10 @@ public:
     void tangent_basis(const Vec3& shading_normal, Vec3& tangent, Vec3& bitangent) const {
         const Vec3 edge1 = b() - a();
         const Vec3 edge2 = c() - a();
-        const double du1 = vertices_[1].uv.x - vertices_[0].uv.x;
-        const double dv1 = vertices_[1].uv.y - vertices_[0].uv.y;
-        const double du2 = vertices_[2].uv.x - vertices_[0].uv.x;
-        const double dv2 = vertices_[2].uv.y - vertices_[0].uv.y;
+        const double du1 = vertices_[1].uv.x() - vertices_[0].uv.x();
+        const double dv1 = vertices_[1].uv.y() - vertices_[0].uv.y();
+        const double du2 = vertices_[2].uv.x() - vertices_[0].uv.x();
+        const double dv2 = vertices_[2].uv.y() - vertices_[0].uv.y();
         const double determinant = du1 * dv2 - dv1 * du2;
         if (std::abs(determinant) <= 1e-12) {
             make_orthonormal_basis(shading_normal, tangent, bitangent);
@@ -300,10 +300,10 @@ public:
     }
 
     bool has_valid_uv_basis() const {
-        const double du1 = vertices_[1].uv.x - vertices_[0].uv.x;
-        const double dv1 = vertices_[1].uv.y - vertices_[0].uv.y;
-        const double du2 = vertices_[2].uv.x - vertices_[0].uv.x;
-        const double dv2 = vertices_[2].uv.y - vertices_[0].uv.y;
+        const double du1 = vertices_[1].uv.x() - vertices_[0].uv.x();
+        const double dv1 = vertices_[1].uv.y() - vertices_[0].uv.y();
+        const double du2 = vertices_[2].uv.x() - vertices_[0].uv.x();
+        const double dv2 = vertices_[2].uv.y() - vertices_[0].uv.y();
         return std::isfinite(du1) && std::isfinite(dv1) &&
             std::isfinite(du2) && std::isfinite(dv2) &&
             std::abs(du1 * dv2 - dv1 * du2) > 1e-12;

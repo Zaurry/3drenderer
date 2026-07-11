@@ -12,12 +12,12 @@ constexpr int max_leaf_triangles = 4;
 
 double component(const Vec3& v, int axis) {
     if (axis == 0) {
-        return v.x;
+        return v.x();
     }
     if (axis == 1) {
-        return v.y;
+        return v.y();
     }
-    return v.z;
+    return v.z();
 }
 
 }  // namespace

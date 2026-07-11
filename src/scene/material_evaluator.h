@@ -9,9 +9,9 @@ struct Material;
 struct Scene;
 
 struct SurfaceMaterialSample {
-    Color base_color;
+    Color base_color = Color::Zero();
     double opacity = 1.0;
-    Vec3 shading_normal;
+    Vec3 shading_normal = Vec3::Zero();
 };
 
 double sample_material_opacity(

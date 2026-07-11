@@ -59,7 +59,7 @@ Vec3 vertex_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t& 
 
 Vec2 texcoord_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t& index) {
     if (index.texcoord_index < 0) {
-        return Vec2();
+        return Vec2::Zero();
     }
 
     const std::size_t base = static_cast<std::size_t>(index.texcoord_index) * 2U;
@@ -78,12 +78,12 @@ Vec3 normal_from_index(
     bool& valid) {
     valid = false;
     if (index.normal_index < 0) {
-        return Vec3();
+        return Vec3::Zero();
     }
 
     const std::size_t base = static_cast<std::size_t>(index.normal_index) * 3U;
     if (base + 2U >= attrib.normals.size()) {
-        return Vec3();
+        return Vec3::Zero();
     }
 
     const Vec3 normal(
@@ -91,7 +91,7 @@ Vec3 normal_from_index(
         static_cast<double>(attrib.normals[base + 1U]),
         static_cast<double>(attrib.normals[base + 2U]));
     valid = usable_direction(normal);
-    return valid ? normalize(normal) : Vec3();
+    return valid ? normalize(normal) : Vec3::Zero();
 }
 
 Color array_to_color(const tinyobj::real_t values[3]) {
@@ -102,7 +102,7 @@ Color array_to_color(const tinyobj::real_t values[3]) {
 }
 
 double color_energy(const Color& color) {
-    return color.x * color.x + color.y * color.y + color.z * color.z;
+    return color.x() * color.x() + color.y() * color.y() + color.z() * color.z();
 }
 
 double roughness_from_shininess(double shininess) {

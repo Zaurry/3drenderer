@@ -37,17 +37,17 @@ inline Mat4 Mat4::identity() {
 
 inline Mat4 Mat4::translation(const Vec3& offset) {
     Mat4 result = identity();
-    result.m[0][3] = offset.x;
-    result.m[1][3] = offset.y;
-    result.m[2][3] = offset.z;
+    result.m[0][3] = offset.x();
+    result.m[1][3] = offset.y();
+    result.m[2][3] = offset.z();
     return result;
 }
 
 inline Mat4 Mat4::scale(const Vec3& factors) {
     Mat4 result;
-    result.m[0][0] = factors.x;
-    result.m[1][1] = factors.y;
-    result.m[2][2] = factors.z;
+    result.m[0][0] = factors.x();
+    result.m[1][1] = factors.y();
+    result.m[2][2] = factors.z();
     result.m[3][3] = 1.0;
     return result;
 }
@@ -101,27 +101,27 @@ inline Mat4 Mat4::look_at(const Vec3& eye, const Vec3& target, const Vec3& up) {
     const Vec3 camera_up = cross(forward, right);
 
     Mat4 result = identity();
-    result.m[0][0] = right.x;
-    result.m[0][1] = right.y;
-    result.m[0][2] = right.z;
+    result.m[0][0] = right.x();
+    result.m[0][1] = right.y();
+    result.m[0][2] = right.z();
     result.m[0][3] = -dot(right, eye);
-    result.m[1][0] = camera_up.x;
-    result.m[1][1] = camera_up.y;
-    result.m[1][2] = camera_up.z;
+    result.m[1][0] = camera_up.x();
+    result.m[1][1] = camera_up.y();
+    result.m[1][2] = camera_up.z();
     result.m[1][3] = -dot(camera_up, eye);
-    result.m[2][0] = forward.x;
-    result.m[2][1] = forward.y;
-    result.m[2][2] = forward.z;
+    result.m[2][0] = forward.x();
+    result.m[2][1] = forward.y();
+    result.m[2][2] = forward.z();
     result.m[2][3] = -dot(forward, eye);
     return result;
 }
 
 inline Vec4 operator*(const Mat4& matrix, const Vec4& v) {
     return Vec4(
-        matrix.m[0][0] * v.x + matrix.m[0][1] * v.y + matrix.m[0][2] * v.z + matrix.m[0][3] * v.w,
-        matrix.m[1][0] * v.x + matrix.m[1][1] * v.y + matrix.m[1][2] * v.z + matrix.m[1][3] * v.w,
-        matrix.m[2][0] * v.x + matrix.m[2][1] * v.y + matrix.m[2][2] * v.z + matrix.m[2][3] * v.w,
-        matrix.m[3][0] * v.x + matrix.m[3][1] * v.y + matrix.m[3][2] * v.z + matrix.m[3][3] * v.w);
+        matrix.m[0][0] * v.x() + matrix.m[0][1] * v.y() + matrix.m[0][2] * v.z() + matrix.m[0][3] * v.w(),
+        matrix.m[1][0] * v.x() + matrix.m[1][1] * v.y() + matrix.m[1][2] * v.z() + matrix.m[1][3] * v.w(),
+        matrix.m[2][0] * v.x() + matrix.m[2][1] * v.y() + matrix.m[2][2] * v.z() + matrix.m[2][3] * v.w(),
+        matrix.m[3][0] * v.x() + matrix.m[3][1] * v.y() + matrix.m[3][2] * v.z() + matrix.m[3][3] * v.w());
 }
 
 inline Mat4 operator*(const Mat4& a, const Mat4& b) {

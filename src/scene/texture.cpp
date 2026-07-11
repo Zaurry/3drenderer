@@ -23,7 +23,7 @@ namespace renderer {
 namespace {
 
 Color multiply(const Color& a, const Color& b) {
-    return Color(a.x * b.x, a.y * b.y, a.z * b.z);
+    return Color(a.x() * b.x(), a.y() * b.y(), a.z() * b.z());
 }
 
 double wrap01(double value) {
@@ -109,8 +109,8 @@ Color ImageTexture::sample(const Vec2& uv) const {
         return Color(1.0, 0.0, 1.0);
     }
 
-    const double u = wrap01(uv.x);
-    const double v = wrap01(uv.y);
+    const double u = wrap01(uv.x());
+    const double v = wrap01(uv.y());
     const double x = u * static_cast<double>(width_) - 0.5;
     const double y = (1.0 - v) * static_cast<double>(height_) - 0.5;
     const int x0 = static_cast<int>(std::floor(x));
@@ -127,12 +127,12 @@ Color ImageTexture::sample(const Vec2& uv) const {
 
 double ImageTexture::sample_scalar(const Vec2& uv) const {
     const Color color = sample(uv);
-    return color.x * 0.2126 + color.y * 0.7152 + color.z * 0.0722;
+    return color.x() * 0.2126 + color.y() * 0.7152 + color.z() * 0.0722;
 }
 
 Vec2 ImageTexture::texel_size() const {
     if (width_ <= 0 || height_ <= 0) {
-        return Vec2();
+        return Vec2::Zero();
     }
     return Vec2(1.0 / static_cast<double>(width_), 1.0 / static_cast<double>(height_));
 }

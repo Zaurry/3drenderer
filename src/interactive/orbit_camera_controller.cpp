@@ -15,20 +15,23 @@ constexpr double kMinDistance = 0.05;
 }  // namespace
 
 Eigen::Vector3d to_eigen(const Vec3& value) {
-    return Eigen::Vector3d(value.x, value.y, value.z);
+    return Eigen::Vector3d(value.x(), value.y(), value.z());
 }
 
 Vec3 to_vec3(const Eigen::Vector3d& value) {
-    return Vec3(value.x(), value.y(), value.z());
+    return Vec3(
+        static_cast<float>(value.x()),
+        static_cast<float>(value.y()),
+        static_cast<float>(value.z()));
 }
 
 OrbitCameraController::OrbitCameraController(const Bounds3& bounds, double aspect_ratio)
-    : target_(to_eigen((bounds.min + bounds.max) * 0.5)), aspect_ratio_(aspect_ratio) {
+    : target_(to_eigen((bounds.min + bounds.max) * 0.5f)), aspect_ratio_(aspect_ratio) {
     if (!std::isfinite(aspect_ratio) || aspect_ratio <= 0.0) {
         throw std::invalid_argument("OrbitCameraController aspect ratio must be positive");
     }
 
-    const double radius = std::max(0.5, length(bounds.max - bounds.min) * 0.5);
+    const double radius = std::max(0.5, static_cast<double>(length(bounds.max - bounds.min)) * 0.5);
     distance_ = radius * 2.6;
     pitch_ = 0.12;
 }

@@ -9,10 +9,10 @@
 namespace renderer {
 
 struct RasterVertex {
-    Vec3 view;
-    Vec3 world;
-    Vec2 uv;
-    Vec3 normal;
+    Vec3 view = Vec3::Zero();
+    Vec3 world = Vec3::Zero();
+    Vec2 uv = Vec2::Zero();
+    Vec3 normal = Vec3::Zero();
 };
 
 std::vector<RasterVertex> clip_triangle_to_near_plane(

@@ -10,13 +10,14 @@ RasterVertex interpolate_vertex(
     const RasterVertex& a,
     const RasterVertex& b,
     double t) {
+    const float interpolation_t = static_cast<float>(t);
     RasterVertex result;
-    result.view = a.view * (1.0 - t) + b.view * t;
-    result.world = a.world * (1.0 - t) + b.world * t;
+    result.view = a.view * (1.0f - interpolation_t) + b.view * interpolation_t;
+    result.world = a.world * (1.0f - interpolation_t) + b.world * interpolation_t;
     result.uv = Vec2(
-        a.uv.x * (1.0 - t) + b.uv.x * t,
-        a.uv.y * (1.0 - t) + b.uv.y * t);
-    result.normal = a.normal * (1.0 - t) + b.normal * t;
+        a.uv.x() * (1.0f - interpolation_t) + b.uv.x() * interpolation_t,
+        a.uv.y() * (1.0f - interpolation_t) + b.uv.y() * interpolation_t);
+    result.normal = a.normal * (1.0f - interpolation_t) + b.normal * interpolation_t;
     return result;
 }
 
@@ -29,15 +30,15 @@ std::vector<RasterVertex> clip_triangle_to_near_plane(
     output.reserve(4);
 
     RasterVertex previous = triangle.back();
-    bool previous_inside = previous.view.z >= near_z;
+    bool previous_inside = previous.view.z() >= near_z;
     for (const RasterVertex& current : triangle) {
-        const bool current_inside = current.view.z >= near_z;
+        const bool current_inside = current.view.z() >= near_z;
         if (current_inside != previous_inside) {
-            const double denominator = current.view.z - previous.view.z;
+            const double denominator = current.view.z() - previous.view.z();
             if (std::abs(denominator) > 1e-15) {
-                const double t = (near_z - previous.view.z) / denominator;
+                const double t = (near_z - previous.view.z()) / denominator;
                 RasterVertex crossing = interpolate_vertex(previous, current, t);
-                crossing.view.z = near_z;
+                crossing.view.z() = static_cast<float>(near_z);
                 output.push_back(crossing);
             }
         }
@@ -53,18 +54,18 @@ std::vector<RasterVertex> clip_triangle_to_near_plane(
 Vec3 perspective_correct_weights(
     const Vec3& screen_weights,
     const Vec3& view_depths) {
-    if (view_depths.x <= 0.0 || view_depths.y <= 0.0 || view_depths.z <= 0.0) {
-        return Vec3();
+    if (view_depths.x() <= 0.0 || view_depths.y() <= 0.0 || view_depths.z() <= 0.0) {
+        return Vec3::Zero();
     }
     const Vec3 weighted(
-        screen_weights.x / view_depths.x,
-        screen_weights.y / view_depths.y,
-        screen_weights.z / view_depths.z);
-    const double sum = weighted.x + weighted.y + weighted.z;
+        screen_weights.x() / view_depths.x(),
+        screen_weights.y() / view_depths.y(),
+        screen_weights.z() / view_depths.z());
+    const double sum = weighted.x() + weighted.y() + weighted.z();
     if (!std::isfinite(sum) || sum <= 0.0) {
-        return Vec3();
+        return Vec3::Zero();
     }
-    return weighted / sum;
+    return weighted / static_cast<float>(sum);
 }
 
 }  // namespace renderer

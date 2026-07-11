@@ -29,7 +29,7 @@ int Framebuffer::height() const {
 }
 
 void Framebuffer::resize(int width, int height) {
-    pixels_.assign(validated_pixel_count(width, height), Color());
+    pixels_.assign(validated_pixel_count(width, height), Color::Zero());
     width_ = width;
     height_ = height;
 }

@@ -30,14 +30,14 @@ Vec3 bumped_normal(
 
     const ImageTexture& texture = scene.textures[static_cast<std::size_t>(material.bump_texture_id)];
     const Vec2 step = texture.texel_size();
-    if (step.x <= 0.0 || step.y <= 0.0) {
+    if (step.x() <= 0.0 || step.y() <= 0.0) {
         return hit.shading_normal;
     }
 
-    const double left = texture.sample_scalar(Vec2(hit.uv.x - step.x, hit.uv.y));
-    const double right = texture.sample_scalar(Vec2(hit.uv.x + step.x, hit.uv.y));
-    const double down = texture.sample_scalar(Vec2(hit.uv.x, hit.uv.y - step.y));
-    const double up = texture.sample_scalar(Vec2(hit.uv.x, hit.uv.y + step.y));
+    const double left = texture.sample_scalar(Vec2(hit.uv.x() - step.x(), hit.uv.y()));
+    const double right = texture.sample_scalar(Vec2(hit.uv.x() + step.x(), hit.uv.y()));
+    const double down = texture.sample_scalar(Vec2(hit.uv.x(), hit.uv.y() - step.y()));
+    const double up = texture.sample_scalar(Vec2(hit.uv.x(), hit.uv.y() + step.y()));
     const double dh_du = (right - left) * 0.5;
     const double dh_dv = (up - down) * 0.5;
     const Vec3 gradient = hit.tangent * dh_du + hit.bitangent * dh_dv;

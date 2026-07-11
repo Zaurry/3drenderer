@@ -27,7 +27,9 @@ std::size_t validated_pixel_count(int image_width, int image_height) {
 }  // namespace
 
 Image::Image(int image_width, int image_height)
-    : width_(image_width), height_(image_height), pixels_(validated_pixel_count(image_width, image_height)) {}
+    : width_(image_width),
+      height_(image_height),
+      pixels_(validated_pixel_count(image_width, image_height), Color::Zero()) {}
 
 int Image::width() const {
     return width_;

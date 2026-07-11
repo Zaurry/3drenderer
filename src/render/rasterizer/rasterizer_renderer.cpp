@@ -17,12 +17,12 @@ namespace {
 constexpr double near_plane = 1e-4;
 
 struct ProjectedVertex {
-    Vec3 screen;
+    Vec3 screen = Vec3::Zero();
     RasterVertex attributes;
 };
 
 Color multiply(const Color& a, const Color& b) {
-    return Color(a.x * b.x, a.y * b.y, a.z * b.z);
+    return Color(a.x() * b.x(), a.y() * b.y(), a.z() * b.z());
 }
 
 bool material_exists(const Scene& scene, int material_id) {
@@ -44,14 +44,14 @@ ProjectedVertex project_to_screen(
     int height) {
     const double half_width = camera.viewport_width() * 0.5;
     const double half_height = camera.viewport_height() * 0.5;
-    const double ndc_x = (vertex.view.x / vertex.view.z) / half_width;
-    const double ndc_y = (vertex.view.y / vertex.view.z) / half_height;
+    const double ndc_x = (vertex.view.x() / vertex.view.z()) / half_width;
+    const double ndc_y = (vertex.view.y() / vertex.view.z()) / half_height;
 
     ProjectedVertex projected;
     projected.screen = Vec3(
         (ndc_x * 0.5 + 0.5) * static_cast<double>(width - 1),
         (1.0 - (ndc_y * 0.5 + 0.5)) * static_cast<double>(height - 1),
-        vertex.view.z);
+        vertex.view.z());
     projected.attributes = vertex;
     return projected;
 }
@@ -88,32 +88,32 @@ Color shade_surface(
 
     const Vec3 unit_normal = normalize(normal);
     const Vec3 view_dir = normalize(camera.eye() - position);
-    Color shaded = multiply(base_color, scene.environment) * 0.15;
+    Color shaded = multiply(base_color, scene.environment) * 0.15f;
 
     for (const DirectionalLight& light : scene.directional_lights) {
         const Vec3 light_dir = normalize(-light.direction);
-        const double n_dot_l = std::max(0.0, dot(unit_normal, light_dir));
+        const float n_dot_l = std::max(0.0f, dot(unit_normal, light_dir));
         if (n_dot_l <= 0.0) {
             continue;
         }
 
         const Vec3 half_vector = normalize(light_dir + view_dir);
-        const double specular = std::pow(std::max(0.0, dot(unit_normal, half_vector)), 32.0) * 0.2;
+        const float specular = std::pow(std::max(0.0f, dot(unit_normal, half_vector)), 32.0f) * 0.2f;
         shaded += multiply(base_color, light.radiance) * n_dot_l + light.radiance * specular;
     }
 
     for (const PointLight& light : scene.point_lights) {
         const Vec3 to_light = light.position - position;
-        const double distance_squared = std::max(length_squared(to_light), 1e-12);
+        const float distance_squared = std::max(length_squared(to_light), 1e-12f);
         const Vec3 light_dir = to_light / std::sqrt(distance_squared);
-        const double n_dot_l = std::max(0.0, dot(unit_normal, light_dir));
+        const float n_dot_l = std::max(0.0f, dot(unit_normal, light_dir));
         if (n_dot_l <= 0.0) {
             continue;
         }
 
         const Vec3 radiance = light.intensity / distance_squared;
         const Vec3 half_vector = normalize(light_dir + view_dir);
-        const double specular = std::pow(std::max(0.0, dot(unit_normal, half_vector)), 32.0) * 0.2;
+        const float specular = std::pow(std::max(0.0f, dot(unit_normal, half_vector)), 32.0f) * 0.2f;
         shaded += multiply(base_color, radiance) * n_dot_l + radiance * specular;
     }
 
@@ -169,10 +169,10 @@ RenderResult RasterizerRenderer::render(
                 continue;
             }
 
-            const double min_x = std::min({v0.screen.x, v1.screen.x, v2.screen.x});
-            const double max_x = std::max({v0.screen.x, v1.screen.x, v2.screen.x});
-            const double min_y = std::min({v0.screen.y, v1.screen.y, v2.screen.y});
-            const double max_y = std::max({v0.screen.y, v1.screen.y, v2.screen.y});
+            const double min_x = std::min({v0.screen.x(), v1.screen.x(), v2.screen.x()});
+            const double max_x = std::max({v0.screen.x(), v1.screen.x(), v2.screen.x()});
+            const double min_y = std::min({v0.screen.y(), v1.screen.y(), v2.screen.y()});
+            const double max_y = std::max({v0.screen.y(), v1.screen.y(), v2.screen.y()});
             const int start_x = static_cast<int>(std::clamp(
                 std::floor(min_x), 0.0, static_cast<double>(settings.width - 1)));
             const int end_x = static_cast<int>(std::clamp(
@@ -200,17 +200,17 @@ RenderResult RasterizerRenderer::render(
 
                     const Vec3 screen_weights(w0 / area, w1 / area, w2 / area);
                     const Vec3 view_depths(
-                        v0.attributes.view.z,
-                        v1.attributes.view.z,
-                        v2.attributes.view.z);
+                        v0.attributes.view.z(),
+                        v1.attributes.view.z(),
+                        v2.attributes.view.z());
                     const Vec3 weights = perspective_correct_weights(screen_weights, view_depths);
-                    if (weights.x + weights.y + weights.z <= 0.0) {
+                    if (weights.x() + weights.y() + weights.z() <= 0.0) {
                         continue;
                     }
                     const double inverse_depth =
-                        screen_weights.x / view_depths.x +
-                        screen_weights.y / view_depths.y +
-                        screen_weights.z / view_depths.z;
+                        screen_weights.x() / view_depths.x() +
+                        screen_weights.y() / view_depths.y() +
+                        screen_weights.z() / view_depths.z();
                     const double depth = 1.0 / inverse_depth;
                     const int buffer_index = y * settings.width + x;
                     if (depth >= depth_buffer[static_cast<std::size_t>(buffer_index)]) {
@@ -218,20 +218,20 @@ RenderResult RasterizerRenderer::render(
                     }
 
                     const Vec3 world_position =
-                        v0.attributes.world * weights.x +
-                        v1.attributes.world * weights.y +
-                        v2.attributes.world * weights.z;
+                        v0.attributes.world * weights.x() +
+                        v1.attributes.world * weights.y() +
+                        v2.attributes.world * weights.z();
                     const Vec2 uv(
-                        v0.attributes.uv.x * weights.x +
-                            v1.attributes.uv.x * weights.y +
-                            v2.attributes.uv.x * weights.z,
-                        v0.attributes.uv.y * weights.x +
-                            v1.attributes.uv.y * weights.y +
-                            v2.attributes.uv.y * weights.z);
+                        v0.attributes.uv.x() * weights.x() +
+                            v1.attributes.uv.x() * weights.y() +
+                            v2.attributes.uv.x() * weights.z(),
+                        v0.attributes.uv.y() * weights.x() +
+                            v1.attributes.uv.y() * weights.y() +
+                            v2.attributes.uv.y() * weights.z());
                     Vec3 interpolated_normal = normalize(
-                        v0.attributes.normal * weights.x +
-                        v1.attributes.normal * weights.y +
-                        v2.attributes.normal * weights.z);
+                        v0.attributes.normal * weights.x() +
+                        v1.attributes.normal * weights.y() +
+                        v2.attributes.normal * weights.z());
                     if (!usable_direction(interpolated_normal)) {
                         interpolated_normal = geometric_normal;
                     }
@@ -277,7 +277,7 @@ double RasterizerRenderer::edge_function(
     const Vec3& a,
     const Vec3& b,
     const Vec3& c) const {
-    return (c.x - a.x) * (b.y - a.y) - (c.y - a.y) * (b.x - a.x);
+    return (c.x() - a.x()) * (b.y() - a.y()) - (c.y() - a.y()) * (b.x() - a.x());
 }
 
 }  // namespace renderer

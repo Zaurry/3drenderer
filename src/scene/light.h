@@ -6,13 +6,13 @@
 namespace renderer {
 
 struct PointLight {
-    Vec3 position;
-    Color intensity;
+    Vec3 position = Vec3::Zero();
+    Color intensity = Color::Zero();
 };
 
 struct DirectionalLight {
-    Vec3 direction;
-    Color radiance;
+    Vec3 direction = Vec3::Zero();
+    Color radiance = Color::Zero();
 };
 
 }  // namespace renderer

@@ -11,7 +11,7 @@ constexpr double kPi = 3.14159265358979323846;
 constexpr double kEpsilon = 1e-12;
 
 bool is_finite(const Vec3& v) {
-    return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+    return std::isfinite(v.x()) && std::isfinite(v.y()) && std::isfinite(v.z());
 }
 
 }  // namespace

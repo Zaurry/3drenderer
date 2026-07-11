@@ -97,11 +97,11 @@ Vec3 offset_ray_origin(
     }
     const double scale = std::max({
         1.0,
-        std::abs(position.x),
-        std::abs(position.y),
-        std::abs(position.z)});
+        static_cast<double>(std::abs(position.x())),
+        static_cast<double>(std::abs(position.y())),
+        static_cast<double>(std::abs(position.z()))});
     const double sign = dot(direction, geometric_normal) >= 0.0 ? 1.0 : -1.0;
-    return position + geometric_normal * (sign * scale * 1e-7);
+    return position + geometric_normal * static_cast<float>(sign * scale * 1e-7);
 }
 
 }  // namespace renderer

@@ -21,7 +21,7 @@ Color black() {
 }
 
 Color multiply(const Color& a, const Color& b) {
-    return Color(a.x * b.x, a.y * b.y, a.z * b.z);
+    return Color(a.x() * b.x(), a.y() * b.y(), a.z() * b.z());
 }
 
 bool material_exists(const Scene& scene, int material_id) {
@@ -36,10 +36,10 @@ double reflectance(double cosine, double refraction_index) {
 
 Vec3 tangent_to_world(const Vec3& local_direction, const Vec3& normal) {
     const Vec3 w = normalize(normal);
-    const Vec3 helper = std::abs(w.x) > 0.9 ? Vec3(0.0, 1.0, 0.0) : Vec3(1.0, 0.0, 0.0);
+    const Vec3 helper = std::abs(w.x()) > 0.9 ? Vec3(0.0, 1.0, 0.0) : Vec3(1.0, 0.0, 0.0);
     const Vec3 v = normalize(cross(w, helper));
     const Vec3 u = cross(v, w);
-    return normalize(local_direction.x * u + local_direction.y * v + local_direction.z * w);
+    return normalize(local_direction.x() * u + local_direction.y() * v + local_direction.z() * w);
 }
 
 std::uint64_t pixel_seed(int x, int y, int width, std::uint64_t sample_seed_offset) {
@@ -123,7 +123,7 @@ RenderResult PathTracerRenderer::render(const Scene& scene, const Camera& camera
                             max_depth);
                     }
 
-                    image.set_pixel(x, y, accumulated / static_cast<double>(samples_per_pixel));
+                    image.set_pixel(x, y, accumulated / static_cast<float>(samples_per_pixel));
                 }
             }
         }
@@ -206,7 +206,8 @@ bool PathTracerRenderer::scatter(
     if (material.type == MaterialType::Metal) {
         Vec3 scatter_direction = reflect(normalize(ray.direction), shading_normal);
         if (material.roughness > 0.0) {
-            scatter_direction += std::max(0.0, material.roughness) * random_in_unit_sphere(rng);
+            scatter_direction +=
+                static_cast<float>(std::max(0.0, material.roughness)) * random_in_unit_sphere(rng);
         }
         scatter_direction = normalize(scatter_direction);
         if (dot(scatter_direction, shading_normal) <= 0.0) {
@@ -223,7 +224,8 @@ bool PathTracerRenderer::scatter(
     if (material.type == MaterialType::Dielectric) {
         const double refraction_ratio = hit.front_face ? (1.0 / material.ior) : material.ior;
         const Vec3 unit_direction = normalize(ray.direction);
-        const double cos_theta = std::min(dot(-unit_direction, shading_normal), 1.0);
+        const double cos_theta = std::min(
+            static_cast<double>(dot(-unit_direction, shading_normal)), 1.0);
 
         Vec3 refracted;
         const bool can_refract = refract(unit_direction, shading_normal, refraction_ratio, refracted);
@@ -249,7 +251,7 @@ Color PathTracerRenderer::estimate_direct_lighting(
     const SceneIntersector& intersector,
     const HitRecord& hit,
     const SurfaceMaterialSample& surface) const {
-    constexpr double inverse_pi = 0.31830988618379067154;
+    constexpr float inverse_pi = 0.31830988618379067154f;
     Color direct = black();
 
     for (const DirectionalLight& light : scene.directional_lights) {
@@ -257,7 +259,7 @@ Color PathTracerRenderer::estimate_direct_lighting(
         if (!usable_direction(light_dir)) {
             continue;
         }
-        const double n_dot_l = std::max(0.0, dot(surface.shading_normal, light_dir));
+        const float n_dot_l = std::max(0.0f, dot(surface.shading_normal, light_dir));
         if (n_dot_l <= 0.0) {
             continue;
         }
@@ -272,13 +274,13 @@ Color PathTracerRenderer::estimate_direct_lighting(
 
     for (const PointLight& light : scene.point_lights) {
         const Vec3 to_light = light.position - hit.position;
-        const double distance_squared = length_squared(to_light);
+        const float distance_squared = length_squared(to_light);
         if (distance_squared <= 1e-12) {
             continue;
         }
-        const double distance = std::sqrt(distance_squared);
+        const float distance = std::sqrt(distance_squared);
         const Vec3 light_dir = to_light / distance;
-        const double n_dot_l = std::max(0.0, dot(surface.shading_normal, light_dir));
+        const float n_dot_l = std::max(0.0f, dot(surface.shading_normal, light_dir));
         if (n_dot_l <= 0.0) {
             continue;
         }

@@ -55,7 +55,8 @@ int PathInteractiveSession::accumulated_samples() const {
 void PathInteractiveSession::reset_accumulation(int width, int height) {
     width_ = std::max(1, width);
     height_ = std::max(1, height);
-    accumulated_.assign(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_), Color());
+    accumulated_.assign(
+        static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_), Color::Zero());
     accumulated_samples_ = 0;
 }
 

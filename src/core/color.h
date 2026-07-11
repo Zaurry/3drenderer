@@ -17,9 +17,9 @@ struct Rgb8 {
 
 inline Color clamp_color(const Color& color) {
     return Color(
-        std::clamp(color.x, 0.0, 1.0),
-        std::clamp(color.y, 0.0, 1.0),
-        std::clamp(color.z, 0.0, 1.0));
+        std::clamp(color.x(), 0.0f, 1.0f),
+        std::clamp(color.y(), 0.0f, 1.0f),
+        std::clamp(color.z(), 0.0f, 1.0f));
 }
 
 inline unsigned char channel_to_rgb8(double linear_channel) {
@@ -36,9 +36,9 @@ inline unsigned char channel_to_rgb8(double linear_channel) {
 
 inline Rgb8 to_rgb8(const Color& linear_color) {
     return Rgb8{
-        channel_to_rgb8(linear_color.x),
-        channel_to_rgb8(linear_color.y),
-        channel_to_rgb8(linear_color.z)};
+        channel_to_rgb8(linear_color.x()),
+        channel_to_rgb8(linear_color.y()),
+        channel_to_rgb8(linear_color.z())};
 }
 
 }  // namespace renderer

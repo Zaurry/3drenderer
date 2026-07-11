@@ -36,14 +36,15 @@ Vec3 random_in_unit_sphere(PcgRandom& rng) {
 }
 
 Vec3 reflect(const Vec3& v, const Vec3& normal) {
-    return v - 2.0 * dot(v, normal) * normal;
+    return v - (2.0f * dot(v, normal)) * normal;
 }
 
 bool refract(const Vec3& unit_direction, const Vec3& normal, double eta_ratio, Vec3& refracted) {
-    const double cos_theta = std::min(dot(-unit_direction, normal), 1.0);
-    const Vec3 r_out_perp = eta_ratio * (unit_direction + cos_theta * normal);
-    const double k = 1.0 - length_squared(r_out_perp);
-    if (k < 0.0) {
+    const float cos_theta = std::min(dot(-unit_direction, normal), 1.0f);
+    const Vec3 r_out_perp =
+        static_cast<float>(eta_ratio) * (unit_direction + cos_theta * normal);
+    const float k = 1.0f - length_squared(r_out_perp);
+    if (k < 0.0f) {
         return false;
     }
     refracted = r_out_perp - std::sqrt(k) * normal;
