@@ -55,10 +55,10 @@ samples.
 
 | Scene / mode | Command | Five measured samples (s) | Median (s) | Output |
 | --- | --- | ---: | ---: | --- |
-| Mary / raster | `renderer.exe --mode raster --scene obj_viewer --obj "D:\Github\3drenderer\Computer Graphics Archive\mary\Marry.obj" --width 1920 --height 1080 --output output\eigen_baseline_mary_raster.png` | 0.0675227, 0.0662127, 0.0682396, 0.0693546, 0.0664713 | **0.0675227** | `output/eigen_baseline_mary_raster.png` |
-| Mary / path | `renderer.exe --mode path --scene obj_viewer --obj "D:\Github\3drenderer\Computer Graphics Archive\mary\Marry.obj" --width 1920 --height 1080 --spp 1 --max-depth 4 --output output\eigen_baseline_mary_path.png` | 0.107037, 0.106840, 0.106667, 0.106635, 0.106277 | **0.106667** | `output/eigen_baseline_mary_path.png` |
-| Sponza / raster | `renderer.exe --mode raster --scene obj_viewer --obj "D:\Github\3drenderer\Computer Graphics Archive\sponza\sponza.obj" --width 1280 --height 720 --output output\eigen_baseline_sponza_raster.png` | 0.0955045, 0.0986501, 0.0984964, 0.0967525, 0.0962721 | **0.0967525** | `output/eigen_baseline_sponza_raster.png` |
-| Cornell box / path | `renderer.exe --mode path --scene cornell_box --width 512 --height 512 --spp 8 --max-depth 5 --output output\eigen_baseline_cornell_path.png` | 0.254427, 0.250895, 0.250513, 0.247663, 0.248048 | **0.250513** | `output/eigen_baseline_cornell_path.png` |
+| Mary / raster | `.\build\bin\renderer.exe --mode raster --scene obj_viewer --obj "D:\Github\3drenderer\Computer Graphics Archive\mary\Marry.obj" --width 1920 --height 1080 --output output\eigen_baseline_mary_raster.png` | 0.0675227, 0.0662127, 0.0682396, 0.0693546, 0.0664713 | **0.0675227** | `output/eigen_baseline_mary_raster.png` |
+| Mary / path | `.\build\bin\renderer.exe --mode path --scene obj_viewer --obj "D:\Github\3drenderer\Computer Graphics Archive\mary\Marry.obj" --width 1920 --height 1080 --spp 1 --max-depth 4 --output output\eigen_baseline_mary_path.png` | 0.107037, 0.106840, 0.106667, 0.106635, 0.106277 | **0.106667** | `output/eigen_baseline_mary_path.png` |
+| Sponza / raster | `.\build\bin\renderer.exe --mode raster --scene obj_viewer --obj "D:\Github\3drenderer\Computer Graphics Archive\sponza\sponza.obj" --width 1280 --height 720 --output output\eigen_baseline_sponza_raster.png` | 0.0955045, 0.0986501, 0.0984964, 0.0967525, 0.0962721 | **0.0967525** | `output/eigen_baseline_sponza_raster.png` |
+| Cornell box / path | `.\build\bin\renderer.exe --mode path --scene cornell_box --width 512 --height 512 --spp 8 --max-depth 5 --output output\eigen_baseline_cornell_path.png` | 0.254427, 0.250895, 0.250513, 0.247663, 0.248048 | **0.250513** | `output/eigen_baseline_cornell_path.png` |
 
 The commands were executed from the worktree root with the executable at
 `build\bin\renderer.exe`. All 24 render processes (four warmups and twenty
