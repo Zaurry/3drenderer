@@ -18,7 +18,7 @@ struct InteractiveFrameState {
     bool scene_changed = false;
     bool framebuffer_resized = false;
     bool reset_requested = false;
-    double delta_seconds = 0.0;
+    float delta_seconds = 0.0f;
 };
 
 class InteractiveRenderSession {

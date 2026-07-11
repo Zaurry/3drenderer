@@ -105,3 +105,51 @@ Commit message: `refactor: migrate core renderer scalars to float` (the commit c
 
 - PCG floating samples are intentionally derived at float precision from 24 high bits, so deterministic path-traced sample sequences and rendered pixels can differ from the previous double API even with the same seed.
 - Primitive, material, BVH, and broader renderer algorithm scalars remain double until their assigned later tasks. This task uses explicit casts only at the newly migrated float API boundaries.
+
+## Important Review Follow-up: Frame Timing
+
+Completed the review finding that left interactive frame timing partially double.
+
+RED evidence:
+
+```text
+cmake --build build --config Release
+tests/renderer_tests.cpp(65,20): error C2607: static assertion failed
+Exit code: 1
+```
+
+Exact files changed:
+
+- `src/render/interactive/interactive_render_session.h`
+- `src/viewer_main.cpp`
+- `tests/renderer_tests.cpp`
+- `.superpowers/sdd/task-4-report.md`
+
+Changes:
+
+- `InteractiveFrameState::delta_seconds` and its default are now `float`/`0.0f`.
+- Viewer frame delta conversion now uses `std::chrono::duration<float>`.
+- A `std::declval<InteractiveFrameState>()` static assertion requires `delta_seconds` to remain `float`.
+- A scoped audit found no remaining `duration<double>` or double frame/delta/FPS fields in viewer, timer, interactive, SDL input, render-interactive, or renderer test timing paths.
+
+Verification output:
+
+```text
+cmake --build build --config Release --clean-first
+renderer_core.vcxproj -> build\Release\renderer_core.lib
+renderer.vcxproj -> build\bin\renderer.exe
+renderer_tests.vcxproj -> build\bin\renderer_tests.exe
+viewer.vcxproj -> build\bin\viewer.exe
+Exit code: 0
+Compiler warnings: none
+
+.\build\bin\renderer_tests.exe
+renderer_tests: all tests passed
+Exit code: 0
+
+git diff --check
+Exit code: 0
+Whitespace errors: none
+```
+
+Follow-up commit subject: `refactor: complete float frame timing`.

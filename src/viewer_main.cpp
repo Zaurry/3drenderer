@@ -224,7 +224,7 @@ int main(int argc, char** argv) {
         auto previous_time = std::chrono::steady_clock::now();
         while (running) {
             auto now = std::chrono::steady_clock::now();
-            const double delta_seconds = std::chrono::duration<double>(now - previous_time).count();
+            const float delta_seconds = std::chrono::duration<float>(now - previous_time).count();
             previous_time = now;
 
             const renderer::InputState input = display.poll_input();

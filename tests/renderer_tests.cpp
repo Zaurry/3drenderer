@@ -62,6 +62,7 @@ static_assert(std::is_same_v<decltype(renderer::Timer().elapsed_seconds()), floa
 static_assert(std::is_same_v<decltype(std::declval<renderer::RenderResult>().seconds), float>);
 static_assert(std::is_same_v<decltype(std::declval<renderer::FrameRateSnapshot>().frames_per_second), float>);
 static_assert(std::is_same_v<decltype(std::declval<renderer::Camera>().viewport_width()), float>);
+static_assert(std::is_same_v<decltype(std::declval<renderer::InteractiveFrameState>().delta_seconds), float>);
 
 void test_vec3_arithmetic() {
     renderer::Vec3 a(1.0, 2.0, 3.0);
