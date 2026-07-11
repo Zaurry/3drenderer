@@ -10,11 +10,11 @@ struct Scene;
 
 struct SurfaceMaterialSample {
     Color base_color = Color::Zero();
-    double opacity = 1.0;
+    float opacity = 1.0f;
     Vec3 shading_normal = Vec3::Zero();
 };
 
-double sample_material_opacity(
+float sample_material_opacity(
     const Scene& scene,
     const Material& material,
     const Vec2& uv);

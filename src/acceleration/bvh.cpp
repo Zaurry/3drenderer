@@ -67,7 +67,11 @@ bool Bvh::intersect(const Ray& ray, double t_min, double t_max, HitRecord& hit) 
             for (int i = 0; i < node.count; ++i) {
                 const int primitive_index = primitive_indices_[node.first + i];
                 HitRecord candidate;
-                if (triangles_[primitive_index].intersect(ray, t_min, closest_t, candidate)) {
+                if (triangles_[primitive_index].intersect(
+                        ray,
+                        static_cast<float>(t_min),
+                        static_cast<float>(closest_t),
+                        candidate)) {
                     hit_anything = true;
                     closest_t = candidate.t;
                     hit = candidate;

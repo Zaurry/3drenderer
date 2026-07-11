@@ -63,6 +63,10 @@ static_assert(std::is_same_v<decltype(std::declval<renderer::RenderResult>().sec
 static_assert(std::is_same_v<decltype(std::declval<renderer::FrameRateSnapshot>().frames_per_second), float>);
 static_assert(std::is_same_v<decltype(std::declval<renderer::Camera>().viewport_width()), float>);
 static_assert(std::is_same_v<decltype(std::declval<renderer::InteractiveFrameState>().delta_seconds), float>);
+static_assert(std::is_same_v<decltype(std::declval<renderer::HitRecord>().t), float>);
+static_assert(std::is_same_v<decltype(std::declval<renderer::Material>().roughness), float>);
+static_assert(std::is_same_v<decltype(std::declval<renderer::Material>().opacity), float>);
+static_assert(std::is_same_v<decltype(std::declval<renderer::SurfaceMaterialSample>().opacity), float>);
 
 void test_vec3_arithmetic() {
     renderer::Vec3 a(1.0, 2.0, 3.0);
@@ -470,28 +474,32 @@ void test_depth_buffer_clear_resize_and_access() {
 void test_sphere_intersection() {
     renderer::Material material;
     material.base_color = renderer::Color(1, 0, 0);
-    renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0, 0);
+    renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0f, 0);
 
     renderer::Ray ray(renderer::Vec3(0, 0, -5), renderer::Vec3(0, 0, 1));
     renderer::HitRecord hit;
-    RENDER_CHECK(sphere.intersect(ray, 0.001, 1000.0, hit));
-    RENDER_CHECK(nearly_equal(static_cast<float>(hit.t), 4.0f));
+    RENDER_CHECK(sphere.intersect(ray, 0.001f, 1000.0f, hit));
+    RENDER_CHECK(nearly_equal(hit.t, 4.0f));
+    RENDER_CHECK(hit.position.allFinite());
+    RENDER_CHECK(hit.shading_normal.allFinite());
+    RENDER_CHECK(hit.tangent.allFinite());
+    RENDER_CHECK(hit.bitangent.allFinite());
     RENDER_CHECK(nearly_equal(hit.position.z(), -1.0));
     RENDER_CHECK(nearly_equal(renderer::length(hit.shading_normal), 1.0));
     RENDER_CHECK(hit.material_id == 0);
 }
 
 void test_sphere_rejects_zero_direction_ray() {
-    renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0, 0);
+    renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0f, 0);
     renderer::Ray ray(renderer::Vec3(0, 0, -5), renderer::Vec3(0, 0, 0));
     renderer::HitRecord hit;
-    RENDER_CHECK(!sphere.intersect(ray, 0.001, 1000.0, hit));
+    RENDER_CHECK(!sphere.intersect(ray, 0.001f, 1000.0f, hit));
 }
 
 void test_sphere_invalid_radius_throws() {
     bool threw_zero_radius = false;
     try {
-        renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 0.0, 0);
+        renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 0.0f, 0);
     } catch (const std::invalid_argument&) {
         threw_zero_radius = true;
     }
@@ -499,7 +507,7 @@ void test_sphere_invalid_radius_throws() {
 
     bool threw_negative_radius = false;
     try {
-        renderer::Sphere sphere(renderer::Vec3(0, 0, 0), -1.0, 0);
+        renderer::Sphere sphere(renderer::Vec3(0, 0, 0), -1.0f, 0);
     } catch (const std::invalid_argument&) {
         threw_negative_radius = true;
     }
@@ -507,7 +515,7 @@ void test_sphere_invalid_radius_throws() {
 
     bool threw_nan_radius = false;
     try {
-        renderer::Sphere sphere(renderer::Vec3(0, 0, 0), std::numeric_limits<double>::quiet_NaN(), 0);
+        renderer::Sphere sphere(renderer::Vec3(0, 0, 0), std::numeric_limits<float>::quiet_NaN(), 0);
     } catch (const std::invalid_argument&) {
         threw_nan_radius = true;
     }
@@ -515,7 +523,7 @@ void test_sphere_invalid_radius_throws() {
 
     bool threw_infinite_radius = false;
     try {
-        renderer::Sphere sphere(renderer::Vec3(0, 0, 0), std::numeric_limits<double>::infinity(), 0);
+        renderer::Sphere sphere(renderer::Vec3(0, 0, 0), std::numeric_limits<float>::infinity(), 0);
     } catch (const std::invalid_argument&) {
         threw_infinite_radius = true;
     }
@@ -527,7 +535,7 @@ void test_sphere_invalid_center_throws() {
     try {
         renderer::Sphere sphere(
             renderer::Vec3(std::numeric_limits<float>::quiet_NaN(), 0, 0),
-            1.0,
+            1.0f,
             0);
     } catch (const std::invalid_argument&) {
         threw_nan_center = true;
@@ -538,7 +546,7 @@ void test_sphere_invalid_center_throws() {
     try {
         renderer::Sphere sphere(
             renderer::Vec3(std::numeric_limits<float>::infinity(), 0, 0),
-            1.0,
+            1.0f,
             0);
     } catch (const std::invalid_argument&) {
         threw_infinite_center = true;
@@ -547,49 +555,49 @@ void test_sphere_invalid_center_throws() {
 }
 
 void test_sphere_rejects_non_finite_direction_rays() {
-    renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0, 0);
+    renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0f, 0);
 
     renderer::HitRecord nan_hit;
     renderer::Ray nan_ray(
         renderer::Vec3(0, 0, -5),
         renderer::Vec3(0, 0, std::numeric_limits<float>::quiet_NaN()));
-    RENDER_CHECK(!sphere.intersect(nan_ray, 0.001, 1000.0, nan_hit));
+    RENDER_CHECK(!sphere.intersect(nan_ray, 0.001f, 1000.0f, nan_hit));
 
     renderer::HitRecord infinite_hit;
     renderer::Ray infinite_ray(
         renderer::Vec3(0, 0, -5),
         renderer::Vec3(0, 0, std::numeric_limits<float>::infinity()));
-    RENDER_CHECK(!sphere.intersect(infinite_ray, 0.001, 1000.0, infinite_hit));
+    RENDER_CHECK(!sphere.intersect(infinite_ray, 0.001f, 1000.0f, infinite_hit));
 }
 
 void test_sphere_rejects_non_finite_origin_rays() {
-    renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0, 0);
+    renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0f, 0);
 
     renderer::HitRecord nan_hit;
     renderer::Ray nan_ray(
         renderer::Vec3(std::numeric_limits<float>::quiet_NaN(), 0, -5),
         renderer::Vec3(0, 0, 1));
-    RENDER_CHECK(!sphere.intersect(nan_ray, 0.001, 1000.0, nan_hit));
+    RENDER_CHECK(!sphere.intersect(nan_ray, 0.001f, 1000.0f, nan_hit));
 
     renderer::HitRecord infinite_hit;
     renderer::Ray infinite_ray(
         renderer::Vec3(std::numeric_limits<float>::infinity(), 0, -5),
         renderer::Vec3(0, 0, 1));
-    RENDER_CHECK(!sphere.intersect(infinite_ray, 0.001, 1000.0, infinite_hit));
+    RENDER_CHECK(!sphere.intersect(infinite_ray, 0.001f, 1000.0f, infinite_hit));
 }
 
 void test_sphere_inside_ray_reports_back_face() {
-    renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0, 1);
+    renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0f, 1);
     renderer::Ray ray(renderer::Vec3(0, 0, 0), renderer::Vec3(0, 0, 1));
     renderer::HitRecord hit;
-    RENDER_CHECK(sphere.intersect(ray, 0.001, 1000.0, hit));
+    RENDER_CHECK(sphere.intersect(ray, 0.001f, 1000.0f, hit));
     RENDER_CHECK(!hit.front_face);
-    RENDER_CHECK(nearly_equal(static_cast<float>(hit.t), 1.0f));
+    RENDER_CHECK(nearly_equal(hit.t, 1.0f));
     RENDER_CHECK(nearly_equal(hit.shading_normal.z(), -1.0));
 }
 
 void test_sphere_bounds_include_center_and_radius() {
-    renderer::Sphere sphere(renderer::Vec3(1, 2, 3), 2.0, 0);
+    renderer::Sphere sphere(renderer::Vec3(1, 2, 3), 2.0f, 0);
     const renderer::Bounds3 bounds = sphere.bounds();
     RENDER_CHECK(nearly_equal(bounds.min.x(), -1.0));
     RENDER_CHECK(nearly_equal(bounds.min.y(), 0.0));
@@ -608,7 +616,7 @@ void test_triangle_intersection() {
 
     renderer::Ray ray(renderer::Vec3(0, 0.25, -2), renderer::Vec3(0, 0, 1));
     renderer::HitRecord hit;
-    RENDER_CHECK(tri.intersect(ray, 0.001, 1000.0, hit));
+    RENDER_CHECK(tri.intersect(ray, 0.001f, 1000.0f, hit));
     RENDER_CHECK(nearly_equal(hit.position.x(), 0.0));
     RENDER_CHECK(nearly_equal(hit.position.y(), 0.25));
     RENDER_CHECK(hit.material_id == 2);
@@ -635,7 +643,9 @@ void test_triangle_interpolates_shading_normal_separately_from_geometry() {
 
     renderer::HitRecord hit;
     const renderer::Ray ray(renderer::Vec3(0.0, 0.0, 0.0), renderer::Vec3(0.0, 0.0, -1.0));
-    RENDER_CHECK(triangle.intersect(ray, 1e-6, 10.0, hit));
+    RENDER_CHECK(triangle.intersect(ray, 1e-6f, 10.0f, hit));
+    RENDER_CHECK(hit.geometric_normal.allFinite());
+    RENDER_CHECK(hit.shading_normal.allFinite());
     RENDER_CHECK(renderer::dot(hit.geometric_normal, renderer::Vec3(0.0, 0.0, 1.0)) > 0.999);
     RENDER_CHECK(renderer::dot(hit.shading_normal, hit.geometric_normal) > 0.0);
     RENDER_CHECK(renderer::length(hit.shading_normal - hit.geometric_normal) > 0.01);
@@ -678,13 +688,13 @@ void test_triangle_rejects_non_finite_rays() {
     renderer::Ray nan_origin_ray(
         renderer::Vec3(std::numeric_limits<float>::quiet_NaN(), 0.25f, -2.0f),
         renderer::Vec3(0, 0, 1));
-    RENDER_CHECK(!tri.intersect(nan_origin_ray, 0.001, 1000.0, nan_origin_hit));
+    RENDER_CHECK(!tri.intersect(nan_origin_ray, 0.001f, 1000.0f, nan_origin_hit));
 
     renderer::HitRecord infinite_direction_hit;
     renderer::Ray infinite_direction_ray(
         renderer::Vec3(0, 0.25, -2),
         renderer::Vec3(0, 0, std::numeric_limits<float>::infinity()));
-    RENDER_CHECK(!tri.intersect(infinite_direction_ray, 0.001, 1000.0, infinite_direction_hit));
+    RENDER_CHECK(!tri.intersect(infinite_direction_ray, 0.001f, 1000.0f, infinite_direction_hit));
 }
 
 void test_triangle_back_side_hit_reports_back_face() {
@@ -696,7 +706,7 @@ void test_triangle_back_side_hit_reports_back_face() {
 
     renderer::Ray ray(renderer::Vec3(0, 0.25, -2), renderer::Vec3(0, 0, 1));
     renderer::HitRecord hit;
-    RENDER_CHECK(tri.intersect(ray, 0.001, 1000.0, hit));
+    RENDER_CHECK(tri.intersect(ray, 0.001f, 1000.0f, hit));
     RENDER_CHECK(!hit.front_face);
     RENDER_CHECK(renderer::dot(hit.shading_normal, ray.direction) < 0.0);
 }
@@ -710,13 +720,13 @@ void test_triangle_boundary_hits_succeed() {
 
     renderer::HitRecord vertex_hit;
     renderer::Ray vertex_ray(renderer::Vec3(-1, 0, -2), renderer::Vec3(0, 0, 1));
-    RENDER_CHECK(tri.intersect(vertex_ray, 0.001, 1000.0, vertex_hit));
+    RENDER_CHECK(tri.intersect(vertex_ray, 0.001f, 1000.0f, vertex_hit));
     RENDER_CHECK(nearly_equal(vertex_hit.position.x(), -1.0));
     RENDER_CHECK(nearly_equal(vertex_hit.position.y(), 0.0));
 
     renderer::HitRecord edge_hit;
     renderer::Ray edge_ray(renderer::Vec3(0, 0, -2), renderer::Vec3(0, 0, 1));
-    RENDER_CHECK(tri.intersect(edge_ray, 0.001, 1000.0, edge_hit));
+    RENDER_CHECK(tri.intersect(edge_ray, 0.001f, 1000.0f, edge_hit));
     RENDER_CHECK(nearly_equal(edge_hit.position.x(), 0.0));
     RENDER_CHECK(nearly_equal(edge_hit.position.y(), 0.0));
 }
@@ -730,7 +740,72 @@ void test_degenerate_triangle_misses() {
 
     renderer::Ray ray(renderer::Vec3(0, 0, -2), renderer::Vec3(0, 0, 1));
     renderer::HitRecord hit;
-    RENDER_CHECK(!tri.intersect(ray, 0.001, 1000.0, hit));
+    RENDER_CHECK(!tri.intersect(ray, 0.001f, 1000.0f, hit));
+}
+
+void test_triangle_degenerate_normals_and_uvs_use_finite_fallbacks() {
+    const renderer::Triangle triangle(
+        renderer::TriangleVertex{
+            renderer::Vec3(-1.0f, -1.0f, -1.0f),
+            renderer::Vec2::Zero(),
+            renderer::Vec3::Zero(),
+            true},
+        renderer::TriangleVertex{
+            renderer::Vec3(1.0f, -1.0f, -1.0f),
+            renderer::Vec2::Zero(),
+            renderer::Vec3::Zero(),
+            true},
+        renderer::TriangleVertex{
+            renderer::Vec3(0.0f, 1.0f, -1.0f),
+            renderer::Vec2::Zero(),
+            renderer::Vec3::Zero(),
+            true},
+        0);
+
+    renderer::HitRecord hit;
+    const renderer::Ray ray(
+        renderer::Vec3::Zero(),
+        renderer::Vec3(0.0f, 0.0f, -1.0f));
+    RENDER_CHECK(triangle.intersect(ray, 1e-6f, 10.0f, hit));
+    RENDER_CHECK(!hit.has_valid_uv_basis);
+    RENDER_CHECK(hit.position.allFinite());
+    RENDER_CHECK(hit.geometric_normal.allFinite());
+    RENDER_CHECK(hit.shading_normal.allFinite());
+    RENDER_CHECK(hit.tangent.allFinite());
+    RENDER_CHECK(hit.bitangent.allFinite());
+    RENDER_CHECK(hit.uv.allFinite());
+}
+
+void test_small_triangle_intersection_remains_valid() {
+    const renderer::Triangle triangle(
+        renderer::Vec3(-5e-6f, -5e-6f, -1.0f),
+        renderer::Vec3(5e-6f, -5e-6f, -1.0f),
+        renderer::Vec3(-5e-6f, 5e-6f, -1.0f),
+        0);
+    renderer::HitRecord hit;
+    const renderer::Ray ray(renderer::Vec3::Zero(), renderer::Vec3(0.0f, 0.0f, -1.0f));
+
+    RENDER_CHECK(triangle.intersect(ray, 1e-6f, 10.0f, hit));
+    RENDER_CHECK(hit.position.allFinite());
+    RENDER_CHECK(hit.shading_normal.allFinite());
+}
+
+void test_small_nonzero_uv_basis_remains_valid() {
+    const renderer::Triangle triangle(
+        renderer::Vec3(-1.0f, -1.0f, -1.0f),
+        renderer::Vec3(1.0f, -1.0f, -1.0f),
+        renderer::Vec3(-1.0f, 1.0f, -1.0f),
+        0,
+        renderer::Vec2::Zero(),
+        renderer::Vec2(1e-5f, 0.0f),
+        renderer::Vec2(0.0f, 1e-5f));
+    renderer::HitRecord hit;
+    const renderer::Ray ray(renderer::Vec3::Zero(), renderer::Vec3(0.0f, 0.0f, -1.0f));
+
+    RENDER_CHECK(triangle.intersect(ray, 1e-6f, 10.0f, hit));
+    RENDER_CHECK(hit.has_valid_uv_basis);
+    RENDER_CHECK(hit.tangent.allFinite());
+    RENDER_CHECK(hit.bitangent.allFinite());
 }
 
 bool brute_force_triangle_intersect(
@@ -743,7 +818,7 @@ bool brute_force_triangle_intersect(
     double closest_t = t_max;
     for (const renderer::Triangle& tri : tris) {
         renderer::HitRecord hit;
-        if (tri.intersect(ray, t_min, closest_t, hit)) {
+        if (tri.intersect(ray, static_cast<float>(t_min), static_cast<float>(closest_t), hit)) {
             hit_anything = true;
             closest_t = hit.t;
             closest_hit = hit;
@@ -920,10 +995,10 @@ bool material_id_in_range(const renderer::Scene& scene, int material_id) {
 
 bool intersect_closest_sphere(const renderer::Scene& scene, const renderer::Ray& ray, renderer::HitRecord& closest_hit) {
     bool hit_anything = false;
-    double closest_t = 1000.0;
+    float closest_t = 1000.0f;
     for (const renderer::Sphere& sphere : scene.spheres) {
         renderer::HitRecord hit;
-        if (sphere.intersect(ray, 0.001, closest_t, hit)) {
+        if (sphere.intersect(ray, 0.001f, closest_t, hit)) {
             hit_anything = true;
             closest_t = hit.t;
             closest_hit = hit;
@@ -934,10 +1009,10 @@ bool intersect_closest_sphere(const renderer::Scene& scene, const renderer::Ray&
 
 bool intersect_closest_triangle(const renderer::Scene& scene, const renderer::Ray& ray, renderer::HitRecord& closest_hit) {
     bool hit_anything = false;
-    double closest_t = 1000.0;
+    float closest_t = 1000.0f;
     for (const renderer::Triangle& triangle : scene.triangles) {
         renderer::HitRecord hit;
-        if (triangle.intersect(ray, 0.001, closest_t, hit)) {
+        if (triangle.intersect(ray, 0.001f, closest_t, hit)) {
             hit_anything = true;
             closest_t = hit.t;
             closest_hit = hit;
@@ -1316,7 +1391,7 @@ void test_near_plane_clipping_keeps_visible_triangle_portion() {
 
 renderer::RenderResult render_test_raster_triangle(
     bool two_sided,
-    double opacity,
+    float opacity,
     bool reverse_winding,
     bool crosses_near_plane) {
     renderer::Scene scene;
@@ -1608,7 +1683,9 @@ void test_scene_asset_loader_preserves_obj_vertex_normals() {
     const renderer::LoadedScene loaded = renderer::load_scene_asset(obj_path, 64, 64);
     renderer::HitRecord hit;
     const renderer::Ray ray(renderer::Vec3(0.0, 0.0, 0.0), renderer::Vec3(0.0, 0.0, -1.0));
-    RENDER_CHECK(loaded.scene.triangles[0].intersect(ray, 1e-6, 10.0, hit));
+    RENDER_CHECK(loaded.scene.triangles[0].intersect(ray, 1e-6f, 10.0f, hit));
+    RENDER_CHECK(hit.position.allFinite());
+    RENDER_CHECK(hit.shading_normal.allFinite());
     RENDER_CHECK(renderer::length(hit.shading_normal - hit.geometric_normal) > 0.01);
     RENDER_CHECK(renderer::dot(hit.shading_normal, hit.geometric_normal) > 0.0);
 
@@ -1623,6 +1700,10 @@ void test_image_texture_samples_obj_uv_space() {
 
     const renderer::Color top_left = texture.sample(renderer::Vec2(0.25, 0.75));
     const renderer::Color bottom_left = texture.sample(renderer::Vec2(0.25, 0.25));
+    const renderer::Color wrapped = texture.sample(renderer::Vec2(-0.75f, 1.75f));
+    RENDER_CHECK(top_left.allFinite());
+    RENDER_CHECK(bottom_left.allFinite());
+    RENDER_CHECK(wrapped.allFinite());
     RENDER_CHECK(top_left.x() > 0.9);
     RENDER_CHECK(top_left.y() < 0.1);
     RENDER_CHECK(bottom_left.z() > 0.9);
@@ -1644,6 +1725,8 @@ void test_texture_encoding_distinguishes_srgb_from_linear() {
     RENDER_CHECK(srgb.sample(renderer::Vec2::Zero()).x() < 0.25);
     RENDER_CHECK(linear.sample(renderer::Vec2::Zero()).x() > 0.49);
     RENDER_CHECK(linear.sample(renderer::Vec2::Zero()).x() < 0.51);
+    RENDER_CHECK(srgb.sample(renderer::Vec2::Zero()).allFinite());
+    RENDER_CHECK(linear.sample(renderer::Vec2::Zero()).allFinite());
 
     std::remove(texture_path.c_str());
 }
@@ -1664,10 +1747,10 @@ void test_material_evaluator_combines_opacity_and_perturbs_bump_normal() {
             renderer::Color(1.0, 1.0, 1.0)});
 
     renderer::Material material;
-    material.opacity = 0.8;
+    material.opacity = 0.8f;
     material.opacity_texture_id = 0;
     material.bump_texture_id = 0;
-    material.bump_scale = 1.0;
+    material.bump_scale = 1.0f;
 
     renderer::HitRecord hit;
     hit.uv = renderer::Vec2(0.375, 0.25);
@@ -1683,6 +1766,9 @@ void test_material_evaluator_combines_opacity_and_perturbs_bump_normal() {
     RENDER_CHECK(renderer::length(sample.shading_normal - hit.shading_normal) > 0.01);
     RENDER_CHECK(renderer::dot(sample.shading_normal, hit.geometric_normal) > 0.0);
     RENDER_CHECK(renderer::dot(sample.shading_normal, hit.shading_normal) > 0.9);
+    RENDER_CHECK(sample.base_color.allFinite());
+    RENDER_CHECK(std::isfinite(sample.opacity));
+    RENDER_CHECK(sample.shading_normal.allFinite());
 
     hit.has_valid_uv_basis = false;
     const renderer::SurfaceMaterialSample fallback =
@@ -1720,8 +1806,8 @@ void test_scene_asset_loader_loads_map_kd_and_triangle_uvs() {
     renderer::HitRecord hit;
     const bool did_hit = loaded.scene.triangles[0].intersect(
         renderer::Ray(renderer::Vec3(-0.5, 0.5, 0.0), renderer::Vec3(0.0, 0.0, -1.0)),
-        0.001,
-        10.0,
+        0.001f,
+        10.0f,
         hit);
     RENDER_CHECK(did_hit);
     RENDER_CHECK(nearly_equal(hit.uv.x(), 0.25));
@@ -1891,6 +1977,9 @@ int main() {
     test_triangle_rejects_non_finite_rays();
     test_triangle_back_side_hit_reports_back_face();
     test_triangle_boundary_hits_succeed();
+    test_triangle_degenerate_normals_and_uvs_use_finite_fallbacks();
+    test_small_triangle_intersection_remains_valid();
+    test_small_nonzero_uv_basis_remains_valid();
     test_degenerate_triangle_misses();
     test_empty_bvh_has_no_nodes_or_hits();
     test_bvh_matches_bruteforce_triangle_hit();

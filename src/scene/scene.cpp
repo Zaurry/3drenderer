@@ -11,11 +11,11 @@ Material diffuse(const Color& color) {
     return material;
 }
 
-Material metal(const Color& color, double roughness) {
+Material metal(const Color& color, float roughness) {
     Material material;
     material.type = MaterialType::Metal;
     material.base_color = color;
-    material.metallic = 1.0;
+    material.metallic = 1.0f;
     material.roughness = roughness;
     return material;
 }
@@ -59,7 +59,7 @@ Scene make_raster_triangle_scene() {
         Vec3(0.0f, 0.7f, -1.5f),
         0);
     scene.directional_lights.push_back(
-        DirectionalLight{normalize(Vec3(-1, -1, -1)), Color(0.8f, 0.8f, 0.8f)});
+        DirectionalLight{Vec3(-1.0f, -1.0f, -1.0f).normalized(), Color(0.8f, 0.8f, 0.8f)});
     return scene;
 }
 
@@ -67,7 +67,7 @@ Scene make_mirror_spheres_scene() {
     Scene scene;
     scene.environment = Color(0.02f, 0.03f, 0.06f);
     scene.materials.push_back(diffuse(Color(0.65f, 0.68f, 0.7f)));
-    scene.materials.push_back(metal(Color(0.9f, 0.86f, 0.78f), 0.04));
+    scene.materials.push_back(metal(Color(0.9f, 0.86f, 0.78f), 0.04f));
     scene.spheres.emplace_back(Vec3(0, -100.5, -1), 100.0, 0);
     scene.spheres.emplace_back(Vec3(0, 0, -1), 0.5, 1);
     scene.point_lights.push_back(

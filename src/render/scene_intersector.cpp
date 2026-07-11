@@ -43,13 +43,13 @@ bool SceneIntersector::intersect(
 
         const Material& material = scene_.materials[static_cast<std::size_t>(candidate.material_id)];
         const bool visible_side = material.two_sided || candidate.front_face;
-        const double opacity = sample_material_opacity(scene_, material, candidate.uv);
+        const float opacity = sample_material_opacity(scene_, material, candidate.uv);
         if (visible_side && opacity >= material.alpha_cutoff) {
             hit = candidate;
             return true;
         }
 
-        const double advanced = std::nextafter(candidate.t, t_max);
+        const float advanced = std::nextafter(candidate.t, static_cast<float>(t_max));
         if (!(advanced > search_min)) {
             return false;
         }
@@ -73,7 +73,11 @@ bool SceneIntersector::intersect_nearest(
 
     for (const Sphere& sphere : scene_.spheres) {
         HitRecord candidate;
-        if (sphere.intersect(ray, t_min, closest_t, candidate)) {
+        if (sphere.intersect(
+                ray,
+                static_cast<float>(t_min),
+                static_cast<float>(closest_t),
+                candidate)) {
             hit_anything = true;
             closest_t = candidate.t;
             hit = candidate;

@@ -22,13 +22,9 @@ namespace renderer {
 
 namespace {
 
-Color multiply(const Color& a, const Color& b) {
-    return Color(a.x() * b.x(), a.y() * b.y(), a.z() * b.z());
-}
-
-double wrap01(double value) {
-    const double wrapped = value - std::floor(value);
-    return wrapped < 0.0 ? wrapped + 1.0 : wrapped;
+float wrap01(float value) {
+    const float wrapped = value - std::floor(value);
+    return wrapped < 0.0f ? wrapped + 1.0f : wrapped;
 }
 
 int wrap_index(int value, int size) {
@@ -36,19 +32,19 @@ int wrap_index(int value, int size) {
     return wrapped < 0 ? wrapped + size : wrapped;
 }
 
-Color lerp(const Color& a, const Color& b, double t) {
-    return a * (1.0 - t) + b * t;
+Color lerp(const Color& a, const Color& b, float t) {
+    return a * (1.0f - t) + b * t;
 }
 
-double decode_channel(unsigned char value, TextureEncoding encoding) {
-    const double encoded = static_cast<double>(value) / 255.0;
+float decode_channel(unsigned char value, TextureEncoding encoding) {
+    const float encoded = static_cast<float>(value) / 255.0f;
     if (encoding == TextureEncoding::Linear) {
         return encoded;
     }
-    if (encoded <= 0.04045) {
-        return encoded / 12.92;
+    if (encoded <= 0.04045f) {
+        return encoded / 12.92f;
     }
-    return std::pow((encoded + 0.055) / 1.055, 2.4);
+    return std::pow((encoded + 0.055f) / 1.055f, 2.4f);
 }
 
 bool valid_texture_id(const Scene& scene, int texture_id) {
@@ -106,17 +102,17 @@ int ImageTexture::height() const {
 
 Color ImageTexture::sample(const Vec2& uv) const {
     if (width_ <= 0 || height_ <= 0 || pixels_.empty()) {
-        return Color(1.0, 0.0, 1.0);
+        return Color(1.0f, 0.0f, 1.0f);
     }
 
-    const double u = wrap01(uv.x());
-    const double v = wrap01(uv.y());
-    const double x = u * static_cast<double>(width_) - 0.5;
-    const double y = (1.0 - v) * static_cast<double>(height_) - 0.5;
+    const float u = wrap01(uv.x());
+    const float v = wrap01(uv.y());
+    const float x = u * static_cast<float>(width_) - 0.5f;
+    const float y = (1.0f - v) * static_cast<float>(height_) - 0.5f;
     const int x0 = static_cast<int>(std::floor(x));
     const int y0 = static_cast<int>(std::floor(y));
-    const double tx = x - static_cast<double>(x0);
-    const double ty = y - static_cast<double>(y0);
+    const float tx = x - static_cast<float>(x0);
+    const float ty = y - static_cast<float>(y0);
 
     const Color c00 = pixel(wrap_index(x0, width_), wrap_index(y0, height_));
     const Color c10 = pixel(wrap_index(x0 + 1, width_), wrap_index(y0, height_));
@@ -125,16 +121,16 @@ Color ImageTexture::sample(const Vec2& uv) const {
     return lerp(lerp(c00, c10, tx), lerp(c01, c11, tx), ty);
 }
 
-double ImageTexture::sample_scalar(const Vec2& uv) const {
+float ImageTexture::sample_scalar(const Vec2& uv) const {
     const Color color = sample(uv);
-    return color.x() * 0.2126 + color.y() * 0.7152 + color.z() * 0.0722;
+    return color.dot(Color(0.2126f, 0.7152f, 0.0722f));
 }
 
 Vec2 ImageTexture::texel_size() const {
     if (width_ <= 0 || height_ <= 0) {
         return Vec2::Zero();
     }
-    return Vec2(1.0 / static_cast<double>(width_), 1.0 / static_cast<double>(height_));
+    return Vec2(1.0f / static_cast<float>(width_), 1.0f / static_cast<float>(height_));
 }
 
 const Color& ImageTexture::pixel(int x, int y) const {
@@ -145,8 +141,7 @@ Color sample_material_base_color(const Scene& scene, const Material& material, c
     if (!valid_texture_id(scene, material.diffuse_texture_id)) {
         return material.base_color;
     }
-    return multiply(
-        material.base_color,
+    return material.base_color.cwiseProduct(
         scene.textures[static_cast<std::size_t>(material.diffuse_texture_id)].sample(uv));
 }
 

@@ -52,9 +52,9 @@ Vec3 vertex_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t& 
     }
 
     return Vec3(
-        attrib.vertices[base],
-        attrib.vertices[base + 1U],
-        attrib.vertices[base + 2U]);
+        static_cast<float>(attrib.vertices[base]),
+        static_cast<float>(attrib.vertices[base + 1U]),
+        static_cast<float>(attrib.vertices[base + 2U]));
 }
 
 Vec2 texcoord_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t& index) {
@@ -68,8 +68,8 @@ Vec2 texcoord_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t
     }
 
     return Vec2(
-        attrib.texcoords[base],
-        attrib.texcoords[base + 1U]);
+        static_cast<float>(attrib.texcoords[base]),
+        static_cast<float>(attrib.texcoords[base + 1U]));
 }
 
 Vec3 normal_from_index(
@@ -87,26 +87,29 @@ Vec3 normal_from_index(
     }
 
     const Vec3 normal(
-        attrib.normals[base],
-        attrib.normals[base + 1U],
-        attrib.normals[base + 2U]);
+        static_cast<float>(attrib.normals[base]),
+        static_cast<float>(attrib.normals[base + 1U]),
+        static_cast<float>(attrib.normals[base + 2U]));
     valid = usable_direction(normal);
-    return valid ? normalize(normal) : Vec3::Zero();
+    return valid ? normal.normalized() : Vec3::Zero();
 }
 
 Color array_to_color(const tinyobj::real_t values[3]) {
-    return Color(values[0], values[1], values[2]);
+    return Color(
+        static_cast<float>(values[0]),
+        static_cast<float>(values[1]),
+        static_cast<float>(values[2]));
 }
 
-double color_energy(const Color& color) {
-    return color.x() * color.x() + color.y() * color.y() + color.z() * color.z();
+float color_energy(const Color& color) {
+    return color.squaredNorm();
 }
 
-double roughness_from_shininess(double shininess) {
-    if (!std::isfinite(shininess) || shininess <= 0.0) {
-        return 0.2;
+float roughness_from_shininess(float shininess) {
+    if (!std::isfinite(shininess) || shininess <= 0.0f) {
+        return 0.2f;
     }
-    return std::clamp(1.0 / std::sqrt(shininess), 0.0, 1.0);
+    return std::clamp(1.0f / std::sqrt(shininess), 0.0f, 1.0f);
 }
 
 std::string lowercase_ascii(std::string value) {
@@ -231,10 +234,11 @@ Material convert_material(
 
     material.base_color = diffuse;
     material.emission = emission;
-    material.ior = source.ior > 0.0 ? static_cast<double>(source.ior) : material.ior;
-    material.roughness = roughness_from_shininess(static_cast<double>(source.shininess));
-    material.opacity = std::clamp(static_cast<double>(source.dissolve), 0.0, 1.0);
-    material.bump_scale = static_cast<double>(source.bump_texopt.bump_multiplier);
+    const float source_ior = static_cast<float>(source.ior);
+    material.ior = source_ior > 0.0f ? source_ior : material.ior;
+    material.roughness = roughness_from_shininess(static_cast<float>(source.shininess));
+    material.opacity = std::clamp(static_cast<float>(source.dissolve), 0.0f, 1.0f);
+    material.bump_scale = static_cast<float>(source.bump_texopt.bump_multiplier);
     material.two_sided = true;
     material.diffuse_texture_id = texture_id_for(
         material_directory,
@@ -264,22 +268,22 @@ Material convert_material(
         warnings,
         warning_keys);
 
-    if (color_energy(emission) > 0.0) {
+    if (color_energy(emission) > 0.0f) {
         material.type = MaterialType::Emissive;
         return material;
     }
 
-    const bool has_transmission = source.illum == 7 || color_energy(transmittance) > 0.0;
+    const bool has_transmission = source.illum == 7 || color_energy(transmittance) > 0.0f;
     if (has_transmission) {
         material.type = MaterialType::Dielectric;
-        material.base_color = color_energy(diffuse) > 0.0 ? diffuse : Color(1.0, 1.0, 1.0);
+        material.base_color = color_energy(diffuse) > 0.0f ? diffuse : Color(1.0f, 1.0f, 1.0f);
         return material;
     }
 
-    const bool strong_specular = color_energy(specular) > 0.5;
+    const bool strong_specular = color_energy(specular) > 0.5f;
     if (source.illum == 5 || strong_specular) {
         material.type = MaterialType::Metal;
-        material.base_color = color_energy(specular) > 0.0 ? specular : diffuse;
+        material.base_color = color_energy(specular) > 0.0f ? specular : diffuse;
         return material;
     }
 
@@ -296,18 +300,18 @@ Material fallback_material() {
 
 Camera make_default_camera(const Bounds3& bounds, int width, int height) {
     const Vec3 center = (bounds.min + bounds.max) * 0.5f;
-    const double radius = std::max(
-        0.5, static_cast<double>(length(bounds.max - bounds.min)) * 0.5);
-    const double aspect = static_cast<double>(std::max(1, width)) / static_cast<double>(std::max(1, height));
+    const float radius = std::max(0.5f, (bounds.max - bounds.min).norm() * 0.5f);
+    const float aspect = static_cast<float>(std::max(1, width)) /
+        static_cast<float>(std::max(1, height));
     return Camera(
         center + Vec3(
             0.0f,
-            static_cast<float>(radius * 0.15),
-            static_cast<float>(radius * 2.4)),
+            radius * 0.15f,
+            radius * 2.4f),
         center,
         Vec3(0.0f, 1.0f, 0.0f),
         45.0f,
-        static_cast<float>(aspect));
+        aspect);
 }
 
 }  // namespace
@@ -419,7 +423,7 @@ LoadedScene load_scene_asset(const std::string& path, int width, int height) {
     loaded.scene.environment = Color(0.02f, 0.025f, 0.03f);
     loaded.scene.directional_lights.push_back(
         DirectionalLight{
-            normalize(Vec3(-0.5f, -1.0f, -0.25f)),
+            Vec3(-0.5f, -1.0f, -0.25f).normalized(),
             Color(0.25f, 0.25f, 0.25f)});
     loaded.camera = make_default_camera(loaded.bounds, width, height);
     return loaded;

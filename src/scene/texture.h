@@ -28,11 +28,11 @@ struct ConstantTexture {
 struct CheckerTexture {
     Color even = Color::Zero();
     Color odd = Color::Zero();
-    double scale = 8.0;
+    float scale = 8.0f;
 
     Color sample(const Vec2& uv, const Vec3& p) const {
         (void)uv;
-        const double checker = std::floor(p.x() * scale) + std::floor(p.y() * scale) + std::floor(p.z() * scale);
+        const float checker = std::floor(p.x() * scale) + std::floor(p.y() * scale) + std::floor(p.z() * scale);
         return static_cast<int>(checker) % 2 == 0 ? even : odd;
     }
 };
@@ -49,7 +49,7 @@ public:
     int width() const;
     int height() const;
     Color sample(const Vec2& uv) const;
-    double sample_scalar(const Vec2& uv) const;
+    float sample_scalar(const Vec2& uv) const;
     Vec2 texel_size() const;
 
 private:

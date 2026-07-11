@@ -207,7 +207,7 @@ bool PathTracerRenderer::scatter(
         Vec3 scatter_direction = reflect(normalize(ray.direction), shading_normal);
         if (material.roughness > 0.0) {
             scatter_direction +=
-                static_cast<float>(std::max(0.0, material.roughness)) * random_in_unit_sphere(rng);
+                std::max(0.0f, material.roughness) * random_in_unit_sphere(rng);
         }
         scatter_direction = normalize(scatter_direction);
         if (dot(scatter_direction, shading_normal) <= 0.0) {

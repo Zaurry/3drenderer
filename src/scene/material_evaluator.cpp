@@ -30,23 +30,23 @@ Vec3 bumped_normal(
 
     const ImageTexture& texture = scene.textures[static_cast<std::size_t>(material.bump_texture_id)];
     const Vec2 step = texture.texel_size();
-    if (step.x() <= 0.0 || step.y() <= 0.0) {
+    if (step.x() <= 0.0f || step.y() <= 0.0f) {
         return hit.shading_normal;
     }
 
-    const double left = texture.sample_scalar(Vec2(hit.uv.x() - step.x(), hit.uv.y()));
-    const double right = texture.sample_scalar(Vec2(hit.uv.x() + step.x(), hit.uv.y()));
-    const double down = texture.sample_scalar(Vec2(hit.uv.x(), hit.uv.y() - step.y()));
-    const double up = texture.sample_scalar(Vec2(hit.uv.x(), hit.uv.y() + step.y()));
-    const float dh_du = static_cast<float>((right - left) * 0.5);
-    const float dh_dv = static_cast<float>((up - down) * 0.5);
+    const float left = texture.sample_scalar(Vec2(hit.uv.x() - step.x(), hit.uv.y()));
+    const float right = texture.sample_scalar(Vec2(hit.uv.x() + step.x(), hit.uv.y()));
+    const float down = texture.sample_scalar(Vec2(hit.uv.x(), hit.uv.y() - step.y()));
+    const float up = texture.sample_scalar(Vec2(hit.uv.x(), hit.uv.y() + step.y()));
+    const float dh_du = (right - left) * 0.5f;
+    const float dh_dv = (up - down) * 0.5f;
     const Vec3 gradient = hit.tangent * dh_du + hit.bitangent * dh_dv;
-    Vec3 perturbed = normalize(
-        hit.shading_normal - gradient * static_cast<float>(material.bump_scale));
-    if (!usable_direction(perturbed)) {
+    const Vec3 candidate = hit.shading_normal - gradient * material.bump_scale;
+    if (!usable_direction(candidate)) {
         return hit.shading_normal;
     }
-    if (dot(perturbed, hit.geometric_normal) < 0.0) {
+    Vec3 perturbed = candidate.normalized();
+    if (perturbed.dot(hit.geometric_normal) < 0.0f) {
         perturbed = -perturbed;
     }
     return perturbed;
@@ -54,15 +54,15 @@ Vec3 bumped_normal(
 
 }  // namespace
 
-double sample_material_opacity(
+float sample_material_opacity(
     const Scene& scene,
     const Material& material,
     const Vec2& uv) {
-    double opacity = std::clamp(material.opacity, 0.0, 1.0);
+    float opacity = std::clamp(material.opacity, 0.0f, 1.0f);
     if (valid_texture_id(scene, material.opacity_texture_id)) {
         opacity *= scene.textures[static_cast<std::size_t>(material.opacity_texture_id)].sample_scalar(uv);
     }
-    return std::clamp(opacity, 0.0, 1.0);
+    return std::clamp(opacity, 0.0f, 1.0f);
 }
 
 SurfaceMaterialSample evaluate_surface_material(
