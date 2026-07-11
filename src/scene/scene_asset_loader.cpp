@@ -52,9 +52,9 @@ Vec3 vertex_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t& 
     }
 
     return Vec3(
-        static_cast<double>(attrib.vertices[base]),
-        static_cast<double>(attrib.vertices[base + 1U]),
-        static_cast<double>(attrib.vertices[base + 2U]));
+        attrib.vertices[base],
+        attrib.vertices[base + 1U],
+        attrib.vertices[base + 2U]);
 }
 
 Vec2 texcoord_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t& index) {
@@ -68,8 +68,8 @@ Vec2 texcoord_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t
     }
 
     return Vec2(
-        static_cast<double>(attrib.texcoords[base]),
-        static_cast<double>(attrib.texcoords[base + 1U]));
+        attrib.texcoords[base],
+        attrib.texcoords[base + 1U]);
 }
 
 Vec3 normal_from_index(
@@ -87,18 +87,15 @@ Vec3 normal_from_index(
     }
 
     const Vec3 normal(
-        static_cast<double>(attrib.normals[base]),
-        static_cast<double>(attrib.normals[base + 1U]),
-        static_cast<double>(attrib.normals[base + 2U]));
+        attrib.normals[base],
+        attrib.normals[base + 1U],
+        attrib.normals[base + 2U]);
     valid = usable_direction(normal);
     return valid ? normalize(normal) : Vec3::Zero();
 }
 
 Color array_to_color(const tinyobj::real_t values[3]) {
-    return Color(
-        static_cast<double>(values[0]),
-        static_cast<double>(values[1]),
-        static_cast<double>(values[2]));
+    return Color(values[0], values[1], values[2]);
 }
 
 double color_energy(const Color& color) {
@@ -293,18 +290,22 @@ Material convert_material(
 Material fallback_material() {
     Material material;
     material.type = MaterialType::Diffuse;
-    material.base_color = Color(1.0, 0.0, 1.0);
+    material.base_color = Color(1.0f, 0.0f, 1.0f);
     return material;
 }
 
 Camera make_default_camera(const Bounds3& bounds, int width, int height) {
-    const Vec3 center = (bounds.min + bounds.max) * 0.5;
-    const double radius = std::max(0.5, length(bounds.max - bounds.min) * 0.5);
+    const Vec3 center = (bounds.min + bounds.max) * 0.5f;
+    const double radius = std::max(
+        0.5, static_cast<double>(length(bounds.max - bounds.min)) * 0.5);
     const double aspect = static_cast<double>(std::max(1, width)) / static_cast<double>(std::max(1, height));
     return Camera(
-        center + Vec3(0.0, radius * 0.15, radius * 2.4),
+        center + Vec3(
+            0.0f,
+            static_cast<float>(radius * 0.15),
+            static_cast<float>(radius * 2.4)),
         center,
-        Vec3(0.0, 1.0, 0.0),
+        Vec3(0.0f, 1.0f, 0.0f),
         45.0,
         aspect);
 }
@@ -415,9 +416,11 @@ LoadedScene load_scene_asset(const std::string& path, int width, int height) {
         throw std::runtime_error("Scene asset contains no triangles");
     }
 
-    loaded.scene.environment = Color(0.02, 0.025, 0.03);
+    loaded.scene.environment = Color(0.02f, 0.025f, 0.03f);
     loaded.scene.directional_lights.push_back(
-        DirectionalLight{normalize(Vec3(-0.5, -1.0, -0.25)), Color(0.25, 0.25, 0.25)});
+        DirectionalLight{
+            normalize(Vec3(-0.5f, -1.0f, -0.25f)),
+            Color(0.25f, 0.25f, 0.25f)});
     loaded.camera = make_default_camera(loaded.bounds, width, height);
     return loaded;
 }

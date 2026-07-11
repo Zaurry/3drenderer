@@ -156,8 +156,8 @@ SceneBundle make_scene_bundle(const CliOptions& options) {
         return SceneBundle{
             renderer::make_mirror_spheres_scene(),
             make_camera(
-                renderer::Vec3(0.0, 0.65, 2.4),
-                renderer::Vec3(0.0, -0.05, -1.0),
+                renderer::Vec3(0.0f, 0.65f, 2.4f),
+                renderer::Vec3(0.0f, -0.05f, -1.0f),
                 42.0,
                 options.width,
                 options.height)};
@@ -166,8 +166,8 @@ SceneBundle make_scene_bundle(const CliOptions& options) {
         return SceneBundle{
             renderer::make_cornell_box_scene(),
             make_camera(
-                renderer::Vec3(0.0, 0.15, 1.5),
-                renderer::Vec3(0.0, 0.15, -2.0),
+                renderer::Vec3(0.0f, 0.15f, 1.5f),
+                renderer::Vec3(0.0f, 0.15f, -2.0f),
                 45.0,
                 options.width,
                 options.height)};

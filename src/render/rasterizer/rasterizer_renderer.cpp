@@ -49,8 +49,8 @@ ProjectedVertex project_to_screen(
 
     ProjectedVertex projected;
     projected.screen = Vec3(
-        (ndc_x * 0.5 + 0.5) * static_cast<double>(width - 1),
-        (1.0 - (ndc_y * 0.5 + 0.5)) * static_cast<double>(height - 1),
+        static_cast<float>((ndc_x * 0.5 + 0.5) * static_cast<double>(width - 1)),
+        static_cast<float>((1.0 - (ndc_y * 0.5 + 0.5)) * static_cast<double>(height - 1)),
         vertex.view.z());
     projected.attributes = vertex;
     return projected;
@@ -185,9 +185,9 @@ RenderResult RasterizerRenderer::render(
             for (int y = start_y; y <= end_y; ++y) {
                 for (int x = start_x; x <= end_x; ++x) {
                     const Vec3 pixel(
-                        static_cast<double>(x) + 0.5,
-                        static_cast<double>(y) + 0.5,
-                        0.0);
+                        static_cast<float>(x) + 0.5f,
+                        static_cast<float>(y) + 0.5f,
+                        0.0f);
                     const double w0 = edge_function(v1.screen, v2.screen, pixel);
                     const double w1 = edge_function(v2.screen, v0.screen, pixel);
                     const double w2 = edge_function(v0.screen, v1.screen, pixel);
@@ -198,7 +198,10 @@ RenderResult RasterizerRenderer::render(
                         continue;
                     }
 
-                    const Vec3 screen_weights(w0 / area, w1 / area, w2 / area);
+                    const Vec3 screen_weights(
+                        static_cast<float>(w0 / area),
+                        static_cast<float>(w1 / area),
+                        static_cast<float>(w2 / area));
                     const Vec3 view_depths(
                         v0.attributes.view.z(),
                         v1.attributes.view.z(),

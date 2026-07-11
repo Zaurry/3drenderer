@@ -20,7 +20,7 @@ struct RenderSettings {
     int tile_size = 16;
     int thread_count = 0;
     std::uint64_t sample_seed_offset = 0;
-    Color background = Color(0.02, 0.03, 0.05);
+    Color background = Color(0.02f, 0.03f, 0.05f);
 };
 
 }  // namespace renderer

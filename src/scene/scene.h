@@ -17,7 +17,7 @@ struct Scene {
     std::vector<Triangle> triangles;
     std::vector<PointLight> point_lights;
     std::vector<DirectionalLight> directional_lights;
-    Color environment = Color(0.02, 0.03, 0.05);
+    Color environment = Color(0.02f, 0.03f, 0.05f);
 };
 
 Scene make_gradient_sphere_scene();

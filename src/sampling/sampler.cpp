@@ -19,20 +19,23 @@ Vec3 cosine_weighted_hemisphere(PcgRandom& rng) {
     const double x = radius * std::cos(phi);
     const double y = radius * std::sin(phi);
     const double z = std::sqrt(std::max(0.0, 1.0 - r2));
-    return normalize(Vec3(x, y, z));
+    return normalize(Vec3(
+        static_cast<float>(x),
+        static_cast<float>(y),
+        static_cast<float>(z)));
 }
 
 Vec3 random_in_unit_sphere(PcgRandom& rng) {
     for (int attempt = 0; attempt < 1024; ++attempt) {
         const Vec3 p(
-            2.0 * rng.next_double() - 1.0,
-            2.0 * rng.next_double() - 1.0,
-            2.0 * rng.next_double() - 1.0);
-        if (length_squared(p) < 1.0) {
+            static_cast<float>(2.0 * rng.next_double() - 1.0),
+            static_cast<float>(2.0 * rng.next_double() - 1.0),
+            static_cast<float>(2.0 * rng.next_double() - 1.0));
+        if (length_squared(p) < 1.0f) {
             return p;
         }
     }
-    return Vec3(0.0, 0.0, 0.0);
+    return Vec3::Zero();
 }
 
 Vec3 reflect(const Vec3& v, const Vec3& normal) {

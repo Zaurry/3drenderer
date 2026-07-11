@@ -308,11 +308,11 @@ void test_to_rgb8_uses_standard_srgb_transfer_curve() {
 
 void test_to_rgb8_sanitizes_non_finite_channels() {
     const renderer::Rgb8 nan_pixel = renderer::to_rgb8(
-        renderer::Color(std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0));
+        renderer::Color(std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f));
     RENDER_CHECK(nan_pixel.r == 0);
 
     const renderer::Rgb8 infinity_pixel = renderer::to_rgb8(
-        renderer::Color(std::numeric_limits<double>::infinity(), 0.0, 0.0));
+        renderer::Color(std::numeric_limits<float>::infinity(), 0.0f, 0.0f));
     RENDER_CHECK(infinity_pixel.r == 255);
 }
 
@@ -474,7 +474,7 @@ void test_sphere_invalid_center_throws() {
     bool threw_nan_center = false;
     try {
         renderer::Sphere sphere(
-            renderer::Vec3(std::numeric_limits<double>::quiet_NaN(), 0, 0),
+            renderer::Vec3(std::numeric_limits<float>::quiet_NaN(), 0, 0),
             1.0,
             0);
     } catch (const std::invalid_argument&) {
@@ -485,7 +485,7 @@ void test_sphere_invalid_center_throws() {
     bool threw_infinite_center = false;
     try {
         renderer::Sphere sphere(
-            renderer::Vec3(std::numeric_limits<double>::infinity(), 0, 0),
+            renderer::Vec3(std::numeric_limits<float>::infinity(), 0, 0),
             1.0,
             0);
     } catch (const std::invalid_argument&) {
@@ -500,13 +500,13 @@ void test_sphere_rejects_non_finite_direction_rays() {
     renderer::HitRecord nan_hit;
     renderer::Ray nan_ray(
         renderer::Vec3(0, 0, -5),
-        renderer::Vec3(0, 0, std::numeric_limits<double>::quiet_NaN()));
+        renderer::Vec3(0, 0, std::numeric_limits<float>::quiet_NaN()));
     RENDER_CHECK(!sphere.intersect(nan_ray, 0.001, 1000.0, nan_hit));
 
     renderer::HitRecord infinite_hit;
     renderer::Ray infinite_ray(
         renderer::Vec3(0, 0, -5),
-        renderer::Vec3(0, 0, std::numeric_limits<double>::infinity()));
+        renderer::Vec3(0, 0, std::numeric_limits<float>::infinity()));
     RENDER_CHECK(!sphere.intersect(infinite_ray, 0.001, 1000.0, infinite_hit));
 }
 
@@ -515,13 +515,13 @@ void test_sphere_rejects_non_finite_origin_rays() {
 
     renderer::HitRecord nan_hit;
     renderer::Ray nan_ray(
-        renderer::Vec3(std::numeric_limits<double>::quiet_NaN(), 0, -5),
+        renderer::Vec3(std::numeric_limits<float>::quiet_NaN(), 0, -5),
         renderer::Vec3(0, 0, 1));
     RENDER_CHECK(!sphere.intersect(nan_ray, 0.001, 1000.0, nan_hit));
 
     renderer::HitRecord infinite_hit;
     renderer::Ray infinite_ray(
-        renderer::Vec3(std::numeric_limits<double>::infinity(), 0, -5),
+        renderer::Vec3(std::numeric_limits<float>::infinity(), 0, -5),
         renderer::Vec3(0, 0, 1));
     RENDER_CHECK(!sphere.intersect(infinite_ray, 0.001, 1000.0, infinite_hit));
 }
@@ -593,7 +593,7 @@ void test_triangle_invalid_vertices_throw() {
     bool threw_nan_vertex = false;
     try {
         renderer::Triangle tri(
-            renderer::Vec3(std::numeric_limits<double>::quiet_NaN(), 0, 0),
+            renderer::Vec3(std::numeric_limits<float>::quiet_NaN(), 0, 0),
             renderer::Vec3(1, 0, 0),
             renderer::Vec3(0, 1, 0),
             0);
@@ -606,7 +606,7 @@ void test_triangle_invalid_vertices_throw() {
     try {
         renderer::Triangle tri(
             renderer::Vec3(0, 0, 0),
-            renderer::Vec3(std::numeric_limits<double>::infinity(), 0, 0),
+            renderer::Vec3(std::numeric_limits<float>::infinity(), 0, 0),
             renderer::Vec3(0, 1, 0),
             0);
     } catch (const std::invalid_argument&) {
@@ -624,14 +624,14 @@ void test_triangle_rejects_non_finite_rays() {
 
     renderer::HitRecord nan_origin_hit;
     renderer::Ray nan_origin_ray(
-        renderer::Vec3(std::numeric_limits<double>::quiet_NaN(), 0.25, -2),
+        renderer::Vec3(std::numeric_limits<float>::quiet_NaN(), 0.25f, -2.0f),
         renderer::Vec3(0, 0, 1));
     RENDER_CHECK(!tri.intersect(nan_origin_ray, 0.001, 1000.0, nan_origin_hit));
 
     renderer::HitRecord infinite_direction_hit;
     renderer::Ray infinite_direction_ray(
         renderer::Vec3(0, 0.25, -2),
-        renderer::Vec3(0, 0, std::numeric_limits<double>::infinity()));
+        renderer::Vec3(0, 0, std::numeric_limits<float>::infinity()));
     RENDER_CHECK(!tri.intersect(infinite_direction_ray, 0.001, 1000.0, infinite_direction_hit));
 }
 
@@ -753,10 +753,10 @@ void test_bvh_matches_bruteforce_triangle_hit() {
 void test_bvh_splits_and_traverses_interior_nodes() {
     std::vector<renderer::Triangle> tris;
     for (int i = 0; i < 6; ++i) {
-        const double x = static_cast<double>(i) * 3.0;
+        const float x = static_cast<float>(i) * 3.0f;
         tris.emplace_back(
-            renderer::Vec3(x - 1.0, 0, 0),
-            renderer::Vec3(x + 1.0, 0, 0),
+            renderer::Vec3(x - 1.0f, 0, 0),
+            renderer::Vec3(x + 1.0f, 0, 0),
             renderer::Vec3(x, 1, 0),
             i);
     }
@@ -954,7 +954,7 @@ void test_builtin_scene_probe_material_ids_are_in_range() {
         renderer::Ray(renderer::Vec3(0, 0, -2), renderer::Vec3(0, -1, 0)));
     check_triangle_hit_material_in_range(
         cornell_scene,
-        renderer::Ray(renderer::Vec3(0.8, 0, -2), renderer::Vec3(0, 1, 0)));
+        renderer::Ray(renderer::Vec3(0.8f, 0, -2), renderer::Vec3(0, 1, 0)));
     check_triangle_hit_material_in_range(
         cornell_scene,
         renderer::Ray(renderer::Vec3(0, 0, -2), renderer::Vec3(-1, 0, 0)));
@@ -1005,7 +1005,7 @@ void test_cornell_box_wall_normals_face_inward() {
         is_white_diffuse_material);
     check_cornell_wall_hit(
         scene,
-        renderer::Ray(renderer::Vec3(0.8, 0, -2), renderer::Vec3(0, 1, 0)),
+        renderer::Ray(renderer::Vec3(0.8f, 0, -2), renderer::Vec3(0, 1, 0)),
         is_white_diffuse_material);
     check_cornell_wall_hit(
         scene,
@@ -1242,8 +1242,8 @@ int count_lit_pixels(const renderer::Image& image) {
 
 void test_perspective_correct_weights_favor_near_vertex() {
     const renderer::Vec3 corrected = renderer::perspective_correct_weights(
-        renderer::Vec3(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0),
-        renderer::Vec3(1.0, 2.0, 4.0));
+        renderer::Vec3(1.0f / 3.0f, 1.0f / 3.0f, 1.0f / 3.0f),
+        renderer::Vec3(1.0f, 2.0f, 4.0f));
     RENDER_CHECK(corrected.x() > corrected.y());
     RENDER_CHECK(corrected.y() > corrected.z());
     RENDER_CHECK(nearly_equal(corrected.x() + corrected.y() + corrected.z(), 1.0, 1e-6));
@@ -1251,9 +1251,9 @@ void test_perspective_correct_weights_favor_near_vertex() {
 
 void test_near_plane_clipping_keeps_visible_triangle_portion() {
     const std::array<renderer::RasterVertex, 3> vertices{
-        renderer::RasterVertex{renderer::Vec3(-1.0, -1.0, 1.0)},
-        renderer::RasterVertex{renderer::Vec3(1.0, -1.0, 1.0)},
-        renderer::RasterVertex{renderer::Vec3(0.0, 1.0, -0.1)}};
+        renderer::RasterVertex{renderer::Vec3(-1.0f, -1.0f, 1.0f)},
+        renderer::RasterVertex{renderer::Vec3(1.0f, -1.0f, 1.0f)},
+        renderer::RasterVertex{renderer::Vec3(0.0f, 1.0f, -0.1f)}};
     const std::vector<renderer::RasterVertex> clipped =
         renderer::clip_triangle_to_near_plane(vertices, 1e-4);
     RENDER_CHECK(clipped.size() == 4);
@@ -1276,9 +1276,9 @@ renderer::RenderResult render_test_raster_triangle(
     material.opacity = opacity;
     scene.materials.push_back(material);
 
-    const renderer::Vec3 a(-1.0, -1.0, -1.0);
-    const renderer::Vec3 b(1.0, -1.0, -1.0);
-    const renderer::Vec3 c(0.0, 1.0, crosses_near_plane ? 0.1 : -1.0);
+    const renderer::Vec3 a(-1.0f, -1.0f, -1.0f);
+    const renderer::Vec3 b(1.0f, -1.0f, -1.0f);
+    const renderer::Vec3 c(0.0f, 1.0f, crosses_near_plane ? 0.1f : -1.0f);
     if (reverse_winding) {
         scene.triangles.emplace_back(a, c, b, 0);
     } else {
@@ -1350,10 +1350,11 @@ bool framebuffers_differ(const renderer::Framebuffer& a, const renderer::Framebu
 }
 
 renderer::Triangle make_test_triangle_at_z(double z, int material_id) {
+    const float depth = static_cast<float>(z);
     return renderer::Triangle(
-        renderer::Vec3(-1.0, -1.0, z),
-        renderer::Vec3(1.0, -1.0, z),
-        renderer::Vec3(0.0, 1.0, z),
+        renderer::Vec3(-1.0f, -1.0f, depth),
+        renderer::Vec3(1.0f, -1.0f, depth),
+        renderer::Vec3(0.0f, 1.0f, depth),
         material_id);
 }
 
@@ -1469,9 +1470,9 @@ void test_interactive_sessions_render_visible_pixels() {
 void test_path_interactive_session_accumulates_and_resets() {
     renderer::Scene scene = renderer::make_cornell_box_scene();
     renderer::Camera camera(
-        renderer::Vec3(0.0, 0.15, 1.5),
-        renderer::Vec3(0.0, 0.15, -2.0),
-        renderer::Vec3(0.0, 1.0, 0.0),
+        renderer::Vec3(0.0f, 0.15f, 1.5f),
+        renderer::Vec3(0.0f, 0.15f, -2.0f),
+        renderer::Vec3(0.0f, 1.0f, 0.0f),
         45.0,
         1.0);
     renderer::RenderSettings settings;

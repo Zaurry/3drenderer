@@ -106,7 +106,7 @@ public:
 
         hit.t = root;
         hit.position = ray.at(root);
-        const Vec3 outward_normal = (hit.position - center_) / radius_;
+        const Vec3 outward_normal = (hit.position - center_) / static_cast<float>(radius_);
         hit.set_normals(ray, outward_normal, outward_normal);
         make_orthonormal_basis(hit.shading_normal, hit.tangent, hit.bitangent);
         hit.uv = Vec2::Zero();
@@ -115,7 +115,8 @@ public:
     }
 
     Bounds3 bounds() const {
-        const Vec3 radius_vec(radius_, radius_, radius_);
+        const float radius = static_cast<float>(radius_);
+        const Vec3 radius_vec(radius, radius, radius);
         return Bounds3(center_ - radius_vec, center_ + radius_vec);
     }
 
@@ -245,9 +246,14 @@ public:
     }
 
     Vec2 interpolate_uv(double w0, double w1, double w2) const {
+        const float weight0 = static_cast<float>(w0);
+        const float weight1 = static_cast<float>(w1);
+        const float weight2 = static_cast<float>(w2);
         return Vec2(
-            vertices_[0].uv.x() * w0 + vertices_[1].uv.x() * w1 + vertices_[2].uv.x() * w2,
-            vertices_[0].uv.y() * w0 + vertices_[1].uv.y() * w1 + vertices_[2].uv.y() * w2);
+            vertices_[0].uv.x() * weight0 + vertices_[1].uv.x() * weight1 +
+                vertices_[2].uv.x() * weight2,
+            vertices_[0].uv.y() * weight0 + vertices_[1].uv.y() * weight1 +
+                vertices_[2].uv.y() * weight2);
     }
 
     Vec3 geometric_normal() const {
@@ -261,9 +267,9 @@ public:
         }
 
         Vec3 interpolated =
-            vertices_[0].normal * w0 +
-            vertices_[1].normal * w1 +
-            vertices_[2].normal * w2;
+            vertices_[0].normal * static_cast<float>(w0) +
+            vertices_[1].normal * static_cast<float>(w1) +
+            vertices_[2].normal * static_cast<float>(w2);
         if (!usable_direction(interpolated)) {
             return face_normal;
         }
@@ -274,17 +280,17 @@ public:
     void tangent_basis(const Vec3& shading_normal, Vec3& tangent, Vec3& bitangent) const {
         const Vec3 edge1 = b() - a();
         const Vec3 edge2 = c() - a();
-        const double du1 = vertices_[1].uv.x() - vertices_[0].uv.x();
-        const double dv1 = vertices_[1].uv.y() - vertices_[0].uv.y();
-        const double du2 = vertices_[2].uv.x() - vertices_[0].uv.x();
-        const double dv2 = vertices_[2].uv.y() - vertices_[0].uv.y();
-        const double determinant = du1 * dv2 - dv1 * du2;
-        if (std::abs(determinant) <= 1e-12) {
+        const float du1 = vertices_[1].uv.x() - vertices_[0].uv.x();
+        const float dv1 = vertices_[1].uv.y() - vertices_[0].uv.y();
+        const float du2 = vertices_[2].uv.x() - vertices_[0].uv.x();
+        const float dv2 = vertices_[2].uv.y() - vertices_[0].uv.y();
+        const float determinant = du1 * dv2 - dv1 * du2;
+        if (std::abs(determinant) <= 1e-12f) {
             make_orthonormal_basis(shading_normal, tangent, bitangent);
             return;
         }
 
-        const double inverse = 1.0 / determinant;
+        const float inverse = 1.0f / determinant;
         const Vec3 raw_tangent = (edge1 * dv2 - edge2 * dv1) * inverse;
         const Vec3 raw_bitangent = (edge2 * du1 - edge1 * du2) * inverse;
         tangent = raw_tangent - shading_normal * dot(raw_tangent, shading_normal);
@@ -300,13 +306,13 @@ public:
     }
 
     bool has_valid_uv_basis() const {
-        const double du1 = vertices_[1].uv.x() - vertices_[0].uv.x();
-        const double dv1 = vertices_[1].uv.y() - vertices_[0].uv.y();
-        const double du2 = vertices_[2].uv.x() - vertices_[0].uv.x();
-        const double dv2 = vertices_[2].uv.y() - vertices_[0].uv.y();
+        const float du1 = vertices_[1].uv.x() - vertices_[0].uv.x();
+        const float dv1 = vertices_[1].uv.y() - vertices_[0].uv.y();
+        const float du2 = vertices_[2].uv.x() - vertices_[0].uv.x();
+        const float dv2 = vertices_[2].uv.y() - vertices_[0].uv.y();
         return std::isfinite(du1) && std::isfinite(dv1) &&
             std::isfinite(du2) && std::isfinite(dv2) &&
-            std::abs(du1 * dv2 - dv1 * du2) > 1e-12;
+            std::abs(du1 * dv2 - dv1 * du2) > 1e-12f;
     }
 
 private:

@@ -118,10 +118,14 @@ inline Mat4 Mat4::look_at(const Vec3& eye, const Vec3& target, const Vec3& up) {
 
 inline Vec4 operator*(const Mat4& matrix, const Vec4& v) {
     return Vec4(
-        matrix.m[0][0] * v.x() + matrix.m[0][1] * v.y() + matrix.m[0][2] * v.z() + matrix.m[0][3] * v.w(),
-        matrix.m[1][0] * v.x() + matrix.m[1][1] * v.y() + matrix.m[1][2] * v.z() + matrix.m[1][3] * v.w(),
-        matrix.m[2][0] * v.x() + matrix.m[2][1] * v.y() + matrix.m[2][2] * v.z() + matrix.m[2][3] * v.w(),
-        matrix.m[3][0] * v.x() + matrix.m[3][1] * v.y() + matrix.m[3][2] * v.z() + matrix.m[3][3] * v.w());
+        static_cast<float>(matrix.m[0][0] * v.x() + matrix.m[0][1] * v.y() +
+            matrix.m[0][2] * v.z() + matrix.m[0][3] * v.w()),
+        static_cast<float>(matrix.m[1][0] * v.x() + matrix.m[1][1] * v.y() +
+            matrix.m[1][2] * v.z() + matrix.m[1][3] * v.w()),
+        static_cast<float>(matrix.m[2][0] * v.x() + matrix.m[2][1] * v.y() +
+            matrix.m[2][2] * v.z() + matrix.m[2][3] * v.w()),
+        static_cast<float>(matrix.m[3][0] * v.x() + matrix.m[3][1] * v.y() +
+            matrix.m[3][2] * v.z() + matrix.m[3][3] * v.w()));
 }
 
 inline Mat4 operator*(const Mat4& a, const Mat4& b) {

@@ -44,11 +44,10 @@ Vec3 vertex_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t& 
     }
 
     // OBJ stores positions as a flat float array: x0, y0, z0, x1, y1, z1...
-    // We convert each referenced vertex into the renderer's double-precision Vec3.
     return Vec3(
-        static_cast<double>(attrib.vertices[base]),
-        static_cast<double>(attrib.vertices[base + 1U]),
-        static_cast<double>(attrib.vertices[base + 2U]));
+        attrib.vertices[base],
+        attrib.vertices[base + 1U],
+        attrib.vertices[base + 2U]);
 }
 
 Vec2 texcoord_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t& index) {
@@ -60,8 +59,8 @@ Vec2 texcoord_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t
         return Vec2::Zero();
     }
     return Vec2(
-        static_cast<double>(attrib.texcoords[base]),
-        static_cast<double>(attrib.texcoords[base + 1U]));
+        attrib.texcoords[base],
+        attrib.texcoords[base + 1U]);
 }
 
 Vec3 normal_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t& index, bool& valid) {
@@ -74,9 +73,9 @@ Vec3 normal_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t& 
         return Vec3::Zero();
     }
     const Vec3 normal(
-        static_cast<double>(attrib.normals[base]),
-        static_cast<double>(attrib.normals[base + 1U]),
-        static_cast<double>(attrib.normals[base + 2U]));
+        attrib.normals[base],
+        attrib.normals[base + 1U],
+        attrib.normals[base + 2U]);
     valid = usable_direction(normal);
     return valid ? normalize(normal) : Vec3::Zero();
 }

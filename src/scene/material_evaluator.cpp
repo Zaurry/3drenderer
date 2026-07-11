@@ -38,10 +38,11 @@ Vec3 bumped_normal(
     const double right = texture.sample_scalar(Vec2(hit.uv.x() + step.x(), hit.uv.y()));
     const double down = texture.sample_scalar(Vec2(hit.uv.x(), hit.uv.y() - step.y()));
     const double up = texture.sample_scalar(Vec2(hit.uv.x(), hit.uv.y() + step.y()));
-    const double dh_du = (right - left) * 0.5;
-    const double dh_dv = (up - down) * 0.5;
+    const float dh_du = static_cast<float>((right - left) * 0.5);
+    const float dh_dv = static_cast<float>((up - down) * 0.5);
     const Vec3 gradient = hit.tangent * dh_du + hit.bitangent * dh_dv;
-    Vec3 perturbed = normalize(hit.shading_normal - gradient * material.bump_scale);
+    Vec3 perturbed = normalize(
+        hit.shading_normal - gradient * static_cast<float>(material.bump_scale));
     if (!usable_direction(perturbed)) {
         return hit.shading_normal;
     }

@@ -130,12 +130,16 @@ renderer::Bounds3 scene_bounds(const renderer::Scene& scene) {
 }
 
 renderer::Camera make_camera_from_bounds(const renderer::Bounds3& bounds, int width, int height) {
-    const renderer::Vec3 center = (bounds.min + bounds.max) * 0.5;
-    const double radius = std::max(0.5, renderer::length(bounds.max - bounds.min) * 0.5);
+    const renderer::Vec3 center = (bounds.min + bounds.max) * 0.5f;
+    const double radius = std::max(
+        0.5, static_cast<double>(renderer::length(bounds.max - bounds.min)) * 0.5);
     return renderer::Camera(
-        center + renderer::Vec3(0.0, radius * 0.15, radius * 2.4),
+        center + renderer::Vec3(
+            0.0f,
+            static_cast<float>(radius * 0.15),
+            static_cast<float>(radius * 2.4)),
         center,
-        renderer::Vec3(0.0, 1.0, 0.0),
+        renderer::Vec3(0.0f, 1.0f, 0.0f),
         45.0,
         static_cast<double>(width) / static_cast<double>(height));
 }
