@@ -21,7 +21,7 @@ struct BvhNode {
 class Bvh {
 public:
     void build(const std::vector<Triangle>& triangles);
-    bool intersect(const Ray& ray, double t_min, double t_max, HitRecord& hit) const;
+    bool intersect(const Ray& ray, float t_min, float t_max, HitRecord& hit) const;
     const std::vector<int>& primitive_indices() const;
     const std::vector<BvhNode>& nodes() const;
 

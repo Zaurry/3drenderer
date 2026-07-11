@@ -11,16 +11,16 @@ public:
 
     bool intersect(
         const Ray& ray,
-        double t_min,
-        double t_max,
+        float t_min,
+        float t_max,
         HitRecord& hit) const;
-    bool occluded(const Ray& ray, double t_min, double t_max) const;
+    bool occluded(const Ray& ray, float t_min, float t_max) const;
 
 private:
     bool intersect_nearest(
         const Ray& ray,
-        double t_min,
-        double t_max,
+        float t_min,
+        float t_max,
         HitRecord& hit) const;
 
     const Scene& scene_;

@@ -150,7 +150,7 @@ Color PathTracerRenderer::trace_path(
     }
 
     HitRecord hit;
-    if (!intersector.intersect(ray, 0.0, 1.0e30, hit)) {
+    if (!intersector.intersect(ray, 0.0f, 1.0e30f, hit)) {
         return scene.environment;
     }
 
@@ -228,7 +228,11 @@ bool PathTracerRenderer::scatter(
             static_cast<double>(dot(-unit_direction, shading_normal)), 1.0);
 
         Vec3 refracted;
-        const bool can_refract = refract(unit_direction, shading_normal, refraction_ratio, refracted);
+        const bool can_refract = refract(
+            unit_direction,
+            shading_normal,
+            static_cast<float>(refraction_ratio),
+            refracted);
         const bool choose_reflection =
             !can_refract || reflectance(cos_theta, refraction_ratio) > rng.next_float();
         const Vec3 scatter_direction = choose_reflection
@@ -266,7 +270,7 @@ Color PathTracerRenderer::estimate_direct_lighting(
         const Ray shadow_ray(
             offset_ray_origin(hit.position, hit.geometric_normal, light_dir),
             light_dir);
-        if (intersector.occluded(shadow_ray, 0.0, 1.0e30)) {
+        if (intersector.occluded(shadow_ray, 0.0f, 1.0e30f)) {
             continue;
         }
         direct += multiply(surface.base_color, light.radiance) * (n_dot_l * inverse_pi);
@@ -287,7 +291,7 @@ Color PathTracerRenderer::estimate_direct_lighting(
         const Ray shadow_ray(
             offset_ray_origin(hit.position, hit.geometric_normal, light_dir),
             light_dir);
-        if (intersector.occluded(shadow_ray, 0.0, distance - 1e-7)) {
+        if (intersector.occluded(shadow_ray, 0.0f, distance - 1e-7f)) {
             continue;
         }
         const Color incoming = light.intensity / distance_squared;

@@ -69,7 +69,7 @@ Color RayTracerRenderer::trace_ray(
     }
 
     HitRecord hit;
-    if (!intersector.intersect(ray, 0.0, 1.0e30, hit)) {
+    if (!intersector.intersect(ray, 0.0f, 1.0e30f, hit)) {
         return background_color(scene, settings);
     }
 
@@ -103,7 +103,7 @@ Color RayTracerRenderer::trace_ray(
         const Ray shadow_ray(
             offset_ray_origin(hit.position, hit.geometric_normal, light_dir),
             light_dir);
-        if (intersector.occluded(shadow_ray, 0.0, distance - 1e-7)) {
+        if (intersector.occluded(shadow_ray, 0.0f, distance - 1e-7f)) {
             continue;
         }
 
@@ -117,7 +117,7 @@ Color RayTracerRenderer::trace_ray(
         const Ray shadow_ray(
             offset_ray_origin(hit.position, hit.geometric_normal, light_dir),
             light_dir);
-        if (intersector.occluded(shadow_ray, 0.0, 1.0e30)) {
+        if (intersector.occluded(shadow_ray, 0.0f, 1.0e30f)) {
             continue;
         }
 
@@ -150,7 +150,11 @@ Color RayTracerRenderer::trace_ray(
             intersector,
             depth - 1,
             settings);
-        if (refract(unit_direction, shading_normal, eta_ratio, refracted)) {
+        if (refract(
+                unit_direction,
+                shading_normal,
+                static_cast<float>(eta_ratio),
+                refracted)) {
             const Color refracted_color = trace_ray(
                 Ray(offset_ray_origin(hit.position, hit.geometric_normal, refracted), refracted),
                 scene,

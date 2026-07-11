@@ -67,6 +67,30 @@ static_assert(std::is_same_v<decltype(std::declval<renderer::HitRecord>().t), fl
 static_assert(std::is_same_v<decltype(std::declval<renderer::Material>().roughness), float>);
 static_assert(std::is_same_v<decltype(std::declval<renderer::Material>().opacity), float>);
 static_assert(std::is_same_v<decltype(std::declval<renderer::SurfaceMaterialSample>().opacity), float>);
+static_assert(std::is_same_v<
+    decltype(&renderer::Bvh::intersect),
+    bool (renderer::Bvh::*)(
+        const renderer::Ray&,
+        float,
+        float,
+        renderer::HitRecord&) const>);
+static_assert(std::is_same_v<
+    decltype(&renderer::SceneIntersector::intersect),
+    bool (renderer::SceneIntersector::*)(
+        const renderer::Ray&,
+        float,
+        float,
+        renderer::HitRecord&) const>);
+static_assert(std::is_same_v<
+    decltype(&renderer::SceneIntersector::occluded),
+    bool (renderer::SceneIntersector::*)(const renderer::Ray&, float, float) const>);
+static_assert(std::is_same_v<
+    decltype(&renderer::refract),
+    bool (*)(const renderer::Vec3&, const renderer::Vec3&, float, renderer::Vec3&)>);
+static_assert(std::is_same_v<
+    decltype(renderer::offset_ray_origin(
+        renderer::Vec3::Zero(), renderer::Vec3::UnitX(), renderer::Vec3::UnitX())),
+    renderer::Vec3>);
 
 void test_vec3_arithmetic() {
     renderer::Vec3 a(1.0, 2.0, 3.0);
@@ -811,14 +835,14 @@ void test_small_nonzero_uv_basis_remains_valid() {
 bool brute_force_triangle_intersect(
     const std::vector<renderer::Triangle>& tris,
     const renderer::Ray& ray,
-    double t_min,
-    double t_max,
+    float t_min,
+    float t_max,
     renderer::HitRecord& closest_hit) {
     bool hit_anything = false;
-    double closest_t = t_max;
+    float closest_t = t_max;
     for (const renderer::Triangle& tri : tris) {
         renderer::HitRecord hit;
-        if (tri.intersect(ray, static_cast<float>(t_min), static_cast<float>(closest_t), hit)) {
+        if (tri.intersect(ray, t_min, closest_t, hit)) {
             hit_anything = true;
             closest_t = hit.t;
             closest_hit = hit;
@@ -833,8 +857,9 @@ void check_bvh_matches_bruteforce(
     const renderer::Ray& ray) {
     renderer::HitRecord brute_force_hit;
     renderer::HitRecord bvh_hit;
-    const bool brute_force_found = brute_force_triangle_intersect(tris, ray, 0.001, 1000.0, brute_force_hit);
-    const bool bvh_found = bvh.intersect(ray, 0.001, 1000.0, bvh_hit);
+    const bool brute_force_found =
+        brute_force_triangle_intersect(tris, ray, 0.001f, 1000.0f, brute_force_hit);
+    const bool bvh_found = bvh.intersect(ray, 0.001f, 1000.0f, bvh_hit);
     RENDER_CHECK(bvh_found == brute_force_found);
     if (!brute_force_found) {
         return;
@@ -860,8 +885,8 @@ void test_empty_bvh_has_no_nodes_or_hits() {
     renderer::HitRecord hit;
     RENDER_CHECK(!bvh.intersect(
         renderer::Ray(renderer::Vec3(0, 0, -2), renderer::Vec3(0, 0, 1)),
-        0.001,
-        1000.0,
+        0.001f,
+        1000.0f,
         hit));
 }
 
@@ -910,6 +935,43 @@ void test_bvh_splits_and_traverses_interior_nodes() {
     check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(6, 0.25, -2), renderer::Vec3(0, 0, 1)));
     check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(15, 0.25, -2), renderer::Vec3(0, 0, 1)));
     check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(1.5, 0.25, -2), renderer::Vec3(0, 0, 1)));
+}
+
+void test_float_bvh_matches_bruteforce_at_large_coordinates() {
+    constexpr float center = 100000.0f;
+    std::vector<renderer::Triangle> tris;
+    for (int i = 0; i < 6; ++i) {
+        const float x = center + static_cast<float>(i) * 32.0f;
+        tris.emplace_back(
+            renderer::Vec3(x - 8.0f, center - 8.0f, center),
+            renderer::Vec3(x + 8.0f, center - 8.0f, center),
+            renderer::Vec3(x, center + 8.0f, center),
+            20 + i);
+    }
+
+    renderer::Bvh bvh;
+    bvh.build(tris);
+
+    const auto compare = [&bvh, &tris](const renderer::Ray& ray) {
+        renderer::HitRecord brute_force_hit;
+        renderer::HitRecord bvh_hit;
+        const bool brute_force_found =
+            brute_force_triangle_intersect(tris, ray, 0.0f, 1000.0f, brute_force_hit);
+        const bool bvh_found = bvh.intersect(ray, 0.0f, 1000.0f, bvh_hit);
+        RENDER_CHECK(bvh_found == brute_force_found);
+        if (bvh_found) {
+            RENDER_CHECK(bvh_hit.material_id == brute_force_hit.material_id);
+            RENDER_CHECK(std::abs(bvh_hit.t - brute_force_hit.t) <= 1e-2f);
+            RENDER_CHECK(bvh_hit.shading_normal.dot(brute_force_hit.shading_normal) > 0.999f);
+        }
+    };
+
+    compare(renderer::Ray(
+        renderer::Vec3(center, center, center - 100.0f),
+        renderer::Vec3::UnitZ()));
+    compare(renderer::Ray(
+        renderer::Vec3(center + 16.0f, center + 24.0f, center - 100.0f),
+        renderer::Vec3::UnitZ()));
 }
 
 void test_checker_texture_is_deterministic_for_positive_and_negative_coordinates() {
@@ -1476,8 +1538,7 @@ bool framebuffers_differ(const renderer::Framebuffer& a, const renderer::Framebu
     return false;
 }
 
-renderer::Triangle make_test_triangle_at_z(double z, int material_id) {
-    const float depth = static_cast<float>(z);
+renderer::Triangle make_test_triangle_at_z(float depth, int material_id) {
     return renderer::Triangle(
         renderer::Vec3(-1.0f, -1.0f, depth),
         renderer::Vec3(1.0f, -1.0f, depth),
@@ -1503,6 +1564,25 @@ void test_scene_intersector_skips_alpha_cutout_hits() {
     RENDER_CHECK(hit.position.z() < -1.5);
 }
 
+void test_scene_intersector_continues_through_thin_alpha_layer() {
+    renderer::Scene scene;
+    renderer::Material transparent;
+    transparent.opacity = 0.0f;
+    transparent.alpha_cutoff = 0.5f;
+    scene.materials.push_back(transparent);
+    scene.materials.push_back(renderer::Material());
+    scene.triangles.push_back(make_test_triangle_at_z(-1.0f, 0));
+    scene.triangles.push_back(make_test_triangle_at_z(-1.00001f, 1));
+
+    const renderer::SceneIntersector intersector(scene);
+    renderer::HitRecord hit;
+    const renderer::Ray ray(renderer::Vec3::Zero(), -renderer::Vec3::UnitZ());
+    RENDER_CHECK(intersector.intersect(ray, 0.0f, 10.0f, hit));
+    RENDER_CHECK(hit.material_id == 1);
+    RENDER_CHECK(hit.t > 1.0f);
+    RENDER_CHECK(hit.t < 1.001f);
+}
+
 void test_scene_intersector_respects_single_and_two_sided_materials() {
     renderer::Scene scene;
     renderer::Material material;
@@ -1522,11 +1602,25 @@ void test_scene_intersector_respects_single_and_two_sided_materials() {
     RENDER_CHECK(renderer::dot(hit.shading_normal, hit.geometric_normal) > 0.0);
 }
 
-void test_offset_ray_origin_moves_to_outgoing_side() {
-    const renderer::Vec3 position(1000.0, 0.0, 0.0);
-    const renderer::Vec3 normal(1.0, 0.0, 0.0);
-    RENDER_CHECK(renderer::offset_ray_origin(position, normal, normal).x() > position.x());
-    RENDER_CHECK(renderer::offset_ray_origin(position, normal, -normal).x() < position.x());
+void test_offset_ray_origin_is_finite_and_monotonic_across_scales() {
+    for (const float coordinate : {1.0f, 100000.0f}) {
+        const renderer::Vec3 position(coordinate, -coordinate, 0.5f * coordinate);
+        const std::array<renderer::Vec3, 2> normals{
+            renderer::Vec3::UnitX(),
+            -renderer::Vec3::UnitX()};
+        for (const renderer::Vec3& normal : normals) {
+            const renderer::Vec3 outward =
+                renderer::offset_ray_origin(position, normal, normal);
+            const renderer::Vec3 inward =
+                renderer::offset_ray_origin(position, normal, -normal);
+            RENDER_CHECK(outward.allFinite());
+            RENDER_CHECK(inward.allFinite());
+            RENDER_CHECK((outward - position).dot(normal) > 0.0f);
+            RENDER_CHECK((inward - position).dot(normal) < 0.0f);
+            RENDER_CHECK(outward.x() != position.x());
+            RENDER_CHECK(inward.x() != position.x());
+        }
+    }
 }
 
 void write_test_ppm_texture(const std::string& path) {
@@ -1984,9 +2078,11 @@ int main() {
     test_empty_bvh_has_no_nodes_or_hits();
     test_bvh_matches_bruteforce_triangle_hit();
     test_bvh_splits_and_traverses_interior_nodes();
+    test_float_bvh_matches_bruteforce_at_large_coordinates();
     test_scene_intersector_skips_alpha_cutout_hits();
+    test_scene_intersector_continues_through_thin_alpha_layer();
     test_scene_intersector_respects_single_and_two_sided_materials();
-    test_offset_ray_origin_moves_to_outgoing_side();
+    test_offset_ray_origin_is_finite_and_monotonic_across_scales();
     test_checker_texture_is_deterministic_for_positive_and_negative_coordinates();
     test_builtin_scene_contains_renderable_geometry();
     test_raster_triangle_scene_contains_triangle_and_light();

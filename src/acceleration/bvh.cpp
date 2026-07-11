@@ -10,16 +10,6 @@ namespace {
 
 constexpr int max_leaf_triangles = 4;
 
-double component(const Vec3& v, int axis) {
-    if (axis == 0) {
-        return v.x();
-    }
-    if (axis == 1) {
-        return v.y();
-    }
-    return v.z();
-}
-
 }  // namespace
 
 bool BvhNode::is_leaf() const {
@@ -39,13 +29,13 @@ void Bvh::build(const std::vector<Triangle>& triangles) {
     build_recursive(0, static_cast<int>(triangles_.size()));
 }
 
-bool Bvh::intersect(const Ray& ray, double t_min, double t_max, HitRecord& hit) const {
+bool Bvh::intersect(const Ray& ray, float t_min, float t_max, HitRecord& hit) const {
     if (nodes_.empty()) {
         return false;
     }
 
     bool hit_anything = false;
-    double closest_t = t_max;
+    float closest_t = t_max;
     std::vector<int> stack;
     stack.push_back(0);
 
@@ -56,10 +46,7 @@ bool Bvh::intersect(const Ray& ray, double t_min, double t_max, HitRecord& hit) 
         const BvhNode& node = nodes_[node_index];
         // BVH 先用 AABB 测试整组三角形：如果光线没有打到包围盒，就能一次性跳过盒内所有三角形。
         // 这样很多光线不再逐个检查场景里的每个三角形，而是快速拒绝大片空间中的几何体。
-        if (!node.bounds.intersect(
-                ray,
-                static_cast<float>(t_min),
-                static_cast<float>(closest_t))) {
+        if (!node.bounds.intersect(ray, t_min, closest_t)) {
             continue;
         }
 
@@ -67,11 +54,7 @@ bool Bvh::intersect(const Ray& ray, double t_min, double t_max, HitRecord& hit) 
             for (int i = 0; i < node.count; ++i) {
                 const int primitive_index = primitive_indices_[node.first + i];
                 HitRecord candidate;
-                if (triangles_[primitive_index].intersect(
-                        ray,
-                        static_cast<float>(t_min),
-                        static_cast<float>(closest_t),
-                        candidate)) {
+                if (triangles_[primitive_index].intersect(ray, t_min, closest_t, candidate)) {
                     hit_anything = true;
                     closest_t = candidate.t;
                     hit = candidate;
@@ -128,8 +111,7 @@ int Bvh::build_recursive(int first, int count) {
         begin + mid,
         begin + first + count,
         [this, axis](int lhs, int rhs) {
-            return component(triangles_[lhs].centroid(), axis) <
-                   component(triangles_[rhs].centroid(), axis);
+            return triangles_[lhs].centroid()[axis] < triangles_[rhs].centroid()[axis];
         });
 
     const int left = build_recursive(first, mid - first);
