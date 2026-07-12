@@ -203,6 +203,11 @@ The native Release benchmark uses renderer-reported seconds, with one warmup
 and five measured runs per command. The comparison is against the committed
 double baseline on an AMD Ryzen 7 9800X3D:
 
+The initial historical measurement at source commit `b7cd8ff` found a Mary
+path native median of `0.1315030s`, or `+23.284%` versus the double baseline.
+That non-final result exceeded the 5% limit and triggered profiling. The table
+below contains the final measurements after the scoped fix in `476a0bc`.
+
 | Scene / mode | Double median (s) | Native samples (s) | Native median (s) | Delta |
 | --- | ---: | ---: | ---: | ---: |
 | Mary / raster | 0.0675227 | 0.0580001, 0.0570466, 0.0550683, 0.0552859, 0.0570032 | 0.0570032 | -15.579% |
@@ -213,10 +218,14 @@ double baseline on an AMD Ryzen 7 9800X3D:
 Native visual validation produced `output/eigen_float_*.png` at the baseline
 dimensions: Mary raster/path remained smooth and textured, Sponza retained
 diffuse brick and bump detail, and Cornell retained its emissive panel and
-colored walls. Decoding was finite and valid for all four images, lit coverage
+colored walls. All four PNGs decoded into valid 8-bit channels, lit coverage
 was nonzero, and no magenta fallback pixels or new winding cracks were found.
-The low-spp path noise is visible in the baseline too. Full evidence and
-commands are in `docs/output/eigen-float-migration-results.md`.
+PNG decoding does not prove internal floating-point finiteness because output
+conversion sanitizes nonfinite values. Before quantization, automated renderer
+tests apply `image_colors_are_finite` to raster, ray, and path images and
+`framebuffer_colors_are_finite` to their interactive framebuffers. The low-spp
+path noise is visible in the baseline too. Full evidence and commands are in
+`docs/output/eigen-float-migration-results.md`.
 
 The original Mary path slowdown was traced with ETW to a dynamically growing
 BVH traversal stack allocated for every ray. Commit `476a0bc` replaces that

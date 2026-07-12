@@ -58,6 +58,12 @@ four warmups and twenty measured processes exited 0. Values are the renderer's
 reported `seconds=` values, not external process timings. Delta is
 `(native median / double median - 1) * 100%`.
 
+The initial historical measurement at source commit `b7cd8ff` produced a Mary
+path native median of `0.1315030s`, `+23.284%` versus the committed double
+median. That non-final result exceeded the 5% threshold and triggered the ETW
+profiling described below. The table contains the final measurements from
+source commit `476a0bc` after the scoped traversal-stack fix.
+
 | Scene / mode | Exact native command | Five measured samples (s) | Double baseline median (s) | Native median (s) | Delta | Result |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
 | Mary / raster | `.\build-native\bin\renderer.exe --mode raster --scene obj_viewer --obj "D:\Github\3drenderer\Computer Graphics Archive\mary\Marry.obj" --width 1920 --height 1080 --output output\eigen_float_bench_mary_raster.png` | 0.0580001, 0.0570466, 0.0550683, 0.0552859, 0.0570032 | 0.0675227 | **0.0570032** | **-15.579%** | pass |
@@ -83,10 +89,14 @@ allocation; it does not claim unrelated renderer-wide optimization.
 ## Image and pixel checks
 
 The four post images were decoded successfully with `System.Drawing.Bitmap`.
-The decoder reported the exact dimensions below; PNG channels are finite
-8-bit values by construction, and no magenta-fallback pixels were found. Lit
-coverage is the fraction of pixels with Rec. 709 luminance greater than 0.01.
-Mean RGB values are normalized to 0..1.
+The decoder reported the exact dimensions below, valid 8-bit channel values,
+and no magenta-fallback pixels. This PNG evidence does not establish internal
+floating-point finiteness because output conversion sanitizes nonfinite values.
+Pre-quantization coverage comes from automated renderer tests: the
+`image_colors_are_finite` helper checks raster, ray, and path render results,
+while `framebuffer_colors_are_finite` checks their interactive framebuffers.
+Lit coverage is the fraction of pixels with Rec. 709 luminance greater than
+0.01. Mean RGB values are normalized to 0..1.
 
 | Post image | Bytes | Dimensions | Lit coverage | Mean luma | Mean RGB (R, G, B) | Magenta pixels | Changed channels vs baseline | Mean abs channel delta |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
