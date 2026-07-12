@@ -8,6 +8,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+option(RENDERER_NATIVE_ARCH "Enable native CPU instruction tuning" OFF)
+
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin")
@@ -114,6 +116,20 @@ target_link_libraries(viewer PRIVATE renderer_core ${RENDERER_SDL_TARGET})
 
 add_executable(renderer_tests tests/renderer_tests.cpp)
 target_link_libraries(renderer_tests PRIVATE renderer_core)
+
+function(target_enable_native_arch target_name)
+    if(RENDERER_NATIVE_ARCH)
+        if(MSVC)
+            target_compile_options(${target_name} PRIVATE /arch:AVX2)
+        else()
+            target_compile_options(${target_name} PRIVATE -march=native)
+        endif()
+    endif()
+endfunction()
+
+foreach(target_name IN ITEMS renderer_core renderer viewer renderer_tests)
+    target_enable_native_arch(${target_name})
+endforeach()
 
 enable_testing()
 add_test(NAME renderer_tests COMMAND renderer_tests)

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core/math/ray.h"
-#include "core/math/vec3.h"
+#include "core/math/types.h"
 
 namespace renderer {
 

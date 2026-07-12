@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core/math/bounds.h"
-#include "core/math/vec3.h"
+#include "core/math/types.h"
 #include "scene/camera.h"
 
 namespace renderer {

@@ -1,7 +1,6 @@
 #pragma once
 
-#include "core/math/vec2.h"
-#include "core/math/vec3.h"
+#include "core/math/types.h"
 
 #include <array>
 #include <vector>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/math/vec3.h"
+#include "core/math/types.h"
 #include "render/renderer.h"
 
 namespace renderer {

@@ -2,8 +2,7 @@
 
 #include "core/math/bounds.h"
 #include "core/math/ray.h"
-#include "core/math/vec2.h"
-#include "core/math/vec3.h"
+#include "core/math/types.h"
 
 #include <cmath>
 #include <stdexcept>
