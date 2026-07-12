@@ -17,7 +17,7 @@ struct RasterVertex {
 
 std::vector<RasterVertex> clip_triangle_to_near_plane(
     const std::array<RasterVertex, 3>& triangle,
-    double near_z);
+    float near_z);
 
 Vec3 perspective_correct_weights(
     const Vec3& screen_weights,

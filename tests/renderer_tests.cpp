@@ -68,6 +68,16 @@ static_assert(std::is_same_v<decltype(std::declval<renderer::Material>().roughne
 static_assert(std::is_same_v<decltype(std::declval<renderer::Material>().opacity), float>);
 static_assert(std::is_same_v<decltype(std::declval<renderer::SurfaceMaterialSample>().opacity), float>);
 static_assert(std::is_same_v<
+    decltype(renderer::perspective_correct_weights(
+        renderer::Vec3::Ones(), renderer::Vec3::Ones())),
+    renderer::Vec3>);
+static_assert(std::is_same_v<decltype(std::declval<renderer::RasterVertex>().view), renderer::Vec3>);
+static_assert(std::is_same_v<
+    decltype(&renderer::clip_triangle_to_near_plane),
+    std::vector<renderer::RasterVertex> (*)(
+        const std::array<renderer::RasterVertex, 3>&,
+        float)>);
+static_assert(std::is_same_v<
     decltype(&renderer::Bvh::intersect),
     bool (renderer::Bvh::*)(
         const renderer::Ray&,
@@ -1274,6 +1284,28 @@ void test_render_settings_defaults_are_useful() {
     RENDER_CHECK(settings.sample_seed_offset == 0);
 }
 
+bool image_colors_are_finite(const renderer::Image& image) {
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            if (!image.pixel(x, y).allFinite()) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool framebuffer_colors_are_finite(const renderer::Framebuffer& framebuffer) {
+    for (int y = 0; y < framebuffer.height(); ++y) {
+        for (int x = 0; x < framebuffer.width(); ++x) {
+            if (!framebuffer.pixel(x, y).allFinite()) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 void test_raytracer_renders_visible_sphere() {
     renderer::Scene scene = renderer::make_gradient_sphere_scene();
     renderer::Camera camera(
@@ -1290,6 +1322,7 @@ void test_raytracer_renders_visible_sphere() {
 
     renderer::RayTracerRenderer renderer_instance;
     renderer::RenderResult result = renderer_instance.render(scene, camera, settings);
+    RENDER_CHECK(image_colors_are_finite(result.image));
     renderer::Color center = result.image.pixel(16, 16);
     RENDER_CHECK(center.x() > 0.05 || center.y() > 0.05 || center.z() > 0.05);
 }
@@ -1310,6 +1343,7 @@ void test_raytracer_renders_triangle_scene_with_direct_light() {
 
     renderer::RayTracerRenderer renderer_instance;
     renderer::RenderResult result = renderer_instance.render(scene, camera, settings);
+    RENDER_CHECK(image_colors_are_finite(result.image));
     renderer::Color center = result.image.pixel(16, 16);
     RENDER_CHECK(center.y() > 0.1);
     RENDER_CHECK(center.z() > 0.1);
@@ -1333,6 +1367,7 @@ void test_pathtracer_renders_emissive_scene() {
 
     renderer::PathTracerRenderer renderer_instance;
     renderer::RenderResult result = renderer_instance.render(scene, camera, settings);
+    RENDER_CHECK(image_colors_are_finite(result.image));
 
     double luminance_sum = 0.0;
     for (int y = 0; y < result.image.height(); ++y) {
@@ -1435,6 +1470,7 @@ void test_rasterizer_draws_triangle() {
 
     renderer::RasterizerRenderer renderer_instance;
     renderer::RenderResult result = renderer_instance.render(scene, camera, settings);
+    RENDER_CHECK(image_colors_are_finite(result.image));
 
     int lit_pixels = 0;
     for (int y = 0; y < result.image.height(); ++y) {
@@ -1476,7 +1512,7 @@ void test_near_plane_clipping_keeps_visible_triangle_portion() {
         renderer::RasterVertex{renderer::Vec3(1.0f, -1.0f, 1.0f)},
         renderer::RasterVertex{renderer::Vec3(0.0f, 1.0f, -0.1f)}};
     const std::vector<renderer::RasterVertex> clipped =
-        renderer::clip_triangle_to_near_plane(vertices, 1e-4);
+        renderer::clip_triangle_to_near_plane(vertices, 1e-4f);
     RENDER_CHECK(clipped.size() == 4);
     for (const renderer::RasterVertex& vertex : clipped) {
         RENDER_CHECK(vertex.view.z() >= 1e-4f);
@@ -1736,6 +1772,7 @@ void test_interactive_sessions_render_visible_pixels() {
         1.0);
     raster.reset(raster_scene, settings);
     raster.render_next_frame(raster_scene, raster_camera, settings, frame_state, framebuffer);
+    RENDER_CHECK(framebuffer_colors_are_finite(framebuffer));
     RENDER_CHECK(count_lit_pixels(framebuffer) > 0);
 
     renderer::RayInteractiveSession ray;
@@ -1748,6 +1785,7 @@ void test_interactive_sessions_render_visible_pixels() {
         1.0);
     ray.reset(ray_scene, settings);
     ray.render_next_frame(ray_scene, ray_camera, settings, frame_state, framebuffer);
+    RENDER_CHECK(framebuffer_colors_are_finite(framebuffer));
     RENDER_CHECK(count_lit_pixels(framebuffer) > 0);
 }
 
@@ -1771,13 +1809,16 @@ void test_path_interactive_session_accumulates_and_resets() {
     renderer::PathInteractiveSession path;
     path.reset(scene, settings);
     path.render_next_frame(scene, camera, settings, frame_state, framebuffer);
+    RENDER_CHECK(framebuffer_colors_are_finite(framebuffer));
     RENDER_CHECK(path.accumulated_samples() == 1);
 
     path.render_next_frame(scene, camera, settings, frame_state, framebuffer);
+    RENDER_CHECK(framebuffer_colors_are_finite(framebuffer));
     RENDER_CHECK(path.accumulated_samples() == 2);
 
     frame_state.camera_changed = true;
     path.render_next_frame(scene, camera, settings, frame_state, framebuffer);
+    RENDER_CHECK(framebuffer_colors_are_finite(framebuffer));
     RENDER_CHECK(path.accumulated_samples() == 1);
 }
 

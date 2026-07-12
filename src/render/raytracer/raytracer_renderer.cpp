@@ -12,26 +12,22 @@ namespace renderer {
 
 namespace {
 
-Color multiply(const Color& a, const Color& b) {
-    return Color(a.x() * b.x(), a.y() * b.y(), a.z() * b.z());
-}
-
 Color black() {
-    return Color(0.0, 0.0, 0.0);
+    return Color::Zero();
 }
 
 bool material_exists(const Scene& scene, int material_id) {
     return material_id >= 0 && static_cast<std::size_t>(material_id) < scene.materials.size();
 }
 
-double reflectance(double cosine, double refraction_index) {
-    double r0 = (1.0 - refraction_index) / (1.0 + refraction_index);
+float reflectance(float cosine, float refraction_index) {
+    float r0 = (1.0f - refraction_index) / (1.0f + refraction_index);
     r0 *= r0;
-    return r0 + (1.0 - r0) * std::pow(1.0 - cosine, 5.0);
+    return r0 + (1.0f - r0) * std::pow(1.0f - cosine, 5.0f);
 }
 
 Color background_color(const Scene& scene, const RenderSettings& settings) {
-    if (length_squared(scene.environment) > 0.0) {
+    if (scene.environment.squaredNorm() > 0.0f) {
         return scene.environment;
     }
     return settings.background;
@@ -74,7 +70,7 @@ Color RayTracerRenderer::trace_ray(
     }
 
     if (!material_exists(scene, hit.material_id)) {
-        return Color(1.0, 0.0, 1.0);
+        return Color(1.0f, 0.0f, 1.0f);
     }
 
     const Material& material = scene.materials[hit.material_id];
@@ -88,12 +84,12 @@ Color RayTracerRenderer::trace_ray(
     }
 
     // 一点环境项让没有显式灯光的教学场景仍然可见；真实路径追踪会由间接光积分处理这部分。
-    result += multiply(base_color, background_color(scene, settings)) * 0.25f;
+    result += base_color.cwiseProduct(background_color(scene, settings)) * 0.25f;
 
     for (const PointLight& light : scene.point_lights) {
         const Vec3 to_light = light.position - hit.position;
-        const float distance_squared = length_squared(to_light);
-        if (distance_squared <= 1e-12) {
+        const float distance_squared = to_light.squaredNorm();
+        if (distance_squared <= 1e-12f) {
             continue;
         }
         const float distance = std::sqrt(distance_squared);
@@ -107,12 +103,15 @@ Color RayTracerRenderer::trace_ray(
             continue;
         }
 
-        const float n_dot_l = std::max(0.0f, dot(shading_normal, light_dir));
-        result += multiply(base_color, light.intensity) * (n_dot_l / distance_squared);
+        const float n_dot_l = std::max(0.0f, shading_normal.dot(light_dir));
+        result += base_color.cwiseProduct(light.intensity) * (n_dot_l / distance_squared);
     }
 
     for (const DirectionalLight& light : scene.directional_lights) {
-        const Vec3 light_dir = normalize(-light.direction);
+        if (!usable_direction(light.direction)) {
+            continue;
+        }
+        const Vec3 light_dir = (-light.direction).normalized();
         // 方向光没有距离衰减，shadow ray 只需要确认沿光源方向是否有任意遮挡物。
         const Ray shadow_ray(
             offset_ray_origin(hit.position, hit.geometric_normal, light_dir),
@@ -121,26 +120,25 @@ Color RayTracerRenderer::trace_ray(
             continue;
         }
 
-        const float n_dot_l = std::max(0.0f, dot(shading_normal, light_dir));
-        result += multiply(base_color, light.radiance) * n_dot_l;
+        const float n_dot_l = std::max(0.0f, shading_normal.dot(light_dir));
+        result += base_color.cwiseProduct(light.radiance) * n_dot_l;
     }
 
     if (material.type == MaterialType::Metal) {
         // Reflection ray：镜面材质沿法线反射入射方向，再递归查询反射方向看到的颜色。
-        const Vec3 reflected = reflect(normalize(ray.direction), shading_normal);
+        const Vec3 reflected = reflect(ray.direction.normalized(), shading_normal);
         const Color reflected_color = trace_ray(
             Ray(offset_ray_origin(hit.position, hit.geometric_normal, reflected), reflected),
             scene,
             intersector,
             depth - 1,
             settings);
-        result += multiply(base_color, reflected_color) * 0.8f;
+        result += base_color.cwiseProduct(reflected_color) * 0.8f;
     } else if (material.type == MaterialType::Dielectric) {
         // Refraction ray：玻璃材质根据相对折射率弯折光线，并用 Schlick 近似混合反射/折射。
-        const double eta_ratio = hit.front_face ? (1.0 / material.ior) : material.ior;
-        const Vec3 unit_direction = normalize(ray.direction);
-        const double cos_theta = std::min(
-            static_cast<double>(dot(-unit_direction, shading_normal)), 1.0);
+        const float eta_ratio = hit.front_face ? (1.0f / material.ior) : material.ior;
+        const Vec3 unit_direction = ray.direction.normalized();
+        const float cos_theta = std::min((-unit_direction).dot(shading_normal), 1.0f);
 
         Vec3 refracted;
         const Vec3 reflected = reflect(unit_direction, shading_normal);
@@ -153,7 +151,7 @@ Color RayTracerRenderer::trace_ray(
         if (refract(
                 unit_direction,
                 shading_normal,
-                static_cast<float>(eta_ratio),
+                eta_ratio,
                 refracted)) {
             const Color refracted_color = trace_ray(
                 Ray(offset_ray_origin(hit.position, hit.geometric_normal, refracted), refracted),
@@ -161,9 +159,9 @@ Color RayTracerRenderer::trace_ray(
                 intersector,
                 depth - 1,
                 settings);
-            const double reflect_weight = reflectance(cos_theta, eta_ratio);
-            result += reflected_color * static_cast<float>(reflect_weight) +
-                refracted_color * static_cast<float>(1.0 - reflect_weight);
+            const float reflect_weight = reflectance(cos_theta, eta_ratio);
+            result += reflected_color * reflect_weight +
+                refracted_color * (1.0f - reflect_weight);
         } else {
             result += reflected_color;
         }

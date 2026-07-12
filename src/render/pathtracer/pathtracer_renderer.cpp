@@ -17,29 +17,28 @@ namespace renderer {
 namespace {
 
 Color black() {
-    return Color(0.0, 0.0, 0.0);
-}
-
-Color multiply(const Color& a, const Color& b) {
-    return Color(a.x() * b.x(), a.y() * b.y(), a.z() * b.z());
+    return Color::Zero();
 }
 
 bool material_exists(const Scene& scene, int material_id) {
     return material_id >= 0 && static_cast<std::size_t>(material_id) < scene.materials.size();
 }
 
-double reflectance(double cosine, double refraction_index) {
-    double r0 = (1.0 - refraction_index) / (1.0 + refraction_index);
+float reflectance(float cosine, float refraction_index) {
+    float r0 = (1.0f - refraction_index) / (1.0f + refraction_index);
     r0 *= r0;
-    return r0 + (1.0 - r0) * std::pow(1.0 - cosine, 5.0);
+    return r0 + (1.0f - r0) * std::pow(1.0f - cosine, 5.0f);
 }
 
 Vec3 tangent_to_world(const Vec3& local_direction, const Vec3& normal) {
-    const Vec3 w = normalize(normal);
-    const Vec3 helper = std::abs(w.x()) > 0.9 ? Vec3(0.0, 1.0, 0.0) : Vec3(1.0, 0.0, 0.0);
-    const Vec3 v = normalize(cross(w, helper));
-    const Vec3 u = cross(v, w);
-    return normalize(local_direction.x() * u + local_direction.y() * v + local_direction.z() * w);
+    const Vec3 w = normal.normalized();
+    const Vec3 helper = std::abs(w.x()) > 0.9f
+        ? Vec3(0.0f, 1.0f, 0.0f)
+        : Vec3(1.0f, 0.0f, 0.0f);
+    const Vec3 v = w.cross(helper).normalized();
+    const Vec3 u = v.cross(w);
+    return (local_direction.x() * u + local_direction.y() * v + local_direction.z() * w)
+        .normalized();
 }
 
 std::uint64_t pixel_seed(int x, int y, int width, std::uint64_t sample_seed_offset) {
@@ -155,7 +154,7 @@ Color PathTracerRenderer::trace_path(
     }
 
     if (!material_exists(scene, hit.material_id)) {
-        return Color(1.0, 0.0, 1.0);
+        return Color(1.0f, 0.0f, 1.0f);
     }
 
     const Material& material = scene.materials[hit.material_id];
@@ -178,8 +177,7 @@ Color PathTracerRenderer::trace_path(
     // This is the recursive path-tracing estimator for the rendering equation:
     // emitted radiance at the hit point plus material throughput (attenuation)
     // multiplied by the incoming radiance sampled along one new bounce.
-    return emitted + direct + multiply(
-        attenuation,
+    return emitted + direct + attenuation.cwiseProduct(
         trace_path(scattered, scene, intersector, rng, depth - 1));
 }
 
@@ -204,13 +202,16 @@ bool PathTracerRenderer::scatter(
     }
 
     if (material.type == MaterialType::Metal) {
-        Vec3 scatter_direction = reflect(normalize(ray.direction), shading_normal);
-        if (material.roughness > 0.0) {
+        Vec3 scatter_direction = reflect(ray.direction.normalized(), shading_normal);
+        if (material.roughness > 0.0f) {
             scatter_direction +=
                 std::max(0.0f, material.roughness) * random_in_unit_sphere(rng);
         }
-        scatter_direction = normalize(scatter_direction);
-        if (dot(scatter_direction, shading_normal) <= 0.0) {
+        if (!usable_direction(scatter_direction)) {
+            return false;
+        }
+        scatter_direction.normalize();
+        if (scatter_direction.dot(shading_normal) <= 0.0f) {
             return false;
         }
 
@@ -222,16 +223,15 @@ bool PathTracerRenderer::scatter(
     }
 
     if (material.type == MaterialType::Dielectric) {
-        const double refraction_ratio = hit.front_face ? (1.0 / material.ior) : material.ior;
-        const Vec3 unit_direction = normalize(ray.direction);
-        const double cos_theta = std::min(
-            static_cast<double>(dot(-unit_direction, shading_normal)), 1.0);
+        const float refraction_ratio = hit.front_face ? (1.0f / material.ior) : material.ior;
+        const Vec3 unit_direction = ray.direction.normalized();
+        const float cos_theta = std::min((-unit_direction).dot(shading_normal), 1.0f);
 
         Vec3 refracted;
         const bool can_refract = refract(
             unit_direction,
             shading_normal,
-            static_cast<float>(refraction_ratio),
+            refraction_ratio,
             refracted);
         const bool choose_reflection =
             !can_refract || reflectance(cos_theta, refraction_ratio) > rng.next_float();
@@ -239,8 +239,8 @@ bool PathTracerRenderer::scatter(
             ? reflect(unit_direction, shading_normal)
             : refracted;
 
-        attenuation = Color(1.0, 1.0, 1.0);
-        const Vec3 unit_scatter = normalize(scatter_direction);
+        attenuation = Color::Ones();
+        const Vec3 unit_scatter = scatter_direction.normalized();
         scattered = Ray(
             offset_ray_origin(hit.position, hit.geometric_normal, unit_scatter),
             unit_scatter);
@@ -259,12 +259,15 @@ Color PathTracerRenderer::estimate_direct_lighting(
     Color direct = black();
 
     for (const DirectionalLight& light : scene.directional_lights) {
-        const Vec3 light_dir = normalize(-light.direction);
+        if (!usable_direction(light.direction)) {
+            continue;
+        }
+        const Vec3 light_dir = (-light.direction).normalized();
         if (!usable_direction(light_dir)) {
             continue;
         }
-        const float n_dot_l = std::max(0.0f, dot(surface.shading_normal, light_dir));
-        if (n_dot_l <= 0.0) {
+        const float n_dot_l = std::max(0.0f, surface.shading_normal.dot(light_dir));
+        if (n_dot_l <= 0.0f) {
             continue;
         }
         const Ray shadow_ray(
@@ -273,19 +276,19 @@ Color PathTracerRenderer::estimate_direct_lighting(
         if (intersector.occluded(shadow_ray, 0.0f, 1.0e30f)) {
             continue;
         }
-        direct += multiply(surface.base_color, light.radiance) * (n_dot_l * inverse_pi);
+        direct += surface.base_color.cwiseProduct(light.radiance) * (n_dot_l * inverse_pi);
     }
 
     for (const PointLight& light : scene.point_lights) {
         const Vec3 to_light = light.position - hit.position;
-        const float distance_squared = length_squared(to_light);
-        if (distance_squared <= 1e-12) {
+        const float distance_squared = to_light.squaredNorm();
+        if (distance_squared <= 1e-12f) {
             continue;
         }
         const float distance = std::sqrt(distance_squared);
         const Vec3 light_dir = to_light / distance;
-        const float n_dot_l = std::max(0.0f, dot(surface.shading_normal, light_dir));
-        if (n_dot_l <= 0.0) {
+        const float n_dot_l = std::max(0.0f, surface.shading_normal.dot(light_dir));
+        if (n_dot_l <= 0.0f) {
             continue;
         }
         const Ray shadow_ray(
@@ -295,7 +298,7 @@ Color PathTracerRenderer::estimate_direct_lighting(
             continue;
         }
         const Color incoming = light.intensity / distance_squared;
-        direct += multiply(surface.base_color, incoming) * (n_dot_l * inverse_pi);
+        direct += surface.base_color.cwiseProduct(incoming) * (n_dot_l * inverse_pi);
     }
 
     return direct;

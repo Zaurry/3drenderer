@@ -42,7 +42,7 @@ void PathInteractiveSession::render_next_frame(
                 x,
                 y,
                 accumulated_[static_cast<std::size_t>(index)] /
-                    static_cast<double>(accumulated_samples_ + 1));
+                    static_cast<float>(accumulated_samples_ + 1));
         }
     }
     ++accumulated_samples_;

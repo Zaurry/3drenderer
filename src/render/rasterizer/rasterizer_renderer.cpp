@@ -14,16 +14,12 @@ namespace renderer {
 
 namespace {
 
-constexpr double near_plane = 1e-4;
+constexpr float near_plane = 1e-4f;
 
 struct ProjectedVertex {
     Vec3 screen = Vec3::Zero();
     RasterVertex attributes;
 };
-
-Color multiply(const Color& a, const Color& b) {
-    return Color(a.x() * b.x(), a.y() * b.y(), a.z() * b.z());
-}
 
 bool material_exists(const Scene& scene, int material_id) {
     return material_id >= 0 && static_cast<std::size_t>(material_id) < scene.materials.size();
@@ -32,9 +28,9 @@ bool material_exists(const Scene& scene, int material_id) {
 Vec3 view_position(const Vec3& world, const Camera& camera) {
     const Vec3 relative = world - camera.eye();
     return Vec3(
-        dot(relative, camera.right()),
-        dot(relative, camera.up()),
-        dot(relative, camera.forward()));
+        relative.dot(camera.right()),
+        relative.dot(camera.up()),
+        relative.dot(camera.forward()));
 }
 
 ProjectedVertex project_to_screen(
@@ -42,15 +38,15 @@ ProjectedVertex project_to_screen(
     const Camera& camera,
     int width,
     int height) {
-    const double half_width = camera.viewport_width() * 0.5;
-    const double half_height = camera.viewport_height() * 0.5;
-    const double ndc_x = (vertex.view.x() / vertex.view.z()) / half_width;
-    const double ndc_y = (vertex.view.y() / vertex.view.z()) / half_height;
+    const float half_width = camera.viewport_width() * 0.5f;
+    const float half_height = camera.viewport_height() * 0.5f;
+    const float ndc_x = (vertex.view.x() / vertex.view.z()) / half_width;
+    const float ndc_y = (vertex.view.y() / vertex.view.z()) / half_height;
 
     ProjectedVertex projected;
     projected.screen = Vec3(
-        static_cast<float>((ndc_x * 0.5 + 0.5) * static_cast<double>(width - 1)),
-        static_cast<float>((1.0 - (ndc_y * 0.5 + 0.5)) * static_cast<double>(height - 1)),
+        (ndc_x * 0.5f + 0.5f) * static_cast<float>(width - 1),
+        (1.0f - (ndc_y * 0.5f + 0.5f)) * static_cast<float>(height - 1),
         vertex.view.z());
     projected.attributes = vertex;
     return projected;
@@ -60,7 +56,7 @@ Vec3 vertex_normal(const TriangleVertex& vertex, const Vec3& geometric_normal) {
     if (!vertex.has_normal || !usable_direction(vertex.normal)) {
         return geometric_normal;
     }
-    return dot(vertex.normal, geometric_normal) < 0.0 ? -vertex.normal : vertex.normal;
+    return vertex.normal.dot(geometric_normal) < 0.0f ? -vertex.normal : vertex.normal;
 }
 
 RasterVertex make_raster_vertex(
@@ -86,35 +82,46 @@ Color shade_surface(
         return material.emission;
     }
 
-    const Vec3 unit_normal = normalize(normal);
-    const Vec3 view_dir = normalize(camera.eye() - position);
-    Color shaded = multiply(base_color, scene.environment) * 0.15f;
+    const Vec3 unit_normal = normal.normalized();
+    const Vec3 view_dir = (camera.eye() - position).normalized();
+    Color shaded = base_color.cwiseProduct(scene.environment) * 0.15f;
 
     for (const DirectionalLight& light : scene.directional_lights) {
-        const Vec3 light_dir = normalize(-light.direction);
-        const float n_dot_l = std::max(0.0f, dot(unit_normal, light_dir));
-        if (n_dot_l <= 0.0) {
+        if (!usable_direction(light.direction)) {
+            continue;
+        }
+        const Vec3 light_dir = (-light.direction).normalized();
+        const float n_dot_l = std::max(0.0f, unit_normal.dot(light_dir));
+        if (n_dot_l <= 0.0f) {
             continue;
         }
 
-        const Vec3 half_vector = normalize(light_dir + view_dir);
-        const float specular = std::pow(std::max(0.0f, dot(unit_normal, half_vector)), 32.0f) * 0.2f;
-        shaded += multiply(base_color, light.radiance) * n_dot_l + light.radiance * specular;
+        const Vec3 half_direction = light_dir + view_dir;
+        const float specular = usable_direction(half_direction)
+            ? std::pow(
+                std::max(0.0f, unit_normal.dot(half_direction.normalized())),
+                32.0f) * 0.2f
+            : 0.0f;
+        shaded += base_color.cwiseProduct(light.radiance) * n_dot_l + light.radiance * specular;
     }
 
     for (const PointLight& light : scene.point_lights) {
         const Vec3 to_light = light.position - position;
-        const float distance_squared = std::max(length_squared(to_light), 1e-12f);
+        const float distance_squared = std::max(to_light.squaredNorm(), 1e-12f);
         const Vec3 light_dir = to_light / std::sqrt(distance_squared);
-        const float n_dot_l = std::max(0.0f, dot(unit_normal, light_dir));
-        if (n_dot_l <= 0.0) {
+        const float n_dot_l = std::max(0.0f, unit_normal.dot(light_dir));
+        if (n_dot_l <= 0.0f) {
             continue;
         }
 
         const Vec3 radiance = light.intensity / distance_squared;
-        const Vec3 half_vector = normalize(light_dir + view_dir);
-        const float specular = std::pow(std::max(0.0f, dot(unit_normal, half_vector)), 32.0f) * 0.2f;
-        shaded += multiply(base_color, radiance) * n_dot_l + radiance * specular;
+        const Vec3 half_direction = light_dir + view_dir;
+        const float specular = usable_direction(half_direction)
+            ? std::pow(
+                std::max(0.0f, unit_normal.dot(half_direction.normalized())),
+                32.0f) * 0.2f
+            : 0.0f;
+        shaded += base_color.cwiseProduct(radiance) * n_dot_l + radiance * specular;
     }
 
     return shaded;
@@ -128,9 +135,9 @@ RenderResult RasterizerRenderer::render(
     const RenderSettings& settings) {
     Timer timer;
     Image image(settings.width, settings.height);
-    std::vector<double> depth_buffer(
+    std::vector<float> depth_buffer(
         static_cast<std::size_t>(settings.width * settings.height),
-        std::numeric_limits<double>::infinity());
+        std::numeric_limits<float>::infinity());
 
     for (const Triangle& triangle : scene.triangles) {
         const Material* material = material_exists(scene, triangle.material_id())
@@ -141,7 +148,8 @@ RenderResult RasterizerRenderer::render(
             continue;
         }
 
-        const bool front_facing = dot(geometric_normal, camera.eye() - triangle.centroid()) > 0.0;
+        const bool front_facing =
+            geometric_normal.dot(camera.eye() - triangle.centroid()) > 0.0f;
         if (material && !material->two_sided && !front_facing) {
             continue;
         }
@@ -164,23 +172,23 @@ RenderResult RasterizerRenderer::render(
             const ProjectedVertex v2 = project_to_screen(
                 clipped[fan + 1], camera, settings.width, settings.height);
 
-            const double area = edge_function(v0.screen, v1.screen, v2.screen);
-            if (std::abs(area) <= 1e-12) {
+            const float area = edge_function(v0.screen, v1.screen, v2.screen);
+            if (std::abs(area) <= 1e-12f) {
                 continue;
             }
 
-            const double min_x = std::min({v0.screen.x(), v1.screen.x(), v2.screen.x()});
-            const double max_x = std::max({v0.screen.x(), v1.screen.x(), v2.screen.x()});
-            const double min_y = std::min({v0.screen.y(), v1.screen.y(), v2.screen.y()});
-            const double max_y = std::max({v0.screen.y(), v1.screen.y(), v2.screen.y()});
+            const float min_x = std::min({v0.screen.x(), v1.screen.x(), v2.screen.x()});
+            const float max_x = std::max({v0.screen.x(), v1.screen.x(), v2.screen.x()});
+            const float min_y = std::min({v0.screen.y(), v1.screen.y(), v2.screen.y()});
+            const float max_y = std::max({v0.screen.y(), v1.screen.y(), v2.screen.y()});
             const int start_x = static_cast<int>(std::clamp(
-                std::floor(min_x), 0.0, static_cast<double>(settings.width - 1)));
+                std::floor(min_x), 0.0f, static_cast<float>(settings.width - 1)));
             const int end_x = static_cast<int>(std::clamp(
-                std::ceil(max_x), 0.0, static_cast<double>(settings.width - 1)));
+                std::ceil(max_x), 0.0f, static_cast<float>(settings.width - 1)));
             const int start_y = static_cast<int>(std::clamp(
-                std::floor(min_y), 0.0, static_cast<double>(settings.height - 1)));
+                std::floor(min_y), 0.0f, static_cast<float>(settings.height - 1)));
             const int end_y = static_cast<int>(std::clamp(
-                std::ceil(max_y), 0.0, static_cast<double>(settings.height - 1)));
+                std::ceil(max_y), 0.0f, static_cast<float>(settings.height - 1)));
 
             for (int y = start_y; y <= end_y; ++y) {
                 for (int x = start_x; x <= end_x; ++x) {
@@ -188,33 +196,30 @@ RenderResult RasterizerRenderer::render(
                         static_cast<float>(x) + 0.5f,
                         static_cast<float>(y) + 0.5f,
                         0.0f);
-                    const double w0 = edge_function(v1.screen, v2.screen, pixel);
-                    const double w1 = edge_function(v2.screen, v0.screen, pixel);
-                    const double w2 = edge_function(v0.screen, v1.screen, pixel);
-                    const bool inside = area > 0.0
-                        ? (w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0)
-                        : (w0 <= 0.0 && w1 <= 0.0 && w2 <= 0.0);
+                    const float w0 = edge_function(v1.screen, v2.screen, pixel);
+                    const float w1 = edge_function(v2.screen, v0.screen, pixel);
+                    const float w2 = edge_function(v0.screen, v1.screen, pixel);
+                    const bool inside = area > 0.0f
+                        ? (w0 >= 0.0f && w1 >= 0.0f && w2 >= 0.0f)
+                        : (w0 <= 0.0f && w1 <= 0.0f && w2 <= 0.0f);
                     if (!inside) {
                         continue;
                     }
 
-                    const Vec3 screen_weights(
-                        static_cast<float>(w0 / area),
-                        static_cast<float>(w1 / area),
-                        static_cast<float>(w2 / area));
+                    const Vec3 screen_weights(w0 / area, w1 / area, w2 / area);
                     const Vec3 view_depths(
                         v0.attributes.view.z(),
                         v1.attributes.view.z(),
                         v2.attributes.view.z());
                     const Vec3 weights = perspective_correct_weights(screen_weights, view_depths);
-                    if (weights.x() + weights.y() + weights.z() <= 0.0) {
+                    if (weights.sum() <= 0.0f) {
                         continue;
                     }
-                    const double inverse_depth =
+                    const float inverse_depth =
                         screen_weights.x() / view_depths.x() +
                         screen_weights.y() / view_depths.y() +
                         screen_weights.z() / view_depths.z();
-                    const double depth = 1.0 / inverse_depth;
+                    const float depth = 1.0f / inverse_depth;
                     const int buffer_index = y * settings.width + x;
                     if (depth >= depth_buffer[static_cast<std::size_t>(buffer_index)]) {
                         continue;
@@ -231,12 +236,14 @@ RenderResult RasterizerRenderer::render(
                         v0.attributes.uv.y() * weights.x() +
                             v1.attributes.uv.y() * weights.y() +
                             v2.attributes.uv.y() * weights.z());
-                    Vec3 interpolated_normal = normalize(
+                    Vec3 interpolated_normal = (
                         v0.attributes.normal * weights.x() +
                         v1.attributes.normal * weights.y() +
-                        v2.attributes.normal * weights.z());
+                        v2.attributes.normal * weights.z()).eval();
                     if (!usable_direction(interpolated_normal)) {
                         interpolated_normal = geometric_normal;
+                    } else {
+                        interpolated_normal.normalize();
                     }
 
                     HitRecord hit;
@@ -250,7 +257,7 @@ RenderResult RasterizerRenderer::render(
                     triangle.tangent_basis(hit.shading_normal, hit.tangent, hit.bitangent);
                     hit.has_valid_uv_basis = triangle.has_valid_uv_basis();
 
-                    Color color(1.0, 0.0, 1.0);
+                    Color color(1.0f, 0.0f, 1.0f);
                     if (material) {
                         const SurfaceMaterialSample surface =
                             evaluate_surface_material(scene, *material, hit);
@@ -276,7 +283,7 @@ RenderResult RasterizerRenderer::render(
     return RenderResult{image, timer.elapsed_seconds()};
 }
 
-double RasterizerRenderer::edge_function(
+float RasterizerRenderer::edge_function(
     const Vec3& a,
     const Vec3& b,
     const Vec3& c) const {
