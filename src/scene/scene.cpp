@@ -45,7 +45,7 @@ Scene make_gradient_sphere_scene() {
     Scene scene;
     scene.environment = Color(0.4f, 0.6f, 0.9f);
     scene.materials.push_back(diffuse(Color(0.8f, 0.25f, 0.15f)));
-    scene.spheres.emplace_back(Vec3(0, 0, -1), 0.5, 0);
+    scene.spheres.emplace_back(Vec3(0, 0, -1), 0.5f, 0);
     return scene;
 }
 
@@ -68,8 +68,8 @@ Scene make_mirror_spheres_scene() {
     scene.environment = Color(0.02f, 0.03f, 0.06f);
     scene.materials.push_back(diffuse(Color(0.65f, 0.68f, 0.7f)));
     scene.materials.push_back(metal(Color(0.9f, 0.86f, 0.78f), 0.04f));
-    scene.spheres.emplace_back(Vec3(0, -100.5, -1), 100.0, 0);
-    scene.spheres.emplace_back(Vec3(0, 0, -1), 0.5, 1);
+    scene.spheres.emplace_back(Vec3(0, -100.5f, -1), 100.0f, 0);
+    scene.spheres.emplace_back(Vec3(0, 0, -1), 0.5f, 1);
     scene.point_lights.push_back(
         PointLight{Vec3(1.5f, 3.0f, 1.0f), Color(8.0f, 7.0f, 6.0f)});
     return scene;

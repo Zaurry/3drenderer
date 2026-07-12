@@ -131,13 +131,12 @@ renderer::Bounds3 scene_bounds(const renderer::Scene& scene) {
 
 renderer::Camera make_camera_from_bounds(const renderer::Bounds3& bounds, int width, int height) {
     const renderer::Vec3 center = (bounds.min + bounds.max) * 0.5f;
-    const double radius = std::max(
-        0.5, static_cast<double>(renderer::length(bounds.max - bounds.min)) * 0.5);
+    const float radius = std::max(0.5f, (bounds.max - bounds.min).norm() * 0.5f);
     return renderer::Camera(
         center + renderer::Vec3(
             0.0f,
-            static_cast<float>(radius * 0.15),
-            static_cast<float>(radius * 2.4)),
+            radius * 0.15f,
+            radius * 2.4f),
         center,
         renderer::Vec3(0.0f, 1.0f, 0.0f),
         45.0f,
@@ -261,11 +260,11 @@ int main(int argc, char** argv) {
                     static_cast<float>(settings.width) / static_cast<float>(settings.height));
                 frame_state.framebuffer_resized = true;
             }
-            if (input.left_mouse_down && (input.mouse_delta_x != 0.0 || input.mouse_delta_y != 0.0)) {
+            if (input.left_mouse_down && (input.mouse_delta_x != 0.0f || input.mouse_delta_y != 0.0f)) {
                 camera_controller.orbit(input.mouse_delta_x, input.mouse_delta_y);
                 frame_state.camera_changed = true;
             }
-            if (input.wheel_delta != 0.0) {
+            if (input.wheel_delta != 0.0f) {
                 camera_controller.zoom(input.wheel_delta);
                 frame_state.camera_changed = true;
             }

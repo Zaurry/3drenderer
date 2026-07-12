@@ -332,7 +332,7 @@ LoadedScene load_scene_asset(const std::string& path, int width, int height) {
 
     LoadedScene loaded{
         Scene(),
-        Camera(Vec3(0.0, 0.0, 1.0), Vec3(0.0, 0.0, 0.0), Vec3(0.0, 1.0, 0.0), 45.0, 1.0),
+        Camera(Vec3(0.0f, 0.0f, 1.0f), Vec3(0.0f, 0.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f), 45.0f, 1.0f),
         Bounds3()};
 
     std::unordered_set<std::string> warning_keys;

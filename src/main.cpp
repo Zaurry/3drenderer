@@ -108,14 +108,14 @@ CliOptions parse_args(int argc, char** argv) {
 renderer::Camera make_camera(
     const renderer::Vec3& eye,
     const renderer::Vec3& target,
-    double vertical_fov_degrees,
+    float vertical_fov_degrees,
     int width,
     int height) {
     return renderer::Camera(
         eye,
         target,
         renderer::Vec3(0.0f, 1.0f, 0.0f),
-        static_cast<float>(vertical_fov_degrees),
+        vertical_fov_degrees,
         static_cast<float>(width) / static_cast<float>(height));
 }
 
@@ -136,9 +136,9 @@ SceneBundle make_scene_bundle(const CliOptions& options) {
         return SceneBundle{
             renderer::make_gradient_sphere_scene(),
             make_camera(
-                renderer::Vec3(0.0, 0.0, 2.0),
-                renderer::Vec3(0.0, 0.0, -1.0),
-                45.0,
+                renderer::Vec3(0.0f, 0.0f, 2.0f),
+                renderer::Vec3(0.0f, 0.0f, -1.0f),
+                45.0f,
                 options.width,
                 options.height)};
     }
@@ -146,9 +146,9 @@ SceneBundle make_scene_bundle(const CliOptions& options) {
         return SceneBundle{
             renderer::make_raster_triangle_scene(),
             make_camera(
-                renderer::Vec3(0.0, 0.0, 2.0),
-                renderer::Vec3(0.0, 0.0, 0.0),
-                45.0,
+                renderer::Vec3(0.0f, 0.0f, 2.0f),
+                renderer::Vec3(0.0f, 0.0f, 0.0f),
+                45.0f,
                 options.width,
                 options.height)};
     }
@@ -158,7 +158,7 @@ SceneBundle make_scene_bundle(const CliOptions& options) {
             make_camera(
                 renderer::Vec3(0.0f, 0.65f, 2.4f),
                 renderer::Vec3(0.0f, -0.05f, -1.0f),
-                42.0,
+                42.0f,
                 options.width,
                 options.height)};
     }
@@ -168,7 +168,7 @@ SceneBundle make_scene_bundle(const CliOptions& options) {
             make_camera(
                 renderer::Vec3(0.0f, 0.15f, 1.5f),
                 renderer::Vec3(0.0f, 0.15f, -2.0f),
-                45.0,
+                45.0f,
                 options.width,
                 options.height)};
     }

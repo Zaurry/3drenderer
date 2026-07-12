@@ -14,6 +14,7 @@
 #include "core/timer.h"
 #include "interactive/frame_rate_counter.h"
 #include "interactive/orbit_camera_controller.h"
+#include "platform/sdl/sdl_display_backend.h"
 #include "render/renderer.h"
 #include "render/render_settings.h"
 #include "render/depth_buffer.h"
@@ -63,6 +64,9 @@ static_assert(std::is_same_v<decltype(std::declval<renderer::RenderResult>().sec
 static_assert(std::is_same_v<decltype(std::declval<renderer::FrameRateSnapshot>().frames_per_second), float>);
 static_assert(std::is_same_v<decltype(std::declval<renderer::Camera>().viewport_width()), float>);
 static_assert(std::is_same_v<decltype(std::declval<renderer::InteractiveFrameState>().delta_seconds), float>);
+static_assert(std::is_same_v<decltype(std::declval<renderer::InputState>().mouse_delta_x), float>);
+static_assert(std::is_same_v<decltype(std::declval<renderer::InputState>().mouse_delta_y), float>);
+static_assert(std::is_same_v<decltype(std::declval<renderer::InputState>().wheel_delta), float>);
 static_assert(std::is_same_v<decltype(std::declval<renderer::HitRecord>().t), float>);
 static_assert(std::is_same_v<decltype(std::declval<renderer::Material>().roughness), float>);
 static_assert(std::is_same_v<decltype(std::declval<renderer::Material>().opacity), float>);
@@ -103,58 +107,58 @@ static_assert(std::is_same_v<
     renderer::Vec3>);
 
 void test_vec3_arithmetic() {
-    renderer::Vec3 a(1.0, 2.0, 3.0);
-    renderer::Vec3 b(4.0, -2.0, 0.5);
+    renderer::Vec3 a(1.0f, 2.0f, 3.0f);
+    renderer::Vec3 b(4.0f, -2.0f, 0.5f);
 
     renderer::Vec3 sum = a + b;
-    RENDER_CHECK(nearly_equal(sum.x(), 5.0));
-    RENDER_CHECK(nearly_equal(sum.y(), 0.0));
-    RENDER_CHECK(nearly_equal(sum.z(), 3.5));
+    RENDER_CHECK(nearly_equal(sum.x(), 5.0f));
+    RENDER_CHECK(nearly_equal(sum.y(), 0.0f));
+    RENDER_CHECK(nearly_equal(sum.z(), 3.5f));
 
     renderer::Vec3 difference = a - b;
-    RENDER_CHECK(nearly_equal(difference.x(), -3.0));
-    RENDER_CHECK(nearly_equal(difference.y(), 4.0));
-    RENDER_CHECK(nearly_equal(difference.z(), 2.5));
+    RENDER_CHECK(nearly_equal(difference.x(), -3.0f));
+    RENDER_CHECK(nearly_equal(difference.y(), 4.0f));
+    RENDER_CHECK(nearly_equal(difference.z(), 2.5f));
 
     renderer::Vec3 scaled_right = a * 2.0f;
-    RENDER_CHECK(nearly_equal(scaled_right.x(), 2.0));
-    RENDER_CHECK(nearly_equal(scaled_right.y(), 4.0));
-    RENDER_CHECK(nearly_equal(scaled_right.z(), 6.0));
+    RENDER_CHECK(nearly_equal(scaled_right.x(), 2.0f));
+    RENDER_CHECK(nearly_equal(scaled_right.y(), 4.0f));
+    RENDER_CHECK(nearly_equal(scaled_right.z(), 6.0f));
 
     renderer::Vec3 scaled_left = 0.5f * b;
-    RENDER_CHECK(nearly_equal(scaled_left.x(), 2.0));
-    RENDER_CHECK(nearly_equal(scaled_left.y(), -1.0));
-    RENDER_CHECK(nearly_equal(scaled_left.z(), 0.25));
+    RENDER_CHECK(nearly_equal(scaled_left.x(), 2.0f));
+    RENDER_CHECK(nearly_equal(scaled_left.y(), -1.0f));
+    RENDER_CHECK(nearly_equal(scaled_left.z(), 0.25f));
 
     renderer::Vec3 divided = a / 2.0f;
-    RENDER_CHECK(nearly_equal(divided.x(), 0.5));
-    RENDER_CHECK(nearly_equal(divided.y(), 1.0));
-    RENDER_CHECK(nearly_equal(divided.z(), 1.5));
+    RENDER_CHECK(nearly_equal(divided.x(), 0.5f));
+    RENDER_CHECK(nearly_equal(divided.y(), 1.0f));
+    RENDER_CHECK(nearly_equal(divided.z(), 1.5f));
 
     renderer::Vec3 negated = -a;
-    RENDER_CHECK(nearly_equal(negated.x(), -1.0));
-    RENDER_CHECK(nearly_equal(negated.y(), -2.0));
-    RENDER_CHECK(nearly_equal(negated.z(), -3.0));
+    RENDER_CHECK(nearly_equal(negated.x(), -1.0f));
+    RENDER_CHECK(nearly_equal(negated.y(), -2.0f));
+    RENDER_CHECK(nearly_equal(negated.z(), -3.0f));
 
-    renderer::Vec3 min_v = renderer::min_components(a, b);
-    RENDER_CHECK(nearly_equal(min_v.x(), 1.0));
-    RENDER_CHECK(nearly_equal(min_v.y(), -2.0));
-    RENDER_CHECK(nearly_equal(min_v.z(), 0.5));
+    renderer::Vec3 min_v = a.cwiseMin(b);
+    RENDER_CHECK(nearly_equal(min_v.x(), 1.0f));
+    RENDER_CHECK(nearly_equal(min_v.y(), -2.0f));
+    RENDER_CHECK(nearly_equal(min_v.z(), 0.5f));
 
-    renderer::Vec3 max_v = renderer::max_components(a, b);
-    RENDER_CHECK(nearly_equal(max_v.x(), 4.0));
-    RENDER_CHECK(nearly_equal(max_v.y(), 2.0));
-    RENDER_CHECK(nearly_equal(max_v.z(), 3.0));
+    renderer::Vec3 max_v = a.cwiseMax(b);
+    RENDER_CHECK(nearly_equal(max_v.x(), 4.0f));
+    RENDER_CHECK(nearly_equal(max_v.y(), 2.0f));
+    RENDER_CHECK(nearly_equal(max_v.z(), 3.0f));
 
-    RENDER_CHECK(nearly_equal(renderer::dot(a, b), 1.0 * 4.0 + 2.0 * -2.0 + 3.0 * 0.5));
+    RENDER_CHECK(nearly_equal(a.dot(b), 1.0f * 4.0f + 2.0f * -2.0f + 3.0f * 0.5f));
 
-    renderer::Vec3 c = renderer::cross(renderer::Vec3(1, 0, 0), renderer::Vec3(0, 1, 0));
-    RENDER_CHECK(nearly_equal(c.x(), 0.0));
-    RENDER_CHECK(nearly_equal(c.y(), 0.0));
-    RENDER_CHECK(nearly_equal(c.z(), 1.0));
+    renderer::Vec3 c = renderer::Vec3(1, 0, 0).cross(renderer::Vec3(0, 1, 0));
+    RENDER_CHECK(nearly_equal(c.x(), 0.0f));
+    RENDER_CHECK(nearly_equal(c.y(), 0.0f));
+    RENDER_CHECK(nearly_equal(c.z(), 1.0f));
 
-    renderer::Vec3 n = renderer::normalize(renderer::Vec3(0, 3, 4));
-    RENDER_CHECK(nearly_equal(renderer::length(n), 1.0));
+    renderer::Vec3 n = renderer::Vec3(0, 3, 4).normalized();
+    RENDER_CHECK(nearly_equal(n.norm(), 1.0f));
     RENDER_CHECK(nearly_equal(n.y(), 0.6f, 1e-6f));
     RENDER_CHECK(nearly_equal(n.z(), 0.8f, 1e-6f));
 }
@@ -165,19 +169,19 @@ void test_mat4_composition_order() {
          Eigen::Scaling(2.0f, 3.0f, 4.0f))
             .matrix();
     const renderer::Vec4 p = transform * renderer::Vec4(1.0f, 1.0f, 1.0f, 1.0f);
-    RENDER_CHECK(nearly_equal(p.x(), 3.0));
-    RENDER_CHECK(nearly_equal(p.y(), 5.0));
-    RENDER_CHECK(nearly_equal(p.z(), 7.0));
-    RENDER_CHECK(nearly_equal(p.w(), 1.0));
+    RENDER_CHECK(nearly_equal(p.x(), 3.0f));
+    RENDER_CHECK(nearly_equal(p.y(), 5.0f));
+    RENDER_CHECK(nearly_equal(p.z(), 7.0f));
+    RENDER_CHECK(nearly_equal(p.w(), 1.0f));
 }
 
 void test_mat4_perspective_uses_degrees_and_ndc_depth() {
     const renderer::Mat4 p = renderer::make_perspective_matrix(90.0f, 1.0f, 1.0f, 10.0f);
-    RENDER_CHECK(nearly_equal(p(0, 0), 1.0));
-    RENDER_CHECK(nearly_equal(p(1, 1), 1.0));
+    RENDER_CHECK(nearly_equal(p(0, 0), 1.0f));
+    RENDER_CHECK(nearly_equal(p(1, 1), 1.0f));
     RENDER_CHECK(nearly_equal(p(2, 2), -11.0f / 9.0f));
     RENDER_CHECK(nearly_equal(p(2, 3), -20.0f / 9.0f));
-    RENDER_CHECK(nearly_equal(p(3, 2), -1.0));
+    RENDER_CHECK(nearly_equal(p(3, 2), -1.0f));
 
     const renderer::Vec4 near_clip = p * renderer::Vec4(0.0f, 0.0f, -1.0f, 1.0f);
     RENDER_CHECK(nearly_equal(near_clip.z() / near_clip.w(), -1.0f, 1e-6f));
@@ -201,16 +205,16 @@ void check_perspective_invalid_input_throws(
 }
 
 void test_mat4_perspective_invalid_inputs_throw() {
-    check_perspective_invalid_input_throws(0.0, 1.0, 1.0, 10.0);
-    check_perspective_invalid_input_throws(-1.0, 1.0, 1.0, 10.0);
-    check_perspective_invalid_input_throws(180.0, 1.0, 1.0, 10.0);
-    check_perspective_invalid_input_throws(181.0, 1.0, 1.0, 10.0);
-    check_perspective_invalid_input_throws(90.0, 0.0, 1.0, 10.0);
-    check_perspective_invalid_input_throws(90.0, -1.0, 1.0, 10.0);
-    check_perspective_invalid_input_throws(90.0, 1.0, 0.0, 10.0);
-    check_perspective_invalid_input_throws(90.0, 1.0, -1.0, 10.0);
-    check_perspective_invalid_input_throws(90.0, 1.0, 1.0, 1.0);
-    check_perspective_invalid_input_throws(90.0, 1.0, 10.0, 1.0);
+    check_perspective_invalid_input_throws(0.0f, 1.0f, 1.0f, 10.0f);
+    check_perspective_invalid_input_throws(-1.0f, 1.0f, 1.0f, 10.0f);
+    check_perspective_invalid_input_throws(180.0f, 1.0f, 1.0f, 10.0f);
+    check_perspective_invalid_input_throws(181.0f, 1.0f, 1.0f, 10.0f);
+    check_perspective_invalid_input_throws(90.0f, 0.0f, 1.0f, 10.0f);
+    check_perspective_invalid_input_throws(90.0f, -1.0f, 1.0f, 10.0f);
+    check_perspective_invalid_input_throws(90.0f, 1.0f, 0.0f, 10.0f);
+    check_perspective_invalid_input_throws(90.0f, 1.0f, -1.0f, 10.0f);
+    check_perspective_invalid_input_throws(90.0f, 1.0f, 1.0f, 1.0f);
+    check_perspective_invalid_input_throws(90.0f, 1.0f, 10.0f, 1.0f);
     check_perspective_invalid_input_throws(
         std::numeric_limits<float>::quiet_NaN(), 1.0f, 1.0f, 10.0f);
     check_perspective_invalid_input_throws(
@@ -226,12 +230,12 @@ void test_mat4_look_at() {
         renderer::Vec3(0.0f, 0.0f, 0.0f),
         renderer::Vec3(0.0f, 0.0f, -1.0f),
         renderer::Vec3(0.0f, 1.0f, 0.0f));
-    RENDER_CHECK(nearly_equal(view(0, 0), 1.0));
-    RENDER_CHECK(nearly_equal(view(1, 1), 1.0));
-    RENDER_CHECK(nearly_equal(view(2, 2), 1.0));
-    RENDER_CHECK(nearly_equal(view(3, 3), 1.0));
+    RENDER_CHECK(nearly_equal(view(0, 0), 1.0f));
+    RENDER_CHECK(nearly_equal(view(1, 1), 1.0f));
+    RENDER_CHECK(nearly_equal(view(2, 2), 1.0f));
+    RENDER_CHECK(nearly_equal(view(3, 3), 1.0f));
     const renderer::Vec4 p = view * renderer::Vec4(0.0f, 0.0f, -1.0f, 1.0f);
-    RENDER_CHECK(nearly_equal(p.z(), -1.0));
+    RENDER_CHECK(nearly_equal(p.z(), -1.0f));
 }
 
 void test_mat4_look_at_invalid_inputs_throw() {
@@ -307,13 +311,13 @@ void test_camera_center_ray_points_forward() {
         renderer::Vec3(0, 0, 0),
         renderer::Vec3(0, 0, -1),
         renderer::Vec3(0, 1, 0),
-        60.0,
-        1.0);
+        60.0f,
+        1.0f);
 
-    renderer::Ray ray = camera.generate_ray(0.5, 0.5);
+    renderer::Ray ray = camera.generate_ray(0.5f, 0.5f);
     RENDER_CHECK(nearly_equal(ray.direction.x(), 0.0f, 1e-6f));
     RENDER_CHECK(nearly_equal(ray.direction.y(), 0.0f, 1e-6f));
-    RENDER_CHECK(ray.direction.z() < -0.999);
+    RENDER_CHECK(ray.direction.z() < -0.999f);
 }
 
 void test_camera_rejects_non_finite_screen_coordinates() {
@@ -321,8 +325,8 @@ void test_camera_rejects_non_finite_screen_coordinates() {
         renderer::Vec3(0, 0, 0),
         renderer::Vec3(0, 0, -1),
         renderer::Vec3(0, 1, 0),
-        60.0,
-        1.0);
+        60.0f,
+        1.0f);
 
     bool threw_nan_u = false;
     try {
@@ -384,7 +388,7 @@ void test_image_invalid_dimensions_throw_invalid_argument() {
 
 void test_image_stores_gamma_corrected_pixels() {
     renderer::Image image(2, 1);
-    image.set_pixel(0, 0, renderer::Color(1.0, 0.25, 0.0));
+    image.set_pixel(0, 0, renderer::Color(1.0f, 0.25f, 0.0f));
     renderer::Rgb8 pixel = image.pixel_rgb8(0, 0);
     RENDER_CHECK(pixel.r == 255);
     RENDER_CHECK(pixel.g >= 135 && pixel.g <= 137);
@@ -415,8 +419,8 @@ void test_orbit_camera_controller_zoom_and_orbit_change_camera() {
     controller.zoom(-1.0f);
     renderer::Camera after = controller.camera();
 
-    RENDER_CHECK(renderer::length(after.eye() - before.eye()) > 0.001);
-    RENDER_CHECK(after.viewport_width() > 0.0);
+    RENDER_CHECK((after.eye() - before.eye()).norm() > 0.001f);
+    RENDER_CHECK(after.viewport_width() > 0.0f);
 }
 
 void test_orbit_camera_controller_horizontal_drag_tracks_scene_direction() {
@@ -439,8 +443,8 @@ void test_frame_rate_counter_reports_window_average() {
     const renderer::FrameRateSnapshot snapshot = counter.snapshot();
     RENDER_CHECK(snapshot.valid);
     RENDER_CHECK(snapshot.frames == 2);
-    RENDER_CHECK(nearly_equal(snapshot.frames_per_second, 8.0));
-    RENDER_CHECK(nearly_equal(snapshot.milliseconds_per_frame, 125.0));
+    RENDER_CHECK(nearly_equal(snapshot.frames_per_second, 8.0f));
+    RENDER_CHECK(nearly_equal(snapshot.milliseconds_per_frame, 125.0f));
 
     counter.reset();
     RENDER_CHECK(!counter.snapshot().valid);
@@ -459,7 +463,7 @@ void test_viewer_title_format_includes_fps_and_path_samples() {
     renderer::FrameRateSnapshot snapshot;
     snapshot.valid = true;
     snapshot.frames = 3;
-    snapshot.frames_per_second = 60.0;
+    snapshot.frames_per_second = 60.0f;
     snapshot.milliseconds_per_frame = 16.666f;
 
     const std::string path_title = renderer::format_viewer_title(
@@ -474,12 +478,12 @@ void test_viewer_title_format_includes_fps_and_path_samples() {
 
 void test_framebuffer_clear_set_and_rgba8_conversion() {
     renderer::Framebuffer framebuffer(2, 1);
-    framebuffer.clear(renderer::Color(0.25, 0.0, 1.0));
-    framebuffer.set_pixel(1, 0, renderer::Color(1.0, 0.25, 0.0));
+    framebuffer.clear(renderer::Color(0.25f, 0.0f, 1.0f));
+    framebuffer.set_pixel(1, 0, renderer::Color(1.0f, 0.25f, 0.0f));
 
     RENDER_CHECK(framebuffer.width() == 2);
     RENDER_CHECK(framebuffer.height() == 1);
-    RENDER_CHECK(nearly_equal(framebuffer.pixel(0, 0).z(), 1.0));
+    RENDER_CHECK(nearly_equal(framebuffer.pixel(0, 0).z(), 1.0f));
 
     const std::vector<std::uint8_t> rgba = framebuffer.to_rgba8();
     RENDER_CHECK(rgba.size() == 8);
@@ -490,19 +494,19 @@ void test_framebuffer_clear_set_and_rgba8_conversion() {
 
 void test_depth_buffer_clear_resize_and_access() {
     renderer::DepthBuffer depth(2, 2);
-    depth.clear(42.0);
-    depth.set(1, 0, 0.5);
+    depth.clear(42.0f);
+    depth.set(1, 0, 0.5f);
 
     RENDER_CHECK(depth.width() == 2);
     RENDER_CHECK(depth.height() == 2);
-    RENDER_CHECK(nearly_equal(depth.get(0, 0), 42.0));
-    RENDER_CHECK(nearly_equal(depth.get(1, 0), 0.5));
+    RENDER_CHECK(nearly_equal(depth.get(0, 0), 42.0f));
+    RENDER_CHECK(nearly_equal(depth.get(1, 0), 0.5f));
 
     depth.resize(1, 1);
-    depth.clear(7.0);
+    depth.clear(7.0f);
     RENDER_CHECK(depth.width() == 1);
     RENDER_CHECK(depth.height() == 1);
-    RENDER_CHECK(nearly_equal(depth.get(0, 0), 7.0));
+    RENDER_CHECK(nearly_equal(depth.get(0, 0), 7.0f));
 }
 
 void test_sphere_intersection() {
@@ -518,8 +522,8 @@ void test_sphere_intersection() {
     RENDER_CHECK(hit.shading_normal.allFinite());
     RENDER_CHECK(hit.tangent.allFinite());
     RENDER_CHECK(hit.bitangent.allFinite());
-    RENDER_CHECK(nearly_equal(hit.position.z(), -1.0));
-    RENDER_CHECK(nearly_equal(renderer::length(hit.shading_normal), 1.0));
+    RENDER_CHECK(nearly_equal(hit.position.z(), -1.0f));
+    RENDER_CHECK(nearly_equal(hit.shading_normal.norm(), 1.0f));
     RENDER_CHECK(hit.material_id == 0);
 }
 
@@ -627,18 +631,18 @@ void test_sphere_inside_ray_reports_back_face() {
     RENDER_CHECK(sphere.intersect(ray, 0.001f, 1000.0f, hit));
     RENDER_CHECK(!hit.front_face);
     RENDER_CHECK(nearly_equal(hit.t, 1.0f));
-    RENDER_CHECK(nearly_equal(hit.shading_normal.z(), -1.0));
+    RENDER_CHECK(nearly_equal(hit.shading_normal.z(), -1.0f));
 }
 
 void test_sphere_bounds_include_center_and_radius() {
     renderer::Sphere sphere(renderer::Vec3(1, 2, 3), 2.0f, 0);
     const renderer::Bounds3 bounds = sphere.bounds();
-    RENDER_CHECK(nearly_equal(bounds.min.x(), -1.0));
-    RENDER_CHECK(nearly_equal(bounds.min.y(), 0.0));
-    RENDER_CHECK(nearly_equal(bounds.min.z(), 1.0));
-    RENDER_CHECK(nearly_equal(bounds.max.x(), 3.0));
-    RENDER_CHECK(nearly_equal(bounds.max.y(), 4.0));
-    RENDER_CHECK(nearly_equal(bounds.max.z(), 5.0));
+    RENDER_CHECK(nearly_equal(bounds.min.x(), -1.0f));
+    RENDER_CHECK(nearly_equal(bounds.min.y(), 0.0f));
+    RENDER_CHECK(nearly_equal(bounds.min.z(), 1.0f));
+    RENDER_CHECK(nearly_equal(bounds.max.x(), 3.0f));
+    RENDER_CHECK(nearly_equal(bounds.max.y(), 4.0f));
+    RENDER_CHECK(nearly_equal(bounds.max.z(), 5.0f));
 }
 
 void test_triangle_intersection() {
@@ -648,41 +652,41 @@ void test_triangle_intersection() {
         renderer::Vec3(0, 1, 0),
         2);
 
-    renderer::Ray ray(renderer::Vec3(0, 0.25, -2), renderer::Vec3(0, 0, 1));
+    renderer::Ray ray(renderer::Vec3(0, 0.25f, -2), renderer::Vec3(0, 0, 1));
     renderer::HitRecord hit;
     RENDER_CHECK(tri.intersect(ray, 0.001f, 1000.0f, hit));
-    RENDER_CHECK(nearly_equal(hit.position.x(), 0.0));
-    RENDER_CHECK(nearly_equal(hit.position.y(), 0.25));
+    RENDER_CHECK(nearly_equal(hit.position.x(), 0.0f));
+    RENDER_CHECK(nearly_equal(hit.position.y(), 0.25f));
     RENDER_CHECK(hit.material_id == 2);
 }
 
 void test_triangle_interpolates_shading_normal_separately_from_geometry() {
     const renderer::Triangle triangle(
         renderer::TriangleVertex{
-            renderer::Vec3(-1.0, -1.0, -1.0),
-            renderer::Vec2(0.0, 0.0),
-            renderer::normalize(renderer::Vec3(0.0, 1.0, 1.0)),
+            renderer::Vec3(-1.0f, -1.0f, -1.0f),
+            renderer::Vec2(0.0f, 0.0f),
+            renderer::Vec3(0.0f, 1.0f, 1.0f).normalized(),
             true},
         renderer::TriangleVertex{
-            renderer::Vec3(1.0, -1.0, -1.0),
-            renderer::Vec2(1.0, 0.0),
-            renderer::normalize(renderer::Vec3(1.0, 0.0, 1.0)),
+            renderer::Vec3(1.0f, -1.0f, -1.0f),
+            renderer::Vec2(1.0f, 0.0f),
+            renderer::Vec3(1.0f, 0.0f, 1.0f).normalized(),
             true},
         renderer::TriangleVertex{
-            renderer::Vec3(0.0, 1.0, -1.0),
-            renderer::Vec2(0.5, 1.0),
-            renderer::Vec3(0.0, 0.0, 1.0),
+            renderer::Vec3(0.0f, 1.0f, -1.0f),
+            renderer::Vec2(0.5f, 1.0f),
+            renderer::Vec3(0.0f, 0.0f, 1.0f),
             true},
         0);
 
     renderer::HitRecord hit;
-    const renderer::Ray ray(renderer::Vec3(0.0, 0.0, 0.0), renderer::Vec3(0.0, 0.0, -1.0));
+    const renderer::Ray ray(renderer::Vec3(0.0f, 0.0f, 0.0f), renderer::Vec3(0.0f, 0.0f, -1.0f));
     RENDER_CHECK(triangle.intersect(ray, 1e-6f, 10.0f, hit));
     RENDER_CHECK(hit.geometric_normal.allFinite());
     RENDER_CHECK(hit.shading_normal.allFinite());
-    RENDER_CHECK(renderer::dot(hit.geometric_normal, renderer::Vec3(0.0, 0.0, 1.0)) > 0.999);
-    RENDER_CHECK(renderer::dot(hit.shading_normal, hit.geometric_normal) > 0.0);
-    RENDER_CHECK(renderer::length(hit.shading_normal - hit.geometric_normal) > 0.01);
+    RENDER_CHECK(hit.geometric_normal.dot(renderer::Vec3(0.0f, 0.0f, 1.0f)) > 0.999f);
+    RENDER_CHECK(hit.shading_normal.dot(hit.geometric_normal) > 0.0f);
+    RENDER_CHECK((hit.shading_normal - hit.geometric_normal).norm() > 0.01f);
 }
 
 void test_triangle_invalid_vertices_throw() {
@@ -726,7 +730,7 @@ void test_triangle_rejects_non_finite_rays() {
 
     renderer::HitRecord infinite_direction_hit;
     renderer::Ray infinite_direction_ray(
-        renderer::Vec3(0, 0.25, -2),
+        renderer::Vec3(0, 0.25f, -2),
         renderer::Vec3(0, 0, std::numeric_limits<float>::infinity()));
     RENDER_CHECK(!tri.intersect(infinite_direction_ray, 0.001f, 1000.0f, infinite_direction_hit));
 }
@@ -738,11 +742,11 @@ void test_triangle_back_side_hit_reports_back_face() {
         renderer::Vec3(0, 1, 0),
         2);
 
-    renderer::Ray ray(renderer::Vec3(0, 0.25, -2), renderer::Vec3(0, 0, 1));
+    renderer::Ray ray(renderer::Vec3(0, 0.25f, -2), renderer::Vec3(0, 0, 1));
     renderer::HitRecord hit;
     RENDER_CHECK(tri.intersect(ray, 0.001f, 1000.0f, hit));
     RENDER_CHECK(!hit.front_face);
-    RENDER_CHECK(renderer::dot(hit.shading_normal, ray.direction) < 0.0);
+    RENDER_CHECK(hit.shading_normal.dot(ray.direction) < 0.0f);
 }
 
 void test_triangle_boundary_hits_succeed() {
@@ -755,14 +759,14 @@ void test_triangle_boundary_hits_succeed() {
     renderer::HitRecord vertex_hit;
     renderer::Ray vertex_ray(renderer::Vec3(-1, 0, -2), renderer::Vec3(0, 0, 1));
     RENDER_CHECK(tri.intersect(vertex_ray, 0.001f, 1000.0f, vertex_hit));
-    RENDER_CHECK(nearly_equal(vertex_hit.position.x(), -1.0));
-    RENDER_CHECK(nearly_equal(vertex_hit.position.y(), 0.0));
+    RENDER_CHECK(nearly_equal(vertex_hit.position.x(), -1.0f));
+    RENDER_CHECK(nearly_equal(vertex_hit.position.y(), 0.0f));
 
     renderer::HitRecord edge_hit;
     renderer::Ray edge_ray(renderer::Vec3(0, 0, -2), renderer::Vec3(0, 0, 1));
     RENDER_CHECK(tri.intersect(edge_ray, 0.001f, 1000.0f, edge_hit));
-    RENDER_CHECK(nearly_equal(edge_hit.position.x(), 0.0));
-    RENDER_CHECK(nearly_equal(edge_hit.position.y(), 0.0));
+    RENDER_CHECK(nearly_equal(edge_hit.position.x(), 0.0f));
+    RENDER_CHECK(nearly_equal(edge_hit.position.y(), 0.0f));
 }
 
 void test_degenerate_triangle_misses() {
@@ -880,7 +884,7 @@ void check_bvh_matches_bruteforce(
     RENDER_CHECK(nearly_equal(bvh_hit.position.x(), brute_force_hit.position.x()));
     RENDER_CHECK(nearly_equal(bvh_hit.position.y(), brute_force_hit.position.y()));
     RENDER_CHECK(nearly_equal(bvh_hit.position.z(), brute_force_hit.position.z()));
-    RENDER_CHECK(renderer::dot(bvh_hit.shading_normal, brute_force_hit.shading_normal) > 0.999);
+    RENDER_CHECK(bvh_hit.shading_normal.dot(brute_force_hit.shading_normal) > 0.999f);
 }
 
 void test_empty_bvh_has_no_nodes_or_hits() {
@@ -908,7 +912,7 @@ void test_bvh_matches_bruteforce_triangle_hit() {
     renderer::Bvh bvh;
     bvh.build(tris);
 
-    check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(0, 0.25, -2), renderer::Vec3(0, 0, 1)));
+    check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(0, 0.25f, -2), renderer::Vec3(0, 0, 1)));
     check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(3, 3, -2), renderer::Vec3(0, 0, 1)));
 }
 
@@ -941,10 +945,10 @@ void test_bvh_splits_and_traverses_interior_nodes() {
         RENDER_CHECK(sorted_indices[i] == static_cast<int>(i));
     }
 
-    check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(0, 0.25, -2), renderer::Vec3(0, 0, 1)));
-    check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(6, 0.25, -2), renderer::Vec3(0, 0, 1)));
-    check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(15, 0.25, -2), renderer::Vec3(0, 0, 1)));
-    check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(1.5, 0.25, -2), renderer::Vec3(0, 0, 1)));
+    check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(0, 0.25f, -2), renderer::Vec3(0, 0, 1)));
+    check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(6, 0.25f, -2), renderer::Vec3(0, 0, 1)));
+    check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(15, 0.25f, -2), renderer::Vec3(0, 0, 1)));
+    check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(1.5f, 0.25f, -2), renderer::Vec3(0, 0, 1)));
 }
 
 void test_float_bvh_matches_bruteforce_at_large_coordinates() {
@@ -988,19 +992,19 @@ void test_checker_texture_is_deterministic_for_positive_and_negative_coordinates
     renderer::CheckerTexture texture;
     texture.even = renderer::Color(1, 0, 0);
     texture.odd = renderer::Color(0, 1, 0);
-    texture.scale = 1.0;
+    texture.scale = 1.0f;
 
     const renderer::Color positive =
-        texture.sample(renderer::Vec2::Zero(), renderer::Vec3(0.25, 0.25, 0.25));
-    RENDER_CHECK(nearly_equal(positive.x(), 1.0));
-    RENDER_CHECK(nearly_equal(positive.y(), 0.0));
-    RENDER_CHECK(nearly_equal(positive.z(), 0.0));
+        texture.sample(renderer::Vec2::Zero(), renderer::Vec3(0.25f, 0.25f, 0.25f));
+    RENDER_CHECK(nearly_equal(positive.x(), 1.0f));
+    RENDER_CHECK(nearly_equal(positive.y(), 0.0f));
+    RENDER_CHECK(nearly_equal(positive.z(), 0.0f));
 
     const renderer::Color negative =
-        texture.sample(renderer::Vec2::Zero(), renderer::Vec3(-0.25, 0.25, 0.25));
-    RENDER_CHECK(nearly_equal(negative.x(), 0.0));
-    RENDER_CHECK(nearly_equal(negative.y(), 1.0));
-    RENDER_CHECK(nearly_equal(negative.z(), 0.0));
+        texture.sample(renderer::Vec2::Zero(), renderer::Vec3(-0.25f, 0.25f, 0.25f));
+    RENDER_CHECK(nearly_equal(negative.x(), 0.0f));
+    RENDER_CHECK(nearly_equal(negative.y(), 1.0f));
+    RENDER_CHECK(nearly_equal(negative.z(), 0.0f));
 }
 
 void test_builtin_scene_contains_renderable_geometry() {
@@ -1044,9 +1048,9 @@ bool has_white_diffuse_material(const renderer::Scene& scene) {
         scene.materials.end(),
         [](const renderer::Material& material) {
             return material.type == renderer::MaterialType::Diffuse &&
-                   material.base_color.x() > 0.5 &&
-                   material.base_color.y() > 0.5 &&
-                   material.base_color.z() > 0.5;
+                   material.base_color.x() > 0.5f &&
+                   material.base_color.y() > 0.5f &&
+                   material.base_color.z() > 0.5f;
         });
 }
 
@@ -1056,7 +1060,7 @@ bool has_nonzero_emissive_material(const renderer::Scene& scene) {
         scene.materials.end(),
         [](const renderer::Material& material) {
             return material.type == renderer::MaterialType::Emissive &&
-                   renderer::length_squared(material.emission) > 0.0;
+                   material.emission.squaredNorm() > 0.0f;
         });
 }
 
@@ -1191,9 +1195,9 @@ bool is_green_like_material(const renderer::Material& material) {
 
 bool is_white_diffuse_material(const renderer::Material& material) {
     return material.type == renderer::MaterialType::Diffuse &&
-           material.base_color.x() > 0.5 &&
-           material.base_color.y() > 0.5 &&
-           material.base_color.z() > 0.5;
+           material.base_color.x() > 0.5f &&
+           material.base_color.y() > 0.5f &&
+           material.base_color.z() > 0.5f;
 }
 
 void test_cornell_box_wall_normals_face_inward() {
@@ -1229,17 +1233,17 @@ void test_cornell_box_light_uses_emissive_material_and_faces_downward() {
         hit));
     RENDER_CHECK(material_id_in_range(scene, hit.material_id));
     RENDER_CHECK(scene.materials[hit.material_id].type == renderer::MaterialType::Emissive);
-    RENDER_CHECK(renderer::length_squared(scene.materials[hit.material_id].emission) > 0.0);
+    RENDER_CHECK(scene.materials[hit.material_id].emission.squaredNorm() > 0.0f);
     RENDER_CHECK(hit.front_face);
-    RENDER_CHECK(hit.shading_normal.y() < -0.999);
+    RENDER_CHECK(hit.shading_normal.y() < -0.999f);
 }
 
 void test_cosine_sample_is_in_upper_hemisphere() {
     renderer::PcgRandom rng(42);
     for (int i = 0; i < 100; ++i) {
         renderer::Vec3 d = renderer::cosine_weighted_hemisphere(rng);
-        RENDER_CHECK(d.z() >= -1e-9);
-        RENDER_CHECK(nearly_equal(renderer::length(d), 1.0f, 1e-6f));
+        RENDER_CHECK(d.z() >= -1e-9f);
+        RENDER_CHECK(nearly_equal(d.norm(), 1.0f, 1e-6f));
     }
 }
 
@@ -1331,8 +1335,8 @@ void test_raytracer_renders_visible_sphere() {
         renderer::Vec3(0, 0, 2),
         renderer::Vec3(0, 0, -1),
         renderer::Vec3(0, 1, 0),
-        45.0,
-        1.0);
+        45.0f,
+        1.0f);
 
     renderer::RenderSettings settings;
     settings.width = 32;
@@ -1343,7 +1347,7 @@ void test_raytracer_renders_visible_sphere() {
     renderer::RenderResult result = renderer_instance.render(scene, camera, settings);
     RENDER_CHECK(image_colors_are_finite(result.image));
     renderer::Color center = result.image.pixel(16, 16);
-    RENDER_CHECK(center.x() > 0.05 || center.y() > 0.05 || center.z() > 0.05);
+    RENDER_CHECK(center.x() > 0.05f || center.y() > 0.05f || center.z() > 0.05f);
 }
 
 void test_raytracer_renders_triangle_scene_with_direct_light() {
@@ -1352,8 +1356,8 @@ void test_raytracer_renders_triangle_scene_with_direct_light() {
         renderer::Vec3(0, 0, 2),
         renderer::Vec3(0, 0, -1),
         renderer::Vec3(0, 1, 0),
-        45.0,
-        1.0);
+        45.0f,
+        1.0f);
 
     renderer::RenderSettings settings;
     settings.width = 32;
@@ -1364,8 +1368,8 @@ void test_raytracer_renders_triangle_scene_with_direct_light() {
     renderer::RenderResult result = renderer_instance.render(scene, camera, settings);
     RENDER_CHECK(image_colors_are_finite(result.image));
     renderer::Color center = result.image.pixel(16, 16);
-    RENDER_CHECK(center.y() > 0.1);
-    RENDER_CHECK(center.z() > 0.1);
+    RENDER_CHECK(center.y() > 0.1f);
+    RENDER_CHECK(center.z() > 0.1f);
 }
 
 void test_raytracer_reflection_adds_recursive_environment_radiance() {
@@ -1521,8 +1525,8 @@ void test_pathtracer_renders_emissive_scene() {
         renderer::Vec3(0, 1, 4),
         renderer::Vec3(0, 1, 0),
         renderer::Vec3(0, 1, 0),
-        40.0,
-        1.0);
+        40.0f,
+        1.0f);
 
     renderer::RenderSettings settings;
     settings.width = 16;
@@ -1535,14 +1539,14 @@ void test_pathtracer_renders_emissive_scene() {
     renderer::RenderResult result = renderer_instance.render(scene, camera, settings);
     RENDER_CHECK(image_colors_are_finite(result.image));
 
-    double luminance_sum = 0.0;
+    float luminance_sum = 0.0f;
     for (int y = 0; y < result.image.height(); ++y) {
         for (int x = 0; x < result.image.width(); ++x) {
             renderer::Color c = result.image.pixel(x, y);
             luminance_sum += c.x() + c.y() + c.z();
         }
     }
-    RENDER_CHECK(luminance_sum > 0.1);
+    RENDER_CHECK(luminance_sum > 0.1f);
 }
 
 renderer::Scene make_path_direct_light_scene() {
@@ -1550,23 +1554,23 @@ renderer::Scene make_path_direct_light_scene() {
     scene.environment = renderer::Color::Zero();
     renderer::Material material;
     material.type = renderer::MaterialType::Diffuse;
-    material.base_color = renderer::Color(1.0, 1.0, 1.0);
+    material.base_color = renderer::Color(1.0f, 1.0f, 1.0f);
     scene.materials.push_back(material);
     scene.triangles.emplace_back(
-        renderer::Vec3(-10.0, -10.0, -1.0),
-        renderer::Vec3(10.0, -10.0, -1.0),
-        renderer::Vec3(0.0, 10.0, -1.0),
+        renderer::Vec3(-10.0f, -10.0f, -1.0f),
+        renderer::Vec3(10.0f, -10.0f, -1.0f),
+        renderer::Vec3(0.0f, 10.0f, -1.0f),
         0);
     return scene;
 }
 
 renderer::Color render_one_path_pixel(const renderer::Scene& scene) {
     const renderer::Camera camera(
-        renderer::Vec3(0.0, 0.0, 0.0),
-        renderer::Vec3(0.0, 0.0, -1.0),
-        renderer::Vec3(0.0, 1.0, 0.0),
-        20.0,
-        1.0);
+        renderer::Vec3(0.0f, 0.0f, 0.0f),
+        renderer::Vec3(0.0f, 0.0f, -1.0f),
+        renderer::Vec3(0.0f, 1.0f, 0.0f),
+        20.0f,
+        1.0f);
     renderer::RenderSettings settings;
     settings.width = 1;
     settings.height = 1;
@@ -1582,43 +1586,43 @@ void test_pathtracer_receives_directional_light() {
 
     renderer::Scene lit = dark;
     lit.directional_lights.push_back(renderer::DirectionalLight{
-        renderer::Vec3(0.0, 0.0, -1.0),
-        renderer::Color(2.0, 2.0, 2.0)});
+        renderer::Vec3(0.0f, 0.0f, -1.0f),
+        renderer::Color(2.0f, 2.0f, 2.0f)});
     const renderer::Color illuminated = render_one_path_pixel(lit);
 
-    RENDER_CHECK(illuminated.x() > unlit.x() + 0.5);
+    RENDER_CHECK(illuminated.x() > unlit.x() + 0.5f);
 }
 
 void test_pathtracer_point_light_uses_inverse_square_falloff() {
     renderer::Scene near_scene = make_path_direct_light_scene();
     near_scene.point_lights.push_back(renderer::PointLight{
-        renderer::Vec3(0.0, 0.0, 1.0),
-        renderer::Color(8.0, 8.0, 8.0)});
+        renderer::Vec3(0.0f, 0.0f, 1.0f),
+        renderer::Color(8.0f, 8.0f, 8.0f)});
     renderer::Scene far_scene = make_path_direct_light_scene();
     far_scene.point_lights.push_back(renderer::PointLight{
-        renderer::Vec3(0.0, 0.0, 3.0),
-        renderer::Color(8.0, 8.0, 8.0)});
+        renderer::Vec3(0.0f, 0.0f, 3.0f),
+        renderer::Color(8.0f, 8.0f, 8.0f)});
 
     const renderer::Color near_value = render_one_path_pixel(near_scene);
     const renderer::Color far_value = render_one_path_pixel(far_scene);
-    RENDER_CHECK(near_value.x() > far_value.x() * 3.5);
+    RENDER_CHECK(near_value.x() > far_value.x() * 3.5f);
 }
 
 void test_pathtracer_direct_light_respects_shadow_blockers() {
     renderer::Scene visible = make_path_direct_light_scene();
     visible.point_lights.push_back(renderer::PointLight{
-        renderer::Vec3(2.0, 0.0, 0.0),
-        renderer::Color(20.0, 20.0, 20.0)});
+        renderer::Vec3(2.0f, 0.0f, 0.0f),
+        renderer::Color(20.0f, 20.0f, 20.0f)});
     renderer::Scene blocked = visible;
     blocked.triangles.emplace_back(
-        renderer::Vec3(1.0, -10.0, -2.0),
-        renderer::Vec3(1.0, 10.0, -2.0),
-        renderer::Vec3(1.0, 0.0, 1.0),
+        renderer::Vec3(1.0f, -10.0f, -2.0f),
+        renderer::Vec3(1.0f, 10.0f, -2.0f),
+        renderer::Vec3(1.0f, 0.0f, 1.0f),
         0);
 
     const renderer::Color visible_value = render_one_path_pixel(visible);
     const renderer::Color blocked_value = render_one_path_pixel(blocked);
-    RENDER_CHECK(visible_value.x() > blocked_value.x() + 0.05);
+    RENDER_CHECK(visible_value.x() > blocked_value.x() + 0.05f);
 }
 
 void test_rasterizer_draws_triangle() {
@@ -1627,8 +1631,8 @@ void test_rasterizer_draws_triangle() {
         renderer::Vec3(0, 0, 2),
         renderer::Vec3(0, 0, 0),
         renderer::Vec3(0, 1, 0),
-        45.0,
-        1.0);
+        45.0f,
+        1.0f);
 
     renderer::RenderSettings settings;
     settings.width = 64;
@@ -1642,7 +1646,7 @@ void test_rasterizer_draws_triangle() {
     for (int y = 0; y < result.image.height(); ++y) {
         for (int x = 0; x < result.image.width(); ++x) {
             renderer::Color c = result.image.pixel(x, y);
-            if (c.x() + c.y() + c.z() > 0.05) {
+            if (c.x() + c.y() + c.z() > 0.05f) {
                 ++lit_pixels;
             }
         }
@@ -1655,7 +1659,7 @@ int count_lit_pixels(const renderer::Image& image) {
     for (int y = 0; y < image.height(); ++y) {
         for (int x = 0; x < image.width(); ++x) {
             const renderer::Color color = image.pixel(x, y);
-            if (renderer::length_squared(color) > 1e-8) {
+            if (color.squaredNorm() > 1e-8f) {
                 ++lit_pixels;
             }
         }
@@ -1694,7 +1698,7 @@ renderer::RenderResult render_test_raster_triangle(
     scene.environment = renderer::Color::Zero();
     renderer::Material material;
     material.type = renderer::MaterialType::Emissive;
-    material.emission = renderer::Color(1.0, 1.0, 1.0);
+    material.emission = renderer::Color(1.0f, 1.0f, 1.0f);
     material.two_sided = two_sided;
     material.opacity = opacity;
     scene.materials.push_back(material);
@@ -1709,11 +1713,11 @@ renderer::RenderResult render_test_raster_triangle(
     }
 
     const renderer::Camera camera(
-        renderer::Vec3(0.0, 0.0, 0.0),
-        renderer::Vec3(0.0, 0.0, -1.0),
-        renderer::Vec3(0.0, 1.0, 0.0),
-        45.0,
-        1.0);
+        renderer::Vec3(0.0f, 0.0f, 0.0f),
+        renderer::Vec3(0.0f, 0.0f, -1.0f),
+        renderer::Vec3(0.0f, 1.0f, 0.0f),
+        45.0f,
+        1.0f);
     renderer::RenderSettings settings;
     settings.width = 32;
     settings.height = 32;
@@ -1721,7 +1725,7 @@ renderer::RenderResult render_test_raster_triangle(
 }
 
 void test_rasterizer_clips_triangles_crossing_near_plane() {
-    const renderer::RenderResult result = render_test_raster_triangle(true, 1.0, false, true);
+    const renderer::RenderResult result = render_test_raster_triangle(true, 1.0f, false, true);
     RENDER_CHECK(count_lit_pixels(result.image) > 0);
 }
 
@@ -1761,9 +1765,9 @@ void test_rasterizer_applies_alpha_cutout_before_depth_write() {
 
 void test_rasterizer_respects_single_and_two_sided_materials() {
     const renderer::RenderResult single_sided =
-        render_test_raster_triangle(false, 1.0, true, false);
+        render_test_raster_triangle(false, 1.0f, true, false);
     const renderer::RenderResult two_sided =
-        render_test_raster_triangle(true, 1.0, true, false);
+        render_test_raster_triangle(true, 1.0f, true, false);
     RENDER_CHECK(count_lit_pixels(single_sided.image) == 0);
     RENDER_CHECK(count_lit_pixels(two_sided.image) > 0);
 }
@@ -1773,7 +1777,7 @@ int count_lit_pixels(const renderer::Framebuffer& framebuffer) {
     for (int y = 0; y < framebuffer.height(); ++y) {
         for (int x = 0; x < framebuffer.width(); ++x) {
             const renderer::Color c = framebuffer.pixel(x, y);
-            if (c.x() + c.y() + c.z() > 0.05) {
+            if (c.x() + c.y() + c.z() > 0.05f) {
                 ++lit_pixels;
             }
         }
@@ -1846,19 +1850,19 @@ bool framebuffer_matches_average(
 void test_scene_intersector_skips_alpha_cutout_hits() {
     renderer::Scene scene;
     renderer::Material transparent;
-    transparent.opacity = 0.0;
-    transparent.alpha_cutoff = 0.5;
+    transparent.opacity = 0.0f;
+    transparent.alpha_cutoff = 0.5f;
     scene.materials.push_back(transparent);
     scene.materials.push_back(renderer::Material());
-    scene.triangles.push_back(make_test_triangle_at_z(-1.0, 0));
-    scene.triangles.push_back(make_test_triangle_at_z(-2.0, 1));
+    scene.triangles.push_back(make_test_triangle_at_z(-1.0f, 0));
+    scene.triangles.push_back(make_test_triangle_at_z(-2.0f, 1));
 
     const renderer::SceneIntersector intersector(scene);
     renderer::HitRecord hit;
-    const renderer::Ray ray(renderer::Vec3(0.0, 0.0, 0.0), renderer::Vec3(0.0, 0.0, -1.0));
-    RENDER_CHECK(intersector.intersect(ray, 0.0, 100.0, hit));
+    const renderer::Ray ray(renderer::Vec3(0.0f, 0.0f, 0.0f), renderer::Vec3(0.0f, 0.0f, -1.0f));
+    RENDER_CHECK(intersector.intersect(ray, 0.0f, 100.0f, hit));
     RENDER_CHECK(hit.material_id == 1);
-    RENDER_CHECK(hit.position.z() < -1.5);
+    RENDER_CHECK(hit.position.z() < -1.5f);
 }
 
 void test_scene_intersector_continues_through_thin_alpha_layer() {
@@ -1885,18 +1889,18 @@ void test_scene_intersector_respects_single_and_two_sided_materials() {
     renderer::Material material;
     material.two_sided = false;
     scene.materials.push_back(material);
-    scene.triangles.push_back(make_test_triangle_at_z(-1.0, 0));
+    scene.triangles.push_back(make_test_triangle_at_z(-1.0f, 0));
     const renderer::Ray back_ray(
-        renderer::Vec3(0.0, 0.0, -2.0),
-        renderer::Vec3(0.0, 0.0, 1.0));
+        renderer::Vec3(0.0f, 0.0f, -2.0f),
+        renderer::Vec3(0.0f, 0.0f, 1.0f));
 
     renderer::HitRecord hit;
-    RENDER_CHECK(!renderer::SceneIntersector(scene).intersect(back_ray, 0.0, 100.0, hit));
+    RENDER_CHECK(!renderer::SceneIntersector(scene).intersect(back_ray, 0.0f, 100.0f, hit));
 
     scene.materials[0].two_sided = true;
-    RENDER_CHECK(renderer::SceneIntersector(scene).intersect(back_ray, 0.0, 100.0, hit));
-    RENDER_CHECK(renderer::dot(hit.geometric_normal, back_ray.direction) < 0.0);
-    RENDER_CHECK(renderer::dot(hit.shading_normal, hit.geometric_normal) > 0.0);
+    RENDER_CHECK(renderer::SceneIntersector(scene).intersect(back_ray, 0.0f, 100.0f, hit));
+    RENDER_CHECK(hit.geometric_normal.dot(back_ray.direction) < 0.0f);
+    RENDER_CHECK(hit.shading_normal.dot(hit.geometric_normal) > 0.0f);
 }
 
 void test_offset_ray_origin_is_finite_and_monotonic_across_scales() {
@@ -1971,14 +1975,14 @@ void write_single_pixel_ppm(const std::string& path, unsigned char value) {
 
 renderer::Scene make_emissive_silhouette_scene() {
     renderer::Scene scene;
-    scene.environment = renderer::Color(0.0, 0.0, 0.0);
+    scene.environment = renderer::Color(0.0f, 0.0f, 0.0f);
 
     renderer::Material light;
     light.type = renderer::MaterialType::Emissive;
-    light.base_color = renderer::Color(1.0, 1.0, 1.0);
-    light.emission = renderer::Color(6.0, 6.0, 6.0);
+    light.base_color = renderer::Color(1.0f, 1.0f, 1.0f);
+    light.emission = renderer::Color(6.0f, 6.0f, 6.0f);
     scene.materials.push_back(light);
-    scene.spheres.emplace_back(renderer::Vec3(0.0, 0.0, -1.0), 0.55, 0);
+    scene.spheres.emplace_back(renderer::Vec3(0.0f, 0.0f, -1.0f), 0.55f, 0);
 
     return scene;
 }
@@ -1997,8 +2001,8 @@ void test_interactive_sessions_render_visible_pixels() {
         renderer::Vec3(0, 0, 2),
         renderer::Vec3(0, 0, 0),
         renderer::Vec3(0, 1, 0),
-        45.0,
-        1.0);
+        45.0f,
+        1.0f);
     raster.reset(raster_scene, settings);
     raster.render_next_frame(raster_scene, raster_camera, settings, frame_state, framebuffer);
     RENDER_CHECK(framebuffer_colors_are_finite(framebuffer));
@@ -2010,8 +2014,8 @@ void test_interactive_sessions_render_visible_pixels() {
         renderer::Vec3(0, 0, 2),
         renderer::Vec3(0, 0, -1),
         renderer::Vec3(0, 1, 0),
-        45.0,
-        1.0);
+        45.0f,
+        1.0f);
     ray.reset(ray_scene, settings);
     ray.render_next_frame(ray_scene, ray_camera, settings, frame_state, framebuffer);
     RENDER_CHECK(framebuffer_colors_are_finite(framebuffer));
@@ -2130,12 +2134,12 @@ void test_scene_asset_loader_preserves_obj_vertex_normals() {
 
     const renderer::LoadedScene loaded = renderer::load_scene_asset(obj_path, 64, 64);
     renderer::HitRecord hit;
-    const renderer::Ray ray(renderer::Vec3(0.0, 0.0, 0.0), renderer::Vec3(0.0, 0.0, -1.0));
+    const renderer::Ray ray(renderer::Vec3(0.0f, 0.0f, 0.0f), renderer::Vec3(0.0f, 0.0f, -1.0f));
     RENDER_CHECK(loaded.scene.triangles[0].intersect(ray, 1e-6f, 10.0f, hit));
     RENDER_CHECK(hit.position.allFinite());
     RENDER_CHECK(hit.shading_normal.allFinite());
-    RENDER_CHECK(renderer::length(hit.shading_normal - hit.geometric_normal) > 0.01);
-    RENDER_CHECK(renderer::dot(hit.shading_normal, hit.geometric_normal) > 0.0);
+    RENDER_CHECK((hit.shading_normal - hit.geometric_normal).norm() > 0.01f);
+    RENDER_CHECK(hit.shading_normal.dot(hit.geometric_normal) > 0.0f);
 
     std::remove(obj_path.c_str());
 }
@@ -2146,15 +2150,15 @@ void test_image_texture_samples_obj_uv_space() {
 
     const renderer::ImageTexture texture = renderer::ImageTexture::load(texture_path);
 
-    const renderer::Color top_left = texture.sample(renderer::Vec2(0.25, 0.75));
-    const renderer::Color bottom_left = texture.sample(renderer::Vec2(0.25, 0.25));
+    const renderer::Color top_left = texture.sample(renderer::Vec2(0.25f, 0.75f));
+    const renderer::Color bottom_left = texture.sample(renderer::Vec2(0.25f, 0.25f));
     const renderer::Color wrapped = texture.sample(renderer::Vec2(-0.75f, 1.75f));
     RENDER_CHECK(top_left.allFinite());
     RENDER_CHECK(bottom_left.allFinite());
     RENDER_CHECK(wrapped.allFinite());
-    RENDER_CHECK(top_left.x() > 0.9);
-    RENDER_CHECK(top_left.y() < 0.1);
-    RENDER_CHECK(bottom_left.z() > 0.9);
+    RENDER_CHECK(top_left.x() > 0.9f);
+    RENDER_CHECK(top_left.y() < 0.1f);
+    RENDER_CHECK(bottom_left.z() > 0.9f);
 
     std::remove(texture_path.c_str());
 }
@@ -2170,9 +2174,9 @@ void test_texture_encoding_distinguishes_srgb_from_linear() {
         texture_path,
         renderer::TextureEncoding::Linear);
 
-    RENDER_CHECK(srgb.sample(renderer::Vec2::Zero()).x() < 0.25);
-    RENDER_CHECK(linear.sample(renderer::Vec2::Zero()).x() > 0.49);
-    RENDER_CHECK(linear.sample(renderer::Vec2::Zero()).x() < 0.51);
+    RENDER_CHECK(srgb.sample(renderer::Vec2::Zero()).x() < 0.25f);
+    RENDER_CHECK(linear.sample(renderer::Vec2::Zero()).x() > 0.49f);
+    RENDER_CHECK(linear.sample(renderer::Vec2::Zero()).x() < 0.51f);
     RENDER_CHECK(srgb.sample(renderer::Vec2::Zero()).allFinite());
     RENDER_CHECK(linear.sample(renderer::Vec2::Zero()).allFinite());
 
@@ -2185,14 +2189,14 @@ void test_material_evaluator_combines_opacity_and_perturbs_bump_normal() {
         4,
         2,
         std::vector<renderer::Color>{
-            renderer::Color(0.0, 0.0, 0.0),
-            renderer::Color(0.25, 0.25, 0.25),
-            renderer::Color(0.5, 0.5, 0.5),
-            renderer::Color(1.0, 1.0, 1.0),
-            renderer::Color(0.0, 0.0, 0.0),
-            renderer::Color(0.25, 0.25, 0.25),
-            renderer::Color(0.5, 0.5, 0.5),
-            renderer::Color(1.0, 1.0, 1.0)});
+            renderer::Color(0.0f, 0.0f, 0.0f),
+            renderer::Color(0.25f, 0.25f, 0.25f),
+            renderer::Color(0.5f, 0.5f, 0.5f),
+            renderer::Color(1.0f, 1.0f, 1.0f),
+            renderer::Color(0.0f, 0.0f, 0.0f),
+            renderer::Color(0.25f, 0.25f, 0.25f),
+            renderer::Color(0.5f, 0.5f, 0.5f),
+            renderer::Color(1.0f, 1.0f, 1.0f)});
 
     renderer::Material material;
     material.opacity = 0.8f;
@@ -2201,19 +2205,19 @@ void test_material_evaluator_combines_opacity_and_perturbs_bump_normal() {
     material.bump_scale = 1.0f;
 
     renderer::HitRecord hit;
-    hit.uv = renderer::Vec2(0.375, 0.25);
-    hit.geometric_normal = renderer::Vec3(0.0, 0.0, 1.0);
-    hit.shading_normal = renderer::Vec3(0.0, 0.0, 1.0);
-    hit.tangent = renderer::Vec3(1.0, 0.0, 0.0);
-    hit.bitangent = renderer::Vec3(0.0, 1.0, 0.0);
+    hit.uv = renderer::Vec2(0.375f, 0.25f);
+    hit.geometric_normal = renderer::Vec3(0.0f, 0.0f, 1.0f);
+    hit.shading_normal = renderer::Vec3(0.0f, 0.0f, 1.0f);
+    hit.tangent = renderer::Vec3(1.0f, 0.0f, 0.0f);
+    hit.bitangent = renderer::Vec3(0.0f, 1.0f, 0.0f);
     hit.has_valid_uv_basis = true;
 
     const renderer::SurfaceMaterialSample sample =
         renderer::evaluate_surface_material(scene, material, hit);
     RENDER_CHECK(sample.opacity < material.opacity);
-    RENDER_CHECK(renderer::length(sample.shading_normal - hit.shading_normal) > 0.01);
-    RENDER_CHECK(renderer::dot(sample.shading_normal, hit.geometric_normal) > 0.0);
-    RENDER_CHECK(renderer::dot(sample.shading_normal, hit.shading_normal) > 0.9);
+    RENDER_CHECK((sample.shading_normal - hit.shading_normal).norm() > 0.01f);
+    RENDER_CHECK(sample.shading_normal.dot(hit.geometric_normal) > 0.0f);
+    RENDER_CHECK(sample.shading_normal.dot(hit.shading_normal) > 0.9f);
     RENDER_CHECK(sample.base_color.allFinite());
     RENDER_CHECK(std::isfinite(sample.opacity));
     RENDER_CHECK(sample.shading_normal.allFinite());
@@ -2221,7 +2225,7 @@ void test_material_evaluator_combines_opacity_and_perturbs_bump_normal() {
     hit.has_valid_uv_basis = false;
     const renderer::SurfaceMaterialSample fallback =
         renderer::evaluate_surface_material(scene, material, hit);
-    RENDER_CHECK(renderer::length(fallback.shading_normal - hit.shading_normal) < 1e-12);
+    RENDER_CHECK((fallback.shading_normal - hit.shading_normal).norm() < 1e-12f);
 }
 
 void test_scene_asset_loader_loads_map_kd_and_triangle_uvs() {
@@ -2253,21 +2257,21 @@ void test_scene_asset_loader_loads_map_kd_and_triangle_uvs() {
 
     renderer::HitRecord hit;
     const bool did_hit = loaded.scene.triangles[0].intersect(
-        renderer::Ray(renderer::Vec3(-0.5, 0.5, 0.0), renderer::Vec3(0.0, 0.0, -1.0)),
+        renderer::Ray(renderer::Vec3(-0.5f, 0.5f, 0.0f), renderer::Vec3(0.0f, 0.0f, -1.0f)),
         0.001f,
         10.0f,
         hit);
     RENDER_CHECK(did_hit);
-    RENDER_CHECK(nearly_equal(hit.uv.x(), 0.25));
-    RENDER_CHECK(nearly_equal(hit.uv.y(), 0.75));
+    RENDER_CHECK(nearly_equal(hit.uv.x(), 0.25f));
+    RENDER_CHECK(nearly_equal(hit.uv.y(), 0.75f));
 
     const renderer::Color textured_color = renderer::sample_material_base_color(
         loaded.scene,
         loaded.scene.materials[0],
         hit.uv);
-    RENDER_CHECK(textured_color.x() > 0.9);
-    RENDER_CHECK(textured_color.y() < 0.1);
-    RENDER_CHECK(textured_color.z() < 0.1);
+    RENDER_CHECK(textured_color.x() > 0.9f);
+    RENDER_CHECK(textured_color.y() < 0.1f);
+    RENDER_CHECK(textured_color.z() < 0.1f);
 
     std::remove(obj_path.c_str());
     std::remove(mtl_path.c_str());
@@ -2312,7 +2316,7 @@ void test_scene_asset_loader_imports_alpha_and_bump_maps() {
     RENDER_CHECK(nearly_equal(static_cast<float>(material.bump_scale), 0.25f, 1e-6f));
     RENDER_CHECK(
         loaded.scene.textures[static_cast<std::size_t>(material.opacity_texture_id)]
-            .sample_scalar(renderer::Vec2::Zero()) > 0.49);
+            .sample_scalar(renderer::Vec2::Zero()) > 0.49f);
 
     std::remove(obj_path.c_str());
     std::remove(mtl_path.c_str());
@@ -2383,7 +2387,7 @@ void test_scene_asset_loader_preserves_obj_mtl_materials() {
     RENDER_CHECK(has_nonzero_emissive_material(loaded.scene));
     RENDER_CHECK(has_material_type(loaded.scene, renderer::MaterialType::Metal));
     RENDER_CHECK(has_material_type(loaded.scene, renderer::MaterialType::Dielectric));
-    RENDER_CHECK(loaded.camera.viewport_width() > 0.0);
+    RENDER_CHECK(loaded.camera.viewport_width() > 0.0f);
 
     std::remove(obj_path.c_str());
     std::remove(mtl_path.c_str());
