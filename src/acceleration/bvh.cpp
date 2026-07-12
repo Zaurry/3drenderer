@@ -1,14 +1,17 @@
 #include "acceleration/bvh.h"
 
 #include <algorithm>
+#include <array>
+#include <limits>
 #include <numeric>
-#include <vector>
 
 namespace renderer {
 
 namespace {
 
 constexpr int max_leaf_triangles = 4;
+// Recursive construction halves an int count, leaving at most one sibling per bit of depth.
+constexpr std::size_t max_traversal_stack = std::numeric_limits<unsigned int>::digits + 1;
 
 }  // namespace
 
@@ -36,12 +39,12 @@ bool Bvh::intersect(const Ray& ray, float t_min, float t_max, HitRecord& hit) co
 
     bool hit_anything = false;
     float closest_t = t_max;
-    std::vector<int> stack;
-    stack.push_back(0);
+    std::array<int, max_traversal_stack> stack{};
+    std::size_t stack_size = 1;
+    stack[0] = 0;
 
-    while (!stack.empty()) {
-        const int node_index = stack.back();
-        stack.pop_back();
+    while (stack_size > 0) {
+        const int node_index = stack[--stack_size];
 
         const BvhNode& node = nodes_[node_index];
         // BVH 先用 AABB 测试整组三角形：如果光线没有打到包围盒，就能一次性跳过盒内所有三角形。
@@ -64,10 +67,10 @@ bool Bvh::intersect(const Ray& ray, float t_min, float t_max, HitRecord& hit) co
         }
 
         if (node.left >= 0) {
-            stack.push_back(node.left);
+            stack[stack_size++] = node.left;
         }
         if (node.right >= 0) {
-            stack.push_back(node.right);
+            stack[stack_size++] = node.right;
         }
     }
 
