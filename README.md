@@ -163,3 +163,63 @@ D:\Github\3drenderer\Computer Graphics Archive\CornellBox\CornellBox-Original.ob
 - OBJ/MTL 已支持 `vn`、`map_Kd`、`d/Tr/map_d` 和 `bump/map_bump`；还没有 tangent-space normal map、alpha blend、metallic/roughness、occlusion 或 emissive 贴图解析。
 - Bump 采用逐像素高度有限差分，没有 mipmap，远距离或高频高度图可能出现走样。
 - 当前 UI 只有窗口标题栏 FPS 和键盘热键，还没有 ImGui 风格的画面内参数面板。
+
+## Eigen float architecture and build modes
+
+The first-party renderer math boundary is `src/core/math/types.h`:
+
+- `Vec2`, `Vec3`, and `Vec4` alias Eigen `Vector2f`, `Vector3f`, and
+  `Vector4f`; `Mat4` aliases Eigen `Matrix4f`.
+- Renderer geometry, transforms, colors, sampling, raster, ray, path, and
+  interactive state use Eigen-native operations and `float` scalars.
+- `RENDERER_NATIVE_ARCH=OFF` is the portable/default configuration. `ON`
+  enables `/arch:AVX2` for the four first-party targets on MSVC and
+  `-march=native` on other compilers. It does not retune Eigen or third-party
+  targets.
+
+Portable Release build and test:
+
+```powershell
+cmake -S . -B build-portable -DRENDERER_NATIVE_ARCH=OFF
+cmake --build build-portable --config Release --parallel 2
+ctest --test-dir build-portable -C Release --output-on-failure
+```
+
+Native Release build and test:
+
+```powershell
+cmake -S . -B build-native -DRENDERER_NATIVE_ARCH=ON
+cmake --build build-native --config Release --parallel 2
+ctest --test-dir build-native -C Release --output-on-failure
+```
+
+If a local SDL3 source cache is needed during configuration, pass its absolute
+path as `-DFETCHCONTENT_SOURCE_DIR_SDL3=...` on the command line. Do not put a
+machine-specific dependency path in `CMakeLists.txt`.
+
+## Eigen migration evidence
+
+The native Release benchmark uses renderer-reported seconds, with one warmup
+and five measured runs per command. The comparison is against the committed
+double baseline on an AMD Ryzen 7 9800X3D:
+
+| Scene / mode | Double median (s) | Native samples (s) | Native median (s) | Delta |
+| --- | ---: | ---: | ---: | ---: |
+| Mary / raster | 0.0675227 | 0.0601103, 0.0559124, 0.0557041, 0.0566670, 0.0586471 | 0.0566670 | -16.077% |
+| Mary / path | 0.1066670 | 0.131503, 0.135715, 0.130779, 0.133672, 0.131084 | 0.1315030 | **+23.284% BLOCKED** |
+| Sponza / raster | 0.0967525 | 0.0788790, 0.0836402, 0.0782177, 0.0788246, 0.0786419 | 0.0788246 | -18.530% |
+| Cornell box / path | 0.2505130 | 0.266756, 0.256036, 0.270077, 0.261226, 0.254947 | 0.2612260 | +4.276% |
+
+Native visual validation produced `output/eigen_float_*.png` at the baseline
+dimensions: Mary raster/path remained smooth and textured, Sponza retained
+diffuse brick and bump detail, and Cornell retained its emissive panel and
+colored walls. Decoding was finite and valid for all four images, lit coverage
+was nonzero, and no magenta fallback pixels or new winding cracks were found.
+The low-spp path noise is visible in the baseline too. Full evidence and
+commands are in `docs/output/eigen-float-migration-results.md`.
+
+The RTX 5080 is unused by this CPU backend. There is no CUDA path and no RT
+Core integration. The Mary path slowdown above 5% is an open profiling blocker.
+Realistic next optimizations are path-sampling variance reduction, BVH and
+texture/bump preprocessing, better worker scheduling, and measured SIMD or
+runtime-dispatch work after profiling. These are not part of this migration.
