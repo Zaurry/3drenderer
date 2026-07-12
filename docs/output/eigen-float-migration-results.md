@@ -2,12 +2,13 @@
 
 ## Status and provenance
 
-Task 10 is **BLOCKED**. The native Mary path median is 23.284% slower than
-the committed double baseline, which exceeds the 5% blocker threshold and
-requires profiling before this migration can be called complete.
+Task 10 passes the performance gate after the scoped BVH traversal-stack fix.
+All four native medians are below their committed double baselines; no measured
+slowdown exceeds the 5% blocker threshold.
 
 - Branch: `codex/eigen-float-migration`
-- Post-migration source commit: `b7cd8ff` (`build: finalize Eigen native float math`)
+- Final source commit: `476a0bc` (`perf: avoid per-ray BVH stack allocations`)
+- Eigen/native build commit: `b7cd8ff` (`build: finalize Eigen native float math`)
 - Baseline source commit: `a54aa94d50b79a7f4a4c0be9ecb494b510f7156d`
 - CPU: AMD Ryzen 7 9800X3D
 - GPU: RTX 5080 (unused; this is a CPU renderer with no CUDA or RT Core backend)
@@ -59,13 +60,25 @@ reported `seconds=` values, not external process timings. Delta is
 
 | Scene / mode | Exact native command | Five measured samples (s) | Double baseline median (s) | Native median (s) | Delta | Result |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
-| Mary / raster | `.\build-native\bin\renderer.exe --mode raster --scene obj_viewer --obj "D:\Github\3drenderer\Computer Graphics Archive\mary\Marry.obj" --width 1920 --height 1080 --output output\eigen_float_bench_mary_raster.png` | 0.0601103, 0.0559124, 0.0557041, 0.0566670, 0.0586471 | 0.0675227 | **0.0566670** | **-16.077%** | pass |
-| Mary / path | `.\build-native\bin\renderer.exe --mode path --scene obj_viewer --obj "D:\Github\3drenderer\Computer Graphics Archive\mary\Marry.obj" --width 1920 --height 1080 --spp 1 --max-depth 4 --output output\eigen_float_bench_mary_path.png` | 0.131503, 0.135715, 0.130779, 0.133672, 0.131084 | 0.1066670 | **0.1315030** | **+23.284%** | **BLOCKED** |
-| Sponza / raster | `.\build-native\bin\renderer.exe --mode raster --scene obj_viewer --obj "D:\Github\3drenderer\Computer Graphics Archive\sponza\sponza.obj" --width 1280 --height 720 --output output\eigen_float_bench_sponza_raster.png` | 0.0788790, 0.0836402, 0.0782177, 0.0788246, 0.0786419 | 0.0967525 | **0.0788246** | **-18.530%** | pass |
-| Cornell box / path | `.\build-native\bin\renderer.exe --mode path --scene cornell_box --width 512 --height 512 --spp 8 --max-depth 5 --output output\eigen_float_bench_cornell_path.png` | 0.266756, 0.256036, 0.270077, 0.261226, 0.254947 | 0.2505130 | **0.2612260** | **+4.276%** | pass, under 5% |
+| Mary / raster | `.\build-native\bin\renderer.exe --mode raster --scene obj_viewer --obj "D:\Github\3drenderer\Computer Graphics Archive\mary\Marry.obj" --width 1920 --height 1080 --output output\eigen_float_bench_mary_raster.png` | 0.0580001, 0.0570466, 0.0550683, 0.0552859, 0.0570032 | 0.0675227 | **0.0570032** | **-15.579%** | pass |
+| Mary / path | `.\build-native\bin\renderer.exe --mode path --scene obj_viewer --obj "D:\Github\3drenderer\Computer Graphics Archive\mary\Marry.obj" --width 1920 --height 1080 --spp 1 --max-depth 4 --output output\eigen_float_bench_mary_path.png` | 0.0963786, 0.0959811, 0.0967750, 0.0957497, 0.0951254 | 0.1066670 | **0.0959811** | **-10.018%** | pass |
+| Sponza / raster | `.\build-native\bin\renderer.exe --mode raster --scene obj_viewer --obj "D:\Github\3drenderer\Computer Graphics Archive\sponza\sponza.obj" --width 1280 --height 720 --output output\eigen_float_bench_sponza_raster.png` | 0.0793640, 0.0793388, 0.0781508, 0.0796694, 0.0783349 | 0.0967525 | **0.0793388** | **-17.998%** | pass |
+| Cornell box / path | `.\build-native\bin\renderer.exe --mode path --scene cornell_box --width 512 --height 512 --spp 8 --max-depth 5 --output output\eigen_float_bench_cornell_path.png` | 0.182832, 0.181961, 0.188832, 0.187693, 0.186658 | 0.2505130 | **0.1866580** | **-25.490%** | pass |
 
-The Mary path slowdown is a real blocker, not noise to be rationalized. The
-next step is profiling native versus baseline path tracing before completion.
+All four official medians pass the 5% gate.
+
+## Performance blocker root cause and fix
+
+Paired depth and renderer runs localized the slowdown to complex mesh
+traversal rather than `/arch:AVX2`. ETW sampling then isolated the additional
+cost in `Bvh::intersect`, including samples in the per-ray
+`std::vector<int>` traversal stack's growth path.
+
+Commit `476a0bc` replaces that dynamically growing stack with a local
+fixed-capacity `std::array`. The capacity follows the maximum pending-sibling
+depth of the recursively halved primitive count. Child push order and BVH
+traversal semantics are unchanged. This fix removes the measured per-ray
+allocation; it does not claim unrelated renderer-wide optimization.
 
 ## Image and pixel checks
 
@@ -132,8 +145,6 @@ Release builds completed with 0 compiler warnings and 0 errors.
 
 ## Concerns
 
-- **BLOCKER:** Mary path native median is +23.284%; profile before claiming
-  completion.
 - Sponza's known source-asset warnings remain as described above.
 - The CPU backend does not use the RTX 5080, CUDA, or RT Cores.
 - Generated PNGs and build trees are local evidence artifacts, not source

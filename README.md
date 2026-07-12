@@ -205,10 +205,10 @@ double baseline on an AMD Ryzen 7 9800X3D:
 
 | Scene / mode | Double median (s) | Native samples (s) | Native median (s) | Delta |
 | --- | ---: | ---: | ---: | ---: |
-| Mary / raster | 0.0675227 | 0.0601103, 0.0559124, 0.0557041, 0.0566670, 0.0586471 | 0.0566670 | -16.077% |
-| Mary / path | 0.1066670 | 0.131503, 0.135715, 0.130779, 0.133672, 0.131084 | 0.1315030 | **+23.284% BLOCKED** |
-| Sponza / raster | 0.0967525 | 0.0788790, 0.0836402, 0.0782177, 0.0788246, 0.0786419 | 0.0788246 | -18.530% |
-| Cornell box / path | 0.2505130 | 0.266756, 0.256036, 0.270077, 0.261226, 0.254947 | 0.2612260 | +4.276% |
+| Mary / raster | 0.0675227 | 0.0580001, 0.0570466, 0.0550683, 0.0552859, 0.0570032 | 0.0570032 | -15.579% |
+| Mary / path | 0.1066670 | 0.0963786, 0.0959811, 0.0967750, 0.0957497, 0.0951254 | 0.0959811 | -10.018% |
+| Sponza / raster | 0.0967525 | 0.0793640, 0.0793388, 0.0781508, 0.0796694, 0.0783349 | 0.0793388 | -17.998% |
+| Cornell box / path | 0.2505130 | 0.182832, 0.181961, 0.188832, 0.187693, 0.186658 | 0.1866580 | -25.490% |
 
 Native visual validation produced `output/eigen_float_*.png` at the baseline
 dimensions: Mary raster/path remained smooth and textured, Sponza retained
@@ -218,8 +218,14 @@ was nonzero, and no magenta fallback pixels or new winding cracks were found.
 The low-spp path noise is visible in the baseline too. Full evidence and
 commands are in `docs/output/eigen-float-migration-results.md`.
 
+The original Mary path slowdown was traced with ETW to a dynamically growing
+BVH traversal stack allocated for every ray. Commit `476a0bc` replaces that
+stack with a local fixed-capacity array while preserving child push order and
+traversal behavior. This is a scoped allocation removal, not a claim of a
+broader renderer optimization.
+
 The RTX 5080 is unused by this CPU backend. There is no CUDA path and no RT
-Core integration. The Mary path slowdown above 5% is an open profiling blocker.
-Realistic next optimizations are path-sampling variance reduction, BVH and
-texture/bump preprocessing, better worker scheduling, and measured SIMD or
-runtime-dispatch work after profiling. These are not part of this migration.
+Core integration. Realistic next optimizations are path-sampling variance
+reduction, BVH and texture/bump preprocessing, better worker scheduling, and
+measured SIMD or runtime-dispatch work after profiling. These are not part of
+this migration.
