@@ -236,10 +236,10 @@ RenderResult RasterizerRenderer::render(
                         v0.attributes.uv.y() * weights.x() +
                             v1.attributes.uv.y() * weights.y() +
                             v2.attributes.uv.y() * weights.z());
-                    Vec3 interpolated_normal = (
+                    Vec3 interpolated_normal =
                         v0.attributes.normal * weights.x() +
                         v1.attributes.normal * weights.y() +
-                        v2.attributes.normal * weights.z()).eval();
+                        v2.attributes.normal * weights.z();
                     if (!usable_direction(interpolated_normal)) {
                         interpolated_normal = geometric_normal;
                     } else {

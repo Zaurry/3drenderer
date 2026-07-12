@@ -108,3 +108,100 @@ refactor: render with Eigen float math
 ## Concerns
 
 No known correctness concerns remain. Floating-point image values can differ at the last few bits from the former staged-double implementation, but all purpose-specific renderer regressions and finite-output assertions pass without tolerance changes.
+
+---
+
+## Task 7 Review Fix: Strengthened Renderer Regressions
+
+### Status
+
+All reviewer findings are addressed. The follow-up adds deterministic rendered regressions for path publication/accumulation, raster alpha-before-depth behavior, and ray-local reflection, dielectric, shadow, and transparency branches. No renderer algorithm change was required.
+
+### RED / GREEN
+
+The first strengthened test run built successfully and failed at the new rendered TIR assertion:
+
+```text
+tests/renderer_tests.cpp:1453 check failed: color.z() > 1.9f
+```
+
+Investigation showed the initial oversized test plane amplified triangle self-hit precision at inclusive `t=0`, so the recursive ray hit the glass plane again instead of the reflected emissive target. The fixture was narrowed to moderate coordinate planes while retaining an incidence cosine of `0.6f` with IOR `1.5f`, which guarantees TIR. This was fixture calibration, not an algorithm or tolerance change.
+
+Two targeted mutation checks proved that the already-correct behaviors are now observable:
+
+- Temporarily disabling raster alpha rejection failed at `tests/renderer_tests.cpp:1758` because the transparent red surface occluded the opaque green surface behind it.
+- Temporarily shifting the interactive path seed from `base + accumulated + 1` to `base + accumulated + 2` failed at `tests/renderer_tests.cpp:2071` on the first-frame direct-sample comparison.
+
+After restoring the correct algorithms and calibrated fixture, the focused Release target and executable reported:
+
+```text
+renderer_tests: all tests passed
+```
+
+### Test Design
+
+- **Path sample 1:** renders a deterministic emissive silhouette directly with seed offset `base + 1`; the session framebuffer must be finite, contain lit pixels, and match that image within `1e-6f` per channel.
+- **Path sample 2:** renders directly with seed offset `base + 2`; the session framebuffer must equal `(sample1 + sample2) * 0.5f` within `1e-6f` per channel.
+- **Path reset:** changes the camera, renders the expected new first sample at `base + 1`, and requires the published framebuffer to match it and differ from the stale two-frame accumulation by more than a local `1e-3f` threshold.
+- **Raster alpha-before-depth:** draws a transparent red triangle before an opaque green triangle behind it; the center pixel must be green and the output finite/non-black.
+- **Ray reflection:** compares recursion depths one and two for a white metal surface against a colored environment; the deeper render must gain the expected reflected channels.
+- **Ray refraction/Fresnel:** places red environment radiance on the reflected path and green emissive radiance on the transmitted path; the normal-incidence glass pixel must contain the small reflected red weight and dominant transmitted green weight.
+- **Ray TIR:** views a glass plane from its back side at cosine `0.6f`; the failed refraction branch must publish the full blue reflected emissive target.
+- **Ray shadow:** compares an unblocked point-lit diffuse pixel with the same scene containing an off-camera shadow blocker; direct radiance must decrease meaningfully.
+- **Ray transparency:** places an alpha-cutout triangle before an opaque cyan emissive triangle; the rendered pixel must reveal the opaque surface.
+
+All ray fixtures are 1x1 deterministic renders and assert finite colors plus meaningful channel or scene relationships. Tolerances are local and purpose-specific; no global threshold changed.
+
+### Code Cleanup
+
+Removed the unnecessary `.eval()` from raster interpolated-normal initialization. The concrete `Vec3` destination already materializes the Eigen expression before later in-place normalization.
+
+### Verification and Audits
+
+Clean full Release build:
+
+```powershell
+cmake --build build --config Release --clean-first -- /nologo
+```
+
+Result: exit 0; all renderer, core, test, and viewer targets rebuilt with no compiler warnings.
+
+Full test command:
+
+```powershell
+ctest --test-dir build -C Release --output-on-failure
+```
+
+Result: exit 0; `1/1` tests passed.
+
+Source audits again reported:
+
+```text
+NO_DOUBLE_OR_EIGEN_D_TOKENS
+NO_OWNED_LEGACY_HELPER_CALLS
+NO_UNSUFFIXED_FLOAT_LITERALS_IN_OWNED_RENDER
+```
+
+`git diff --check` exits 0; only the repository's existing LF-to-CRLF checkout notices are emitted.
+
+### Review-Fix Files
+
+- `tests/renderer_tests.cpp`
+- `src/render/rasterizer/rasterizer_renderer.cpp`
+- `.superpowers/sdd/task-7-report.md`
+
+### Review-Fix Commit
+
+This evidence is included in the commit with subject:
+
+```text
+test: strengthen float renderer regressions
+```
+
+### Review-Fix Self-Review and Concerns
+
+- The follow-up remains inside Task 7 tests, the requested raster expression cleanup, and this report.
+- Temporary mutation changes were fully restored and are not part of the final diff.
+- No Task 8, external, learning, docs/output, GPU/CUDA, or feature files changed.
+- No algorithm fix was necessary; all strengthened relationships pass against the existing migrated renderer behavior.
+- No known correctness concerns remain.
