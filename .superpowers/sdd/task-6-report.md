@@ -115,3 +115,71 @@ refactor: migrate intersections and sampling to float
 ## Concerns
 
 No Task 6 correctness concerns remain. Ray/path reflectance calculations intentionally remain double until Task 7; their sampler boundary uses an explicit float conversion so this task does not migrate those algorithms early.
+
+---
+
+## Task 6 Review Fix: Representable Diagonal Offsets
+
+### Finding and Root Cause
+
+The scale-aware offset magnitude was preserved, but a diagonal unit normal split the `1e-7f` ordinary-coordinate offset into components of about `5.77e-8f`. At position `(1, 1, 1)`, each addition was below half an ULP and rounded back to the original component. Because intersection ranges are inclusive, the unchanged origin could self-hit.
+
+### RED / GREEN
+
+Added a diagonal-normal regression at `1.0f` and `100000.0f` for both selected normal sides. It checks finite output, every nonzero diagonal component changed, movement toward the selected side, and exact minimum movement: retain the direct rounded component when it changes, otherwise use one `nextafter` step.
+
+RED command:
+
+```powershell
+cmake --build build --config Release --target renderer_tests
+.\build\bin\renderer_tests.exe
+```
+
+Observed RED: exit 1 at `tests/renderer_tests.cpp:1674`, where the ordinary-coordinate diagonal offset was bit-identical to the input position.
+
+GREEN: after the component-wise fallback, the same target and test executable exited 0 with `renderer_tests: all tests passed`.
+
+### Fix
+
+- Keep the existing scale-aware vector offset unchanged.
+- Inspect each axis after the vector addition.
+- When a selected normal component is nonzero but its result equals the original position component, advance exactly one representable float with `std::nextafter` toward `sign * normal[axis]`.
+- Leave components that already moved untouched, avoiding larger-than-needed offsets.
+- Retain the thin alpha continuation regression and all prior offset tests.
+
+### Sampling Coverage
+
+Added focused tests that verify:
+
+- Reflection of a unit direction about a unit normal remains normalized and moves to the reflected side.
+- Successful refraction returns a normalized direction on the transmitted side.
+- Refraction reports false under total internal reflection.
+
+### Review-Fix Verification
+
+```powershell
+cmake --build build --config Release --clean-first
+.\build\bin\renderer_tests.exe
+```
+
+Results: clean full Release build exited 0 with no compiler warnings; full tests exited 0 and printed `renderer_tests: all tests passed`.
+
+Source audits for forbidden double/Eigen `*d` types, float/double casts, old RNG calls, and legacy free math in Task 6 owned sources returned no matches. `git diff --check` exited 0; Git emitted only the repository's LF-to-CRLF checkout notices.
+
+### Review-Fix Files
+
+- `src/render/scene_intersector.cpp`
+- `tests/renderer_tests.cpp`
+- `.superpowers/sdd/task-6-report.md`
+
+### Review-Fix Commit
+
+This evidence is included in the commit with subject:
+
+```text
+fix: guarantee representable ray origin offsets
+```
+
+### Review-Fix Concerns
+
+No remaining Task 6 concerns. The fallback is limited to unchanged nonzero components and finite, normal-sized scene coordinates; Task 7 algorithms remain untouched.

@@ -1233,6 +1233,38 @@ void test_cosine_sample_is_in_upper_hemisphere() {
     }
 }
 
+void test_reflect_preserves_unit_length() {
+    const renderer::Vec3 incident = renderer::Vec3(1.0f, -1.0f, 0.0f).normalized();
+    const renderer::Vec3 reflected = renderer::reflect(incident, renderer::Vec3::UnitY());
+
+    RENDER_CHECK(nearly_equal(reflected.norm(), 1.0f, 1e-6f));
+    RENDER_CHECK(reflected.y() > 0.0f);
+}
+
+void test_refract_returns_unit_direction() {
+    const renderer::Vec3 incident(0.6f, -0.8f, 0.0f);
+    renderer::Vec3 refracted = renderer::Vec3::Zero();
+
+    RENDER_CHECK(renderer::refract(
+        incident,
+        renderer::Vec3::UnitY(),
+        1.0f / 1.5f,
+        refracted));
+    RENDER_CHECK(nearly_equal(refracted.norm(), 1.0f, 1e-6f));
+    RENDER_CHECK(refracted.y() < 0.0f);
+}
+
+void test_refract_rejects_total_internal_reflection() {
+    const renderer::Vec3 incident(0.8f, 0.6f, 0.0f);
+    renderer::Vec3 refracted = renderer::Vec3::Zero();
+
+    RENDER_CHECK(!renderer::refract(
+        incident,
+        -renderer::Vec3::UnitY(),
+        1.5f,
+        refracted));
+}
+
 void test_render_settings_defaults_are_useful() {
     renderer::RenderSettings settings;
     RENDER_CHECK(settings.width == 512);
@@ -1619,6 +1651,37 @@ void test_offset_ray_origin_is_finite_and_monotonic_across_scales() {
             RENDER_CHECK((inward - position).dot(normal) < 0.0f);
             RENDER_CHECK(outward.x() != position.x());
             RENDER_CHECK(inward.x() != position.x());
+        }
+    }
+}
+
+void test_offset_ray_origin_moves_diagonal_normals_by_minimum_representable_amount() {
+    constexpr float offset_scale = 1e-7f;
+    const float infinity = std::numeric_limits<float>::infinity();
+    const renderer::Vec3 normal = renderer::Vec3::Ones().normalized();
+
+    for (const float coordinate : {1.0f, 100000.0f}) {
+        const renderer::Vec3 position = renderer::Vec3::Constant(coordinate);
+        const float scale = std::max(1.0f, coordinate);
+        for (const float selected_side : {1.0f, -1.0f}) {
+            const renderer::Vec3 direction = selected_side * normal;
+            const renderer::Vec3 nominal =
+                position + normal * (selected_side * scale * offset_scale);
+            const renderer::Vec3 offset =
+                renderer::offset_ray_origin(position, normal, direction);
+
+            RENDER_CHECK(offset.allFinite());
+            RENDER_CHECK((offset.array() != position.array()).any());
+            RENDER_CHECK((offset - position).dot(direction) > 0.0f);
+            for (int axis = 0; axis < 3; ++axis) {
+                const float next = std::nextafter(
+                    position[axis],
+                    selected_side > 0.0f ? infinity : -infinity);
+                const float expected =
+                    nominal[axis] == position[axis] ? next : nominal[axis];
+                RENDER_CHECK(offset[axis] != position[axis]);
+                RENDER_CHECK(offset[axis] == expected);
+            }
         }
     }
 }
@@ -2083,6 +2146,7 @@ int main() {
     test_scene_intersector_continues_through_thin_alpha_layer();
     test_scene_intersector_respects_single_and_two_sided_materials();
     test_offset_ray_origin_is_finite_and_monotonic_across_scales();
+    test_offset_ray_origin_moves_diagonal_normals_by_minimum_representable_amount();
     test_checker_texture_is_deterministic_for_positive_and_negative_coordinates();
     test_builtin_scene_contains_renderable_geometry();
     test_raster_triangle_scene_contains_triangle_and_light();
@@ -2092,6 +2156,9 @@ int main() {
     test_cornell_box_wall_normals_face_inward();
     test_cornell_box_light_uses_emissive_material_and_faces_downward();
     test_cosine_sample_is_in_upper_hemisphere();
+    test_reflect_preserves_unit_length();
+    test_refract_returns_unit_direction();
+    test_refract_rejects_total_internal_reflection();
     test_render_settings_defaults_are_useful();
     test_raytracer_renders_visible_sphere();
     test_raytracer_renders_triangle_scene_with_direct_light();

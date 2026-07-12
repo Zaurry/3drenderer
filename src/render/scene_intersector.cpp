@@ -101,7 +101,19 @@ Vec3 offset_ray_origin(
     }
     const float scale = std::max(kMinimumRayOriginScale, position.cwiseAbs().maxCoeff());
     const float sign = direction.dot(geometric_normal) >= 0.0f ? 1.0f : -1.0f;
-    return position + geometric_normal * (sign * scale * kRayOriginOffsetScale);
+    Vec3 offset_position =
+        position + geometric_normal * (sign * scale * kRayOriginOffsetScale);
+    const float infinity = std::numeric_limits<float>::infinity();
+    for (int axis = 0; axis < 3; ++axis) {
+        const float selected_normal_component = sign * geometric_normal[axis];
+        if (selected_normal_component != 0.0f &&
+            offset_position[axis] == position[axis]) {
+            offset_position[axis] = std::nextafter(
+                position[axis],
+                selected_normal_component > 0.0f ? infinity : -infinity);
+        }
+    }
+    return offset_position;
 }
 
 }  // namespace renderer
