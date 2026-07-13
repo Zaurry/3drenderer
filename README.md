@@ -164,20 +164,19 @@ D:\Github\3drenderer\Computer Graphics Archive\CornellBox\CornellBox-Original.ob
 - Bump 采用逐像素高度有限差分，没有 mipmap，远距离或高频高度图可能出现走样。
 - 当前 UI 只有窗口标题栏 FPS 和键盘热键，还没有 ImGui 风格的画面内参数面板。
 
-## Eigen float architecture and build modes
+## Eigen float 架构与构建模式
 
-The first-party renderer math boundary is `src/core/math/types.h`:
+项目自有渲染器的数学边界位于 `src/core/math/types.h`：
 
-- `Vec2`, `Vec3`, and `Vec4` alias Eigen `Vector2f`, `Vector3f`, and
-  `Vector4f`; `Mat4` aliases Eigen `Matrix4f`.
-- Renderer geometry, transforms, colors, sampling, raster, ray, path, and
-  interactive state use Eigen-native operations and `float` scalars.
-- `RENDERER_NATIVE_ARCH=OFF` is the portable/default configuration. `ON`
-  enables `/arch:AVX2` for the four first-party targets on MSVC and
-  `-march=native` on other compilers. It does not retune Eigen or third-party
-  targets.
+- `Vec2`、`Vec3` 和 `Vec4` 分别是 Eigen `Vector2f`、`Vector3f` 和
+  `Vector4f` 的别名；`Mat4` 是 Eigen `Matrix4f` 的别名。
+- 渲染器的几何、变换、颜色、采样、光栅化、光线追踪、路径追踪和交互状态均使用
+  Eigen 原生运算与 `float` 标量。
+- `RENDERER_NATIVE_ARCH=OFF` 是默认的可移植配置。设为 `ON` 时，MSVC 会为四个
+  项目自有目标启用 `/arch:AVX2`，其他编译器则启用 `-march=native`。该选项不会
+  重新配置 Eigen，也不会影响第三方目标。
 
-Portable Release build and test:
+可移植 Release 构建与测试：
 
 ```powershell
 cmake -S . -B build-portable -DRENDERER_NATIVE_ARCH=OFF
@@ -185,7 +184,7 @@ cmake --build build-portable --config Release --parallel 2
 ctest --test-dir build-portable -C Release --output-on-failure
 ```
 
-Native Release build and test:
+本机优化 Release 构建与测试：
 
 ```powershell
 cmake -S . -B build-native -DRENDERER_NATIVE_ARCH=ON
@@ -193,48 +192,40 @@ cmake --build build-native --config Release --parallel 2
 ctest --test-dir build-native -C Release --output-on-failure
 ```
 
-If a local SDL3 source cache is needed during configuration, pass its absolute
-path as `-DFETCHCONTENT_SOURCE_DIR_SDL3=...` on the command line. Do not put a
-machine-specific dependency path in `CMakeLists.txt`.
+如果配置时需要使用本地 SDL3 源码缓存，请在命令行中通过
+`-DFETCHCONTENT_SOURCE_DIR_SDL3=...` 传入其绝对路径。不要在 `CMakeLists.txt`
+中写入特定机器的依赖路径。
 
-## Eigen migration evidence
+## Eigen 迁移验证结果
 
-The native Release benchmark uses renderer-reported seconds, with one warmup
-and five measured runs per command. The comparison is against the committed
-double baseline on an AMD Ryzen 7 9800X3D:
+本机优化 Release 基准测试采用渲染器报告的秒数；每条命令先预热一次，再测量五次。
+测试设备为 AMD Ryzen 7 9800X3D，比较对象是已经提交的 double 基线：
 
-The initial historical measurement at source commit `b7cd8ff` found a Mary
-path native median of `0.1315030s`, or `+23.284%` versus the double baseline.
-That non-final result exceeded the 5% limit and triggered profiling. The table
-below contains the final measurements after the scoped fix in `476a0bc`.
+在源码提交 `b7cd8ff` 上进行的最初历史测量中，Mary path 本机优化版本的中位数为
+`0.1315030s`，比 double 基线慢 `23.284%`。这个非最终结果超过 5% 的限制，因此
+触发了性能分析。下表是提交 `476a0bc` 完成针对性修复后的最终测量结果。
 
-| Scene / mode | Double median (s) | Native samples (s) | Native median (s) | Delta |
+| 场景 / 模式 | Double 中位数（秒） | 本机优化样本（秒） | 本机优化中位数（秒） | 变化 |
 | --- | ---: | ---: | ---: | ---: |
 | Mary / raster | 0.0675227 | 0.0580001, 0.0570466, 0.0550683, 0.0552859, 0.0570032 | 0.0570032 | -15.579% |
 | Mary / path | 0.1066670 | 0.0963786, 0.0959811, 0.0967750, 0.0957497, 0.0951254 | 0.0959811 | -10.018% |
 | Sponza / raster | 0.0967525 | 0.0793640, 0.0793388, 0.0781508, 0.0796694, 0.0783349 | 0.0793388 | -17.998% |
 | Cornell box / path | 0.2505130 | 0.182832, 0.181961, 0.188832, 0.187693, 0.186658 | 0.1866580 | -25.490% |
 
-Native visual validation produced `output/eigen_float_*.png` at the baseline
-dimensions: Mary raster/path remained smooth and textured, Sponza retained
-diffuse brick and bump detail, and Cornell retained its emissive panel and
-colored walls. All four PNGs decoded into valid 8-bit channels, lit coverage
-was nonzero, and no magenta fallback pixels or new winding cracks were found.
-PNG decoding does not prove internal floating-point finiteness because output
-conversion sanitizes nonfinite values. Before quantization, automated renderer
-tests apply `image_colors_are_finite` to raster, ray, and path images and
-`framebuffer_colors_are_finite` to their interactive framebuffers. The low-spp
-path noise is visible in the baseline too. Full evidence and commands are in
-`docs/output/eigen-float-migration-results.md`.
+本机优化版本按基线尺寸生成了 `output/eigen_float_*.png` 以进行视觉验证：Mary 的
+raster/path 图像保持平滑并带有纹理，Sponza 保留了漫反射砖墙纹理和凹凸细节，Cornell
+保留了发光面板和彩色墙壁。四张 PNG 均能解码为有效的 8 位通道，受光覆盖率非零，且
+未发现洋红色回退像素或新的三角形绕序裂缝。由于输出转换会处理非有限值，仅成功解码
+PNG 不能证明渲染器内部的浮点数全部有限。在量化之前，自动化渲染测试会对 raster、ray
+和 path 图像执行 `image_colors_are_finite`，并对相应的交互式帧缓冲执行
+`framebuffer_colors_are_finite`。低采样数 path 图像中的噪点在基线版本中同样存在。
+完整验证证据和命令见 `docs/output/eigen-float-migration-results.md`。
 
-The original Mary path slowdown was traced with ETW to a dynamically growing
-BVH traversal stack allocated for every ray. Commit `476a0bc` replaces that
-stack with a local fixed-capacity array while preserving child push order and
-traversal behavior. This is a scoped allocation removal, not a claim of a
-broader renderer optimization.
+ETW 分析将最初 Mary path 的性能下降定位到 BVH 遍历栈：每条光线都会为这个动态增长
+的栈分配内存。提交 `476a0bc` 在保持子节点压栈顺序和遍历行为不变的前提下，将它替换
+为局部固定容量数组。这只是一次针对性的内存分配消除，并不代表进行了更广泛的渲染器
+优化。
 
-The RTX 5080 is unused by this CPU backend. There is no CUDA path and no RT
-Core integration. Realistic next optimizations are path-sampling variance
-reduction, BVH and texture/bump preprocessing, better worker scheduling, and
-measured SIMD or runtime-dispatch work after profiling. These are not part of
-this migration.
+这个 CPU 后端不会使用 RTX 5080，也没有 CUDA 路径或 RT Core 集成。后续切实可行的
+优化方向包括降低路径采样方差、改进 BVH 与纹理/凹凸预处理、优化工作线程调度，以及在
+性能分析之后开展经过测量的 SIMD 或运行时指令分派工作。这些内容不属于本次迁移范围。
