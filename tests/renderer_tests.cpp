@@ -1921,8 +1921,8 @@ void test_offset_ray_origin_is_finite_and_monotonic_across_scales() {
     }
 }
 
-void test_offset_ray_origin_moves_diagonal_normals_by_minimum_representable_amount() {
-    constexpr float offset_scale = 1e-7f;
+void test_offset_ray_origin_uses_float_roundoff_budget_across_scales() {
+    constexpr float offset_scale = 32.0f * std::numeric_limits<float>::epsilon();
     const float infinity = std::numeric_limits<float>::infinity();
     const renderer::Vec3 normal = renderer::Vec3::Ones().normalized();
 
@@ -2438,7 +2438,7 @@ int main() {
     test_scene_intersector_continues_through_thin_alpha_layer();
     test_scene_intersector_respects_single_and_two_sided_materials();
     test_offset_ray_origin_is_finite_and_monotonic_across_scales();
-    test_offset_ray_origin_moves_diagonal_normals_by_minimum_representable_amount();
+    test_offset_ray_origin_uses_float_roundoff_budget_across_scales();
     test_checker_texture_is_deterministic_for_positive_and_negative_coordinates();
     test_builtin_scene_contains_renderable_geometry();
     test_raster_triangle_scene_contains_triangle_and_light();

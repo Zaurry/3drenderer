@@ -13,7 +13,10 @@ namespace {
 
 constexpr int max_transparent_layers = 64;
 constexpr float kMinimumRayOriginScale = 1.0f;
-constexpr float kRayOriginOffsetScale = 1e-7f;
+// Triangle intersection and hit reconstruction accumulate several float
+// roundoff steps. One representable step is not enough to keep secondary rays
+// above the surface, so reserve a small ULP-scaled error budget.
+constexpr float kRayOriginOffsetScale = 32.0f * std::numeric_limits<float>::epsilon();
 constexpr float kOffsetNormalSquaredThreshold = 1e-24f;
 
 bool material_exists(const Scene& scene, int material_id) {
