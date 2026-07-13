@@ -196,6 +196,16 @@ ctest --test-dir build-native -C Release --output-on-failure
 `-DFETCHCONTENT_SOURCE_DIR_SDL3=...` 传入其绝对路径。不要在 `CMakeLists.txt`
 中写入特定机器的依赖路径。
 
+```powershell
+$sdl3 = (Resolve-Path ".\build\_deps\sdl3-src").Path
+
+cmake -S . -B build-native `
+  -DRENDERER_NATIVE_ARCH=ON `
+  "-DFETCHCONTENT_SOURCE_DIR_SDL3=$sdl3"
+
+cmake --build build-native --config Release --parallel 2
+```
+
 ## Eigen 迁移验证结果
 
 本机优化 Release 基准测试采用渲染器报告的秒数；每条命令先预热一次，再测量五次。
