@@ -343,7 +343,7 @@ src/render/pathtracer/pathtracer_renderer.cpp
 
    相关模块：
 
-   - `src/render/render_settings.h`: `tile_size`、`thread_count`、`samples_per_pixel`、`max_depth`
+   - `src/render/render_settings.h`: `tile_size`、`thread_count`、`samples_per_pixel`
    - `std::atomic<int> next_tile`: 多线程领取下一个 tile
 
    每个 worker 负责一批像素，但不同 worker 不会写同一个像素。
@@ -431,20 +431,23 @@ src/render/pathtracer/pathtracer_renderer.cpp
    rng.next_double() chooses reflection or refraction
    ```
 
-10. 递归估计渲染方程。
+10. 迭代估计渲染方程，并维护累计辐射与路径吞吐量。
 
    ```cpp
-   return emitted + multiply(attenuation, trace_path(scattered, scene, bvh, rng, depth - 1));
+   radiance += throughput.cwiseProduct(emitted + direct);
+   throughput = throughput.cwiseProduct(attenuation);
    ```
 
-   这行是当前路径追踪器的核心。可以读成：
+   这两行是当前路径追踪器的核心。可以读成：
 
    ```text
    当前点自己发出的光
    + 材质吞吐量 * 下一跳路径带回来的光
    ```
 
-   `max_depth` 限制最多反弹几次。v0.1 没有 Russian roulette，所以达到深度后直接返回黑色。
+   前 3 次散射总是继续。之后根据累计 `throughput` 的最大 RGB 分量计算存活概率，并限制在 `[0.05, 0.95]`。路径未存活时结束；存活时将吞吐量除以存活概率，使 Monte Carlo 估计在期望上保持能量不变。内部 64 跳上限只用于防止极端路径运行过久。
+
+   `--max-depth` 不再控制路径追踪，只保留给 Whitted 光线追踪使用。与原来的固定深度截断相比，Russian roulette 会让低贡献路径更早结束，也允许高贡献路径继续传播到原先深度之外；代价是单条路径的执行时间和贡献具有更高方差。
 
 11. 累加 sample 颜色并平均。
 
@@ -478,7 +481,7 @@ src/render/pathtracer/pathtracer_renderer.cpp
 | --- | --- | --- | --- |
 | 像素如何开始 | 三角形投影后覆盖像素 | 像素中心发 primary ray | 像素内随机发多条 primary ray |
 | 可见性判断 | edge function + depth buffer | 最近射线命中 | 最近射线命中 |
-| 光照方式 | 显式计算灯光 | 直接光 + 阴影 + 递归反射/折射 | 随机路径递归估计间接光 |
+| 光照方式 | 显式计算灯光 | 直接光 + 阴影 + 递归反射/折射 | 随机路径迭代估计间接光 |
 | 随机性 | 无 | 无 | 有，来自 `PcgRandom` |
 | 主要加速结构 | 深度缓冲 | BVH 加速三角形 | BVH + tile 多线程 |
 | 当前输出 | 线性颜色写入 `Image` | 线性颜色写入 `Image` | 多 sample 平均后写入 `Image` |

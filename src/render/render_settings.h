@@ -16,6 +16,7 @@ struct RenderSettings {
     int width = 512;
     int height = 512;
     int samples_per_pixel = 1;
+    // Recursion limit for the Whitted ray tracer. Path tracing uses Russian roulette.
     int max_depth = 5;
     int tile_size = 16;
     int thread_count = 0;

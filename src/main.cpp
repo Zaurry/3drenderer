@@ -43,7 +43,7 @@ void print_help() {
         << "  --width integer     image width, default 512\n"
         << "  --height integer    image height, default 512\n"
         << "  --spp integer       samples per pixel, default 1\n"
-        << "  --max-depth integer bounce depth, default 5\n"
+        << "  --max-depth integer Whitted ray bounce depth, default 5\n"
         << "  --threads integer   path tracer worker threads, default hardware threads\n"
         << "  --help              show this help\n";
 }
@@ -225,9 +225,11 @@ int main(int argc, char** argv) {
         std::cout << "mode=" << options.mode
                   << " scene=" << options.scene
                   << " size=" << settings.width << "x" << settings.height
-                  << " spp=" << settings.samples_per_pixel
-                  << " max_depth=" << settings.max_depth
-                  << " seconds=" << result.seconds
+                  << " spp=" << settings.samples_per_pixel;
+        if (options.mode == "ray") {
+            std::cout << " max_depth=" << settings.max_depth;
+        }
+        std::cout << " seconds=" << result.seconds
                   << " output=" << options.output_path << "\n";
         return 0;
     } catch (const std::exception& error) {

@@ -16,8 +16,7 @@ private:
         const Ray& ray,
         const Scene& scene,
         const SceneIntersector& intersector,
-        PcgRandom& rng,
-        int depth) const;
+        PcgRandom& rng) const;
     bool scatter(
         const Ray& ray,
         const HitRecord& hit,

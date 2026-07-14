@@ -1622,6 +1622,86 @@ void test_pathtracer_direct_light_respects_shadow_blockers() {
     RENDER_CHECK(visible_value.x() > blocked_value.x() + 0.05f);
 }
 
+renderer::Scene make_path_roulette_layer_scene() {
+    renderer::Scene scene;
+    scene.environment = renderer::Color::Ones();
+
+    renderer::Material dielectric;
+    dielectric.type = renderer::MaterialType::Dielectric;
+    dielectric.ior = 1.0f;
+    scene.materials.push_back(dielectric);
+
+    for (int layer = 1; layer <= 4; ++layer) {
+        const float z = -static_cast<float>(layer);
+        scene.triangles.emplace_back(
+            renderer::Vec3(-10.0f, -10.0f, z),
+            renderer::Vec3(10.0f, -10.0f, z),
+            renderer::Vec3(0.0f, 10.0f, z),
+            0);
+    }
+    return scene;
+}
+
+renderer::Color render_roulette_layer_sample(
+    const renderer::Scene& scene,
+    int max_depth,
+    std::uint64_t seed_offset) {
+    const renderer::Camera camera(
+        renderer::Vec3::Zero(),
+        -renderer::Vec3::UnitZ(),
+        renderer::Vec3::UnitY(),
+        10.0f,
+        1.0f);
+    renderer::RenderSettings settings;
+    settings.width = 1;
+    settings.height = 1;
+    settings.samples_per_pixel = 1;
+    settings.max_depth = max_depth;
+    settings.thread_count = 1;
+    settings.sample_seed_offset = seed_offset;
+    return renderer::PathTracerRenderer().render(scene, camera, settings).image.pixel(0, 0);
+}
+
+void test_pathtracer_russian_roulette_terminates_and_preserves_energy() {
+    const renderer::Scene scene = make_path_roulette_layer_scene();
+    constexpr int sample_count = 1024;
+    renderer::Color accumulated = renderer::Color::Zero();
+    bool saw_terminated_path = false;
+    bool saw_surviving_path = false;
+
+    for (int sample = 0; sample < sample_count; ++sample) {
+        const renderer::Color color = render_roulette_layer_sample(
+            scene,
+            1,
+            static_cast<std::uint64_t>(sample + 1));
+        RENDER_CHECK(color.allFinite());
+        accumulated += color;
+
+        if (color.maxCoeff() < 1e-6f) {
+            saw_terminated_path = true;
+        } else {
+            saw_surviving_path = true;
+            RENDER_CHECK(color.x() > 1.0f);
+            RENDER_CHECK(nearly_equal(color.x(), color.y(), 1e-6f));
+            RENDER_CHECK(nearly_equal(color.x(), color.z(), 1e-6f));
+        }
+    }
+
+    const renderer::Color mean = accumulated / static_cast<float>(sample_count);
+    RENDER_CHECK(saw_terminated_path);
+    RENDER_CHECK(saw_surviving_path);
+    RENDER_CHECK(mean.x() > 0.9f);
+    RENDER_CHECK(mean.x() < 1.1f);
+}
+
+void test_pathtracer_ignores_whitted_max_depth_setting() {
+    const renderer::Scene scene = make_path_roulette_layer_scene();
+    const renderer::Color shallow = render_roulette_layer_sample(scene, 1, 1234);
+    const renderer::Color deep = render_roulette_layer_sample(scene, 100, 1234);
+
+    RENDER_CHECK((shallow - deep).cwiseAbs().maxCoeff() < 1e-6f);
+}
+
 void test_rasterizer_draws_triangle() {
     renderer::Scene scene = renderer::make_raster_triangle_scene();
     renderer::Camera camera(
@@ -2463,6 +2543,8 @@ int main() {
     test_pathtracer_receives_directional_light();
     test_pathtracer_point_light_uses_inverse_square_falloff();
     test_pathtracer_direct_light_respects_shadow_blockers();
+    test_pathtracer_russian_roulette_terminates_and_preserves_energy();
+    test_pathtracer_ignores_whitted_max_depth_setting();
     test_rasterizer_draws_triangle();
     test_perspective_correct_weights_favor_near_vertex();
     test_near_plane_clipping_keeps_visible_triangle_portion();

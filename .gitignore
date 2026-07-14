@@ -1,5 +1,7 @@
 .worktrees/
 build/
+build-native/
+build-portable/
 Computer Graphics Archive/
 output/*.png
 output/*.ppm

@@ -16,6 +16,11 @@ namespace renderer {
 
 namespace {
 
+constexpr int kRussianRouletteStartBounce = 3;
+constexpr int kMaxPathBounces = 64;
+constexpr float kMinContinuationProbability = 0.05f;
+constexpr float kMaxContinuationProbability = 0.95f;
+
 Color black() {
     return Color::Zero();
 }
@@ -78,7 +83,6 @@ RenderResult PathTracerRenderer::render(const Scene& scene, const Camera& camera
     const SceneIntersector intersector(scene);
 
     const int samples_per_pixel = std::max(1, settings.samples_per_pixel);
-    const int max_depth = std::max(0, settings.max_depth);
     const int tile_size = std::max(1, settings.tile_size);
     const int tiles_x = (settings.width + tile_size - 1) / tile_size;
     const int tiles_y = (settings.height + tile_size - 1) / tile_size;
@@ -118,8 +122,7 @@ RenderResult PathTracerRenderer::render(const Scene& scene, const Camera& camera
                             camera.generate_ray(u, v),
                             scene,
                             intersector,
-                            rng,
-                            max_depth);
+                            rng);
                     }
 
                     image.set_pixel(x, y, accumulated / static_cast<float>(samples_per_pixel));
@@ -142,43 +145,69 @@ Color PathTracerRenderer::trace_path(
     const Ray& ray,
     const Scene& scene,
     const SceneIntersector& intersector,
-    PcgRandom& rng,
-    int depth) const {
-    if (depth <= 0) {
-        return black();
+    PcgRandom& rng) const {
+    Color radiance = black();
+    Color throughput = Color::Ones();
+    Ray current_ray = ray;
+
+    for (int bounce = 0; bounce < kMaxPathBounces; ++bounce) {
+        HitRecord hit;
+        if (!intersector.intersect(current_ray, 0.0f, 1.0e30f, hit)) {
+            radiance += throughput.cwiseProduct(scene.environment);
+            break;
+        }
+
+        if (!material_exists(scene, hit.material_id)) {
+            radiance += throughput.cwiseProduct(Color(1.0f, 0.0f, 1.0f));
+            break;
+        }
+
+        const Material& material = scene.materials[hit.material_id];
+        const SurfaceMaterialSample surface = evaluate_surface_material(scene, material, hit);
+        const Color emitted = material.emission;
+        if (material.type == MaterialType::Emissive) {
+            radiance += throughput.cwiseProduct(emitted);
+            break;
+        }
+
+        Color attenuation;
+        Ray scattered(hit.position, surface.shading_normal);
+        if (!scatter(current_ray, hit, material, surface, rng, attenuation, scattered)) {
+            radiance += throughput.cwiseProduct(emitted);
+            break;
+        }
+
+        const Color direct = material.type == MaterialType::Diffuse
+            ? estimate_direct_lighting(scene, intersector, hit, surface)
+            : black();
+        radiance += throughput.cwiseProduct(emitted + direct);
+        throughput = throughput.cwiseProduct(attenuation);
+
+        if (!throughput.allFinite() || throughput.maxCoeff() <= 0.0f) {
+            break;
+        }
+        if (bounce + 1 >= kMaxPathBounces) {
+            break;
+        }
+
+        // Short paths are always traced. Afterwards, low-throughput paths are
+        // probabilistically terminated. Dividing surviving paths by their
+        // continuation probability keeps the Monte Carlo estimator unbiased.
+        if (bounce + 1 >= kRussianRouletteStartBounce) {
+            const float continuation_probability = std::clamp(
+                throughput.maxCoeff(),
+                kMinContinuationProbability,
+                kMaxContinuationProbability);
+            if (rng.next_float() >= continuation_probability) {
+                break;
+            }
+            throughput /= continuation_probability;
+        }
+
+        current_ray = scattered;
     }
 
-    HitRecord hit;
-    if (!intersector.intersect(ray, 0.0f, 1.0e30f, hit)) {
-        return scene.environment;
-    }
-
-    if (!material_exists(scene, hit.material_id)) {
-        return Color(1.0f, 0.0f, 1.0f);
-    }
-
-    const Material& material = scene.materials[hit.material_id];
-    const SurfaceMaterialSample surface = evaluate_surface_material(scene, material, hit);
-    const Color emitted = material.emission;
-    if (material.type == MaterialType::Emissive) {
-        return emitted;
-    }
-
-    Color attenuation;
-    Ray scattered(hit.position, surface.shading_normal);
-    if (!scatter(ray, hit, material, surface, rng, attenuation, scattered)) {
-        return emitted;
-    }
-
-    const Color direct = material.type == MaterialType::Diffuse
-        ? estimate_direct_lighting(scene, intersector, hit, surface)
-        : black();
-
-    // This is the recursive path-tracing estimator for the rendering equation:
-    // emitted radiance at the hit point plus material throughput (attenuation)
-    // multiplied by the incoming radiance sampled along one new bounce.
-    return emitted + direct + attenuation.cwiseProduct(
-        trace_path(scattered, scene, intersector, rng, depth - 1));
+    return radiance;
 }
 
 bool PathTracerRenderer::scatter(
