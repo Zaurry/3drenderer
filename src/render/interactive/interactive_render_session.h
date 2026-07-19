@@ -10,7 +10,8 @@ namespace renderer {
 enum class InteractiveRenderMode {
     Raster,
     Ray,
-    Path
+    Path,
+    OpenGl,
 };
 
 struct InteractiveFrameState {

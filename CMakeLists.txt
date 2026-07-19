@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(RENDERER_NATIVE_ARCH "Enable native CPU instruction tuning" OFF)
+option(RENDERER_BUILD_VIEWER "Build the SDL3/OpenGL interactive viewer" ON)
 
 set(RENDERER_CUDA "AUTO" CACHE STRING "CUDA path tracer support: AUTO, ON, or OFF")
 set_property(CACHE RENDERER_CUDA PROPERTY STRINGS AUTO ON OFF)
@@ -54,66 +55,74 @@ if(NOT TARGET Eigen3::Eigen)
     )
 endif()
 
-find_package(SDL3 CONFIG QUIET)
-if(NOT TARGET SDL3::SDL3)
-    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
-    set(SDL_STATIC ON CACHE BOOL "" FORCE)
-    set(SDL_AUDIO OFF CACHE BOOL "" FORCE)
-    set(SDL_CAMERA OFF CACHE BOOL "" FORCE)
-    set(SDL_DIALOG OFF CACHE BOOL "" FORCE)
-    set(SDL_GPU OFF CACHE BOOL "" FORCE)
-    set(SDL_HAPTIC OFF CACHE BOOL "" FORCE)
-    set(SDL_JOYSTICK OFF CACHE BOOL "" FORCE)
-    set(SDL_OPENGL OFF CACHE BOOL "" FORCE)
-    set(SDL_OPENGLES OFF CACHE BOOL "" FORCE)
-    set(SDL_RENDER ON CACHE BOOL "" FORCE)
-    set(SDL_SENSOR OFF CACHE BOOL "" FORCE)
-    set(SDL_VULKAN OFF CACHE BOOL "" FORCE)
-    set(SDL_TESTS OFF CACHE BOOL "" FORCE)
-    set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
-    set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(SDL_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
-    set(local_sdl3_source_dir "${CMAKE_BINARY_DIR}/_deps/sdl3-src")
-    if(EXISTS "${local_sdl3_source_dir}/CMakeLists.txt")
-        set(FETCHCONTENT_SOURCE_DIR_SDL3 "${local_sdl3_source_dir}" CACHE PATH "" FORCE)
+if(RENDERER_BUILD_VIEWER)
+    find_package(SDL3 CONFIG QUIET)
+    if(NOT TARGET SDL3::SDL3)
+        set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+        set(SDL_STATIC ON CACHE BOOL "" FORCE)
+        set(SDL_AUDIO OFF CACHE BOOL "" FORCE)
+        set(SDL_CAMERA OFF CACHE BOOL "" FORCE)
+        set(SDL_DIALOG OFF CACHE BOOL "" FORCE)
+        set(SDL_GPU OFF CACHE BOOL "" FORCE)
+        set(SDL_HAPTIC OFF CACHE BOOL "" FORCE)
+        set(SDL_JOYSTICK OFF CACHE BOOL "" FORCE)
+        set(SDL_OPENGL ON CACHE BOOL "" FORCE)
+        set(SDL_OPENGLES OFF CACHE BOOL "" FORCE)
+        set(SDL_RENDER OFF CACHE BOOL "" FORCE)
+        set(SDL_SENSOR OFF CACHE BOOL "" FORCE)
+        set(SDL_VULKAN OFF CACHE BOOL "" FORCE)
+        set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+        set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+        set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(SDL_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+        set(local_sdl3_source_dir "${CMAKE_BINARY_DIR}/_deps/sdl3-src")
+        if(EXISTS "${local_sdl3_source_dir}/CMakeLists.txt")
+            set(FETCHCONTENT_SOURCE_DIR_SDL3 "${local_sdl3_source_dir}" CACHE PATH "" FORCE)
+        endif()
+        FetchContent_Declare(
+            sdl3
+            URL https://www.libsdl.org/release/SDL3-3.2.30.tar.gz
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        )
+        FetchContent_MakeAvailable(sdl3)
     endif()
+
+    set(RENDERER_SDL_TARGET "")
+    if(TARGET SDL3::SDL3)
+        set(RENDERER_SDL_TARGET SDL3::SDL3)
+    elseif(TARGET SDL3::SDL3-static)
+        set(RENDERER_SDL_TARGET SDL3::SDL3-static)
+    elseif(TARGET SDL3-static)
+        set(RENDERER_SDL_TARGET SDL3-static)
+    endif()
+
+    find_package(OpenGL REQUIRED)
+
     FetchContent_Declare(
-        sdl3
-        URL https://www.libsdl.org/release/SDL3-3.2.30.tar.gz
+        imgui
+        URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.8.tar.gz
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
-    FetchContent_MakeAvailable(sdl3)
+    FetchContent_MakeAvailable(imgui)
+
+    add_library(renderer_glad STATIC external/glad/src/gl.c)
+    target_include_directories(renderer_glad SYSTEM PUBLIC external/glad/include)
+    target_link_libraries(renderer_glad PUBLIC OpenGL::GL)
+
+    add_library(renderer_imgui STATIC
+        "${imgui_SOURCE_DIR}/imgui.cpp"
+        "${imgui_SOURCE_DIR}/imgui_draw.cpp"
+        "${imgui_SOURCE_DIR}/imgui_tables.cpp"
+        "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
+        "${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp"
+        "${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp"
+    )
+    target_include_directories(renderer_imgui SYSTEM PUBLIC
+        "${imgui_SOURCE_DIR}"
+        "${imgui_SOURCE_DIR}/backends"
+    )
+    target_link_libraries(renderer_imgui PUBLIC ${RENDERER_SDL_TARGET} OpenGL::GL)
 endif()
-
-set(RENDERER_SDL_TARGET "")
-if(TARGET SDL3::SDL3)
-    set(RENDERER_SDL_TARGET SDL3::SDL3)
-elseif(TARGET SDL3::SDL3-static)
-    set(RENDERER_SDL_TARGET SDL3::SDL3-static)
-elseif(TARGET SDL3-static)
-    set(RENDERER_SDL_TARGET SDL3-static)
-endif()
-
-FetchContent_Declare(
-    imgui
-    URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.8.tar.gz
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-)
-FetchContent_MakeAvailable(imgui)
-
-add_library(renderer_imgui STATIC
-    "${imgui_SOURCE_DIR}/imgui.cpp"
-    "${imgui_SOURCE_DIR}/imgui_draw.cpp"
-    "${imgui_SOURCE_DIR}/imgui_tables.cpp"
-    "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
-    "${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp"
-    "${imgui_SOURCE_DIR}/backends/imgui_impl_sdlrenderer3.cpp"
-)
-target_include_directories(renderer_imgui SYSTEM PUBLIC
-    "${imgui_SOURCE_DIR}"
-    "${imgui_SOURCE_DIR}/backends"
-)
-target_link_libraries(renderer_imgui PUBLIC ${RENDERER_SDL_TARGET})
 
 set(RENDERER_CORE_SOURCES
     src/acceleration/bvh.cpp
@@ -173,12 +182,52 @@ endif()
 add_executable(renderer src/main.cpp)
 target_link_libraries(renderer PRIVATE renderer_core)
 
-add_executable(viewer
-    src/interactive/viewer_ui.cpp
-    src/platform/sdl/sdl_display_backend.cpp
-    src/viewer_main.cpp
-)
-target_link_libraries(viewer PRIVATE renderer_core renderer_imgui ${RENDERER_SDL_TARGET})
+if(RENDERER_BUILD_VIEWER)
+    set(RENDERER_OPENGL_SOURCES
+        src/platform/opengl/gl_shader_program.cpp
+        src/render/opengl/opengl_raster_renderer.cpp
+    )
+    if(RENDERER_HAS_CUDA)
+        list(APPEND RENDERER_OPENGL_SOURCES
+            src/platform/opengl/cuda_opengl_interop.cu
+        )
+    else()
+        list(APPEND RENDERER_OPENGL_SOURCES
+            src/platform/opengl/cuda_opengl_interop_stub.cpp
+        )
+    endif()
+
+    add_library(renderer_opengl STATIC ${RENDERER_OPENGL_SOURCES})
+    target_include_directories(renderer_opengl PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(renderer_opengl PUBLIC renderer_core renderer_glad)
+    if(RENDERER_HAS_CUDA)
+        target_link_libraries(renderer_opengl PRIVATE CUDA::cudart)
+        set_target_properties(renderer_opengl PROPERTIES
+            CUDA_STANDARD 20
+            CUDA_STANDARD_REQUIRED ON
+            CUDA_EXTENSIONS OFF
+            CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}"
+        )
+    endif()
+
+    add_executable(viewer
+        src/interactive/viewer_ui.cpp
+        src/platform/sdl/sdl_display_backend.cpp
+        src/viewer_main.cpp
+    )
+    target_link_libraries(viewer PRIVATE
+        renderer_core
+        renderer_opengl
+        renderer_imgui
+        renderer_glad
+        ${RENDERER_SDL_TARGET}
+    )
+    add_custom_command(TARGET viewer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/shaders/opengl"
+            "$<TARGET_FILE_DIR:viewer>/shaders/opengl"
+    )
+endif()
 
 add_executable(renderer_tests tests/renderer_tests.cpp)
 target_link_libraries(renderer_tests PRIVATE renderer_core)
@@ -199,7 +248,11 @@ function(target_enable_native_arch target_name)
     endif()
 endfunction()
 
-foreach(target_name IN ITEMS renderer_core renderer viewer renderer_tests)
+set(RENDERER_NATIVE_TARGETS renderer_core renderer renderer_tests)
+if(RENDERER_BUILD_VIEWER)
+    list(APPEND RENDERER_NATIVE_TARGETS renderer_opengl viewer)
+endif()
+foreach(target_name IN LISTS RENDERER_NATIVE_TARGETS)
     target_enable_native_arch(${target_name})
 endforeach()
 
@@ -224,5 +277,8 @@ endfunction()
 
 target_enable_warnings(renderer)
 target_enable_warnings(renderer_core)
-target_enable_warnings(viewer)
 target_enable_warnings(renderer_tests)
+if(RENDERER_BUILD_VIEWER)
+    target_enable_warnings(renderer_opengl)
+    target_enable_warnings(viewer)
+endif()

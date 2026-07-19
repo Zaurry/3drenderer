@@ -84,6 +84,29 @@ built-in Cornell Box at 512x512 took 15.820841 s on CPU and 1.003802 s on CUDA,
 corresponding to approximately **7.585 FPS CPU** and **119.545 FPS CUDA**. This
 measurement includes viewer startup, CPU-surface download, and presentation.
 
+### CUDA/OpenGL interop follow-up
+
+The OpenGL viewer follow-up on branch `codex/opengl-glsl-renderer` registers an
+`GL_RGBA32F` texture with CUDA and writes the progressive linear HDR result
+through a CUDA surface object. It removes the full-frame device-to-host readback,
+CPU RGBA packing, and host-to-OpenGL upload when the OpenGL context and CUDA
+renderer use a compatible device. A 4-byte device error flag is still checked
+per frame, and the previous CPU-staging path remains the automatic fallback.
+
+A single local wall-clock comparison used the built-in Cornell Box, Release,
+960x540, CUDA backend, and 300 progressive frames. Both runs include viewer
+startup and presentation:
+
+| Viewer path | Elapsed (s) | Average FPS | Relative throughput |
+| --- | ---: | ---: | ---: |
+| OpenGL compositor with CPU staging | 1.737 | 172.76 | 1.00x |
+| CUDA/OpenGL direct texture interop | 0.640 | 468.76 | **2.71x** |
+
+The interop run reported `interop=active`. Visual QA covered Path/OpenGL/Path
+mode switching and a maximized-window resize; framing, vertical orientation,
+HDR display transform, accumulation, and texture re-registration remained
+correct.
+
 ## Image comparison
 
 The final measured runs generated:
@@ -117,8 +140,9 @@ missing geometry, winding cracks, or magenta fallback regions.
 
 ## Notes
 
-- CUDA accumulation and PCG state stay in device memory between viewer frames;
-  SDL presentation still uses a downloaded CPU framebuffer.
+- CUDA accumulation and PCG state stay in device memory between viewer frames.
+  A compatible OpenGL viewer consumes a directly shared texture; unsupported
+  systems retain the downloaded CPU framebuffer fallback.
 - Each CUDA launch renders one sample per pixel to keep kernel duration bounded
   for Windows TDR behavior.
 - `auto` only falls back during initial selection when CUDA is not compiled or

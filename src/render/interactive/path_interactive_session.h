@@ -19,6 +19,13 @@ public:
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state,
         Framebuffer& target) override;
+    void render_next_frame_to_cuda_surface(
+        const Scene& scene,
+        const Camera& camera,
+        const RenderSettings& settings,
+        const InteractiveFrameState& frame_state,
+        CudaSurfaceHandle surface);
+    void download_current_cuda_frame(Framebuffer& target);
 
     int accumulated_samples() const;
     ExecutionBackend active_backend() const;
@@ -34,6 +41,7 @@ private:
     std::unique_ptr<CudaPathInteractiveRenderer> cuda_renderer_;
 
     void reset_accumulation(int width, int height);
+    void update_cuda_frame_state(const RenderSettings& settings);
 };
 
 }  // namespace renderer

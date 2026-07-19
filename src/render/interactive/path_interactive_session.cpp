@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <stdexcept>
 
 namespace renderer {
 
@@ -35,9 +36,7 @@ void PathInteractiveSession::render_next_frame(
     }
     if (active_backend_ == ExecutionBackend::Cuda) {
         cuda_renderer_->render_next_frame(scene, camera, settings, frame_state, target);
-        accumulated_samples_ = cuda_renderer_->accumulated_samples();
-        width_ = settings.width;
-        height_ = settings.height;
+        update_cuda_frame_state(settings);
         return;
     }
 
@@ -74,6 +73,34 @@ void PathInteractiveSession::render_next_frame(
     ++accumulated_samples_;
 }
 
+void PathInteractiveSession::render_next_frame_to_cuda_surface(
+    const Scene& scene,
+    const Camera& camera,
+    const RenderSettings& settings,
+    const InteractiveFrameState& frame_state,
+    CudaSurfaceHandle surface) {
+    if (settings.path_backend != requested_backend_) {
+        reset(scene, settings);
+    }
+    if (active_backend_ != ExecutionBackend::Cuda || !cuda_renderer_) {
+        throw std::logic_error("CUDA surface output requires the active CUDA path backend");
+    }
+    cuda_renderer_->render_next_frame_to_surface(
+        scene,
+        camera,
+        settings,
+        frame_state,
+        surface);
+    update_cuda_frame_state(settings);
+}
+
+void PathInteractiveSession::download_current_cuda_frame(Framebuffer& target) {
+    if (active_backend_ != ExecutionBackend::Cuda || !cuda_renderer_) {
+        throw std::logic_error("CUDA frame download requires the active CUDA path backend");
+    }
+    cuda_renderer_->download_current_frame(target);
+}
+
 int PathInteractiveSession::accumulated_samples() const {
     return accumulated_samples_;
 }
@@ -88,6 +115,12 @@ void PathInteractiveSession::reset_accumulation(int width, int height) {
     accumulated_.assign(
         static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_), Color::Zero());
     accumulated_samples_ = 0;
+}
+
+void PathInteractiveSession::update_cuda_frame_state(const RenderSettings& settings) {
+    accumulated_samples_ = cuda_renderer_->accumulated_samples();
+    width_ = settings.width;
+    height_ = settings.height;
 }
 
 }  // namespace renderer

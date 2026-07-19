@@ -9,6 +9,8 @@
 #include "render/renderer.h"
 #include "scene/scene.h"
 
+#include <string>
+
 namespace renderer {
 
 enum class ViewerCameraMode {
@@ -26,6 +28,19 @@ struct ViewerUiState {
     bool panel_visible = true;
 };
 
+struct OpenGlShaderUiState {
+    std::string vertex_path;
+    std::string fragment_path;
+    std::string error;
+    bool auto_reload = true;
+    bool valid = false;
+};
+
+struct CudaOpenGlInteropUiState {
+    std::string status = "unavailable";
+    std::string detail;
+};
+
 struct ViewerUiActions {
     bool mode_changed = false;
     bool path_backend_changed = false;
@@ -37,6 +52,8 @@ struct ViewerUiActions {
     bool reset_requested = false;
     bool display_changed = false;
     bool ui_style_changed = false;
+    bool shader_reload_requested = false;
+    bool shader_auto_reload_changed = false;
 
     bool resets_path_accumulation() const {
         return mode_changed ||
@@ -61,7 +78,9 @@ public:
         const Bounds3& scene_bounds,
         const FrameRateSnapshot& performance,
         int accumulated_path_samples,
-        ExecutionBackend active_path_backend);
+        ExecutionBackend active_path_backend,
+        const CudaOpenGlInteropUiState& interop_state,
+        OpenGlShaderUiState& shader_state);
 };
 
 }  // namespace renderer

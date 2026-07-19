@@ -54,6 +54,18 @@ const Color& Framebuffer::pixel(int x, int y) const {
     return pixels_[static_cast<std::size_t>(index(x, y))];
 }
 
+std::vector<float> Framebuffer::to_rgba32f() const {
+    std::vector<float> values;
+    values.reserve(pixels_.size() * 4U);
+    for (const Color& color : pixels_) {
+        values.push_back(color.x());
+        values.push_back(color.y());
+        values.push_back(color.z());
+        values.push_back(1.0f);
+    }
+    return values;
+}
+
 std::vector<std::uint8_t> Framebuffer::to_rgba8() const {
     return to_rgba8(DisplaySettings{});
 }

@@ -1,12 +1,12 @@
-# CPU 3D Renderer
+# 3D Renderer
 
-一个从零实现的 C++20 软件 3D 渲染器，用于学习软件光栅化、光线求交、BVH、Whitted 光线追踪和 Monte Carlo 路径追踪。
+一个从零实现的 C++20 3D 渲染器，用于学习软件/OpenGL 光栅化、GLSL、光线求交、BVH、Whitted 光线追踪和 Monte Carlo 路径追踪。
 
-光栅化器与 Whitted 光追运行在 CPU 上；Path 模式支持 CPU 与 CUDA Core 后端。核心渲染不依赖 OpenGL、Vulkan、DirectX、Embree、OptiX 或 RT Core。SDL3 的 `SDL_Renderer` 只负责显示线性 framebuffer 并叠加 Dear ImGui，Windows 上可能在内部使用 Direct3D 作为显示后端。
+Raster 与 Whitted Ray 运行在 CPU 上；OpenGL 模式使用 OpenGL 4.5 Core 和可热重载 GLSL；Path 模式支持 CPU 与 CUDA Core 后端。SDL3 负责窗口与输入，OpenGL 统一显示四种模式的线性 framebuffer 并叠加 Dear ImGui。CUDA Path 在兼容设备上通过 CUDA–OpenGL interop 直接写入显示 texture，失败时自动回退 CPU staging；Path 后端不依赖 OptiX 或 RT Core。
 
 ## 快速开始
 
-需要 CMake 3.21+ 和支持 C++20 的编译器。CUDA 是可选依赖。
+需要 CMake 3.21+、支持 C++20 的编译器和 OpenGL 4.5 驱动。CUDA 是可选依赖。
 
 ```powershell
 cmake --preset default
@@ -14,9 +14,10 @@ cmake --build --preset default-release
 ctest --preset default-release
 
 .\build\default\bin\viewer.exe --scene builtin --mode raster
+.\build\default\bin\viewer.exe --scene builtin --mode opengl
 ```
 
-首次配置时，CMake 会按需获取缺失的 Eigen3、SDL3 和 Dear ImGui 依赖。
+首次配置时，CMake 会按需获取缺失的 Eigen3、SDL3 和 Dear ImGui 依赖；GLAD 4.5 Core loader 已固定在仓库中。
 
 ## 构建预设
 
@@ -80,11 +81,13 @@ Viewer 参数：
 ```text
 --scene builtin|asset
 --asset path\to\scene.obj
---mode raster|ray|path
+--mode raster|ray|path|opengl
 --width integer
 --height integer
 --frames integer
 --path-backend auto|cpu|cuda
+--gl-vertex-shader path\to\shader.vert
+--gl-fragment-shader path\to\shader.frag
 --help
 ```
 
@@ -92,7 +95,9 @@ Viewer 参数：
 
 Dear ImGui 面板提供：
 
-- Raster/Ray/Path 模式，以及 Path CPU/CUDA/Auto 后端。
+- Raster/Ray/Path/OpenGL 模式，以及 Path CPU/CUDA/Auto 后端。
+- CUDA Path 的 CUDA–OpenGL interop active/fallback 状态和回退原因。
+- OpenGL shader 路径、250 ms 自动热重载、F5 强制重载和编译/链接错误日志。
 - Ray 最大深度、CPU 线程数、tile size 和 25%～100% 内部渲染比例。
 - Path 累积暂停、继续、清零，以及 spp、FPS 和帧耗时显示。
 - Orbit/Free 相机、FOV、轨道距离、移动速度和相机复位。
@@ -108,7 +113,8 @@ Dear ImGui 面板提供：
 - `C`：切换 Orbit/Free 相机。
 - Orbit：鼠标左键拖动旋转，滚轮缩放。
 - Free：在画面区域按住鼠标右键观察；`W/A/S/D` 移动，`Space` 上升，左右 `Shift` 下降。
-- `1` / `2` / `3`：切换 raster / ray / path。
+- `1` / `2` / `3` / `4`：切换 raster / ray / path / opengl。
+- `F5`：强制重新编译当前 OpenGL vertex/fragment shader。
 - `R`：清空当前累积。
 - `Esc`：退出。
 
@@ -153,8 +159,9 @@ Renderer 参数：
 | `raster` | CPU | 近面裁剪、透视正确插值、深度缓冲、平滑/bump 法线、alpha cutout、Lambert、Blinn-Phong |
 | `ray` | CPU | BVH、球/三角形求交、alpha-aware 硬阴影、平滑/bump 法线、镜面反射、介质折射 |
 | `path` | CPU/CUDA | 渐进累积、点光/方向光直接照明、漫反射半球采样、金属粗糙反射、介质反射/折射、自发光材质、Russian roulette |
+| `opengl` | OpenGL 4.5/GLSL | GPU 光栅化、深度缓冲、平滑/bump 法线、alpha cutout、双面/自发光材质、点光/方向光、shader 热重载 |
 
-CUDA 后端处理球、三角形、CPU 构建并上传的扁平 BVH、OBJ/纹理、alpha cutout、bump、现有材质与灯光；每次 kernel launch 为每个像素推进一个 sample。灯光变化只更新灯光数据，不重新上传几何、纹理或 BVH。
+CUDA 后端处理球、三角形、CPU 构建并上传的扁平 BVH、OBJ/纹理、alpha cutout、bump、现有材质与灯光；每次 kernel launch 为每个像素推进一个 sample。灯光变化只更新灯光数据，不重新上传几何、纹理或 BVH。Viewer 会在 OpenGL context 对应的 CUDA device 上注册 `GL_RGBA32F` texture，直接输出线性 HDR；无兼容设备或注册失败时自动使用原有 framebuffer 下载与上传路径。
 
 ## OBJ/MTL 支持
 
@@ -177,6 +184,7 @@ CUDA 后端处理球、三角形、CPU 构建并上传的扁平 BVH、OBJ/纹理
 | `RENDERER_CUDA` | `AUTO` | `AUTO`、`ON` 或 `OFF`；控制 CUDA Path 后端是否参与构建 |
 | `CMAKE_CUDA_ARCHITECTURES` | `120` | 未显式指定时使用的 CUDA 目标架构 |
 | `RENDERER_NATIVE_ARCH` | `OFF` | MSVC 使用 `/arch:AVX2`，其他编译器使用 `-march=native`；仅作用于项目自有目标 |
+| `RENDERER_BUILD_VIEWER` | `ON` | 构建 SDL3/OpenGL viewer；无图形环境可设为 `OFF`，仍构建离线 renderer 和测试 |
 
 本机 CPU 性能测试可按需创建第四个临时构建树；它仍位于统一的 `build/` 目录中：
 
@@ -193,6 +201,7 @@ ctest --test-dir build/native -C Release --output-on-failure
 - Eigen 3.4.0：优先使用本机 CMake package，找不到时通过 FetchContent 获取。
 - SDL 3.2.30：优先使用本机 CMake package，找不到时通过 FetchContent 获取。
 - Dear ImGui 1.92.8：通过 FetchContent 固定版本，仅链接到 `viewer`。
+- GLAD 2.0.8：仓库内固定的 OpenGL 4.5 Core loader，仅链接到 `viewer`。
 - stb：读取纹理并写入 PNG。
 - tinyobjloader：解析 OBJ/MTL 并三角化。
 
@@ -211,9 +220,12 @@ src/acceleration/         BVH 构建与遍历
 src/render/rasterizer/    软件光栅化
 src/render/raytracer/     Whitted 光线追踪
 src/render/pathtracer/    CPU/CUDA 路径追踪
+src/render/opengl/        OpenGL GPU 光栅化
 src/render/interactive/   交互式渲染 session
 src/interactive/          相机控制、统计和 ImGui 面板
-src/platform/sdl/         SDL3 窗口、输入与 framebuffer 显示
+src/platform/opengl/      GLSL 生命周期与 CUDA–OpenGL texture interop
+src/platform/sdl/         SDL3 窗口、输入、OpenGL context 与显示合成
+shaders/opengl/           可热重载 GLSL shader
 tests/                    自动化测试
 docs/                     设计、计划、实现说明和验证结果
 ```
@@ -223,6 +235,8 @@ docs/                     设计、计划、实现说明和验证结果
 ## 当前限制与路线图
 
 - Raster 尚无通用六平面齐次裁剪、MSAA 和 mipmap。
+- OpenGL 首版只绘制 `Scene::triangles`，不绘制程序化球体；没有阴影、MSAA、mipmap 或离线 PNG 输出。
+- CUDA–OpenGL interop 只用于交互式 CUDA Path；离线输出和回退路径仍会下载 framebuffer。
 - Path 尚无面积光/环境光重要性采样、MIS、降噪和 PBR 微表面模型；低 spp 噪声仍然明显。
 - OBJ/MTL 尚无 tangent-space normal map、alpha blend、metallic/roughness、occlusion 和 emissive 贴图解析。
 - Bump 使用逐像素高度有限差分且没有 mipmap，远距离或高频高度图可能走样。
@@ -237,3 +251,4 @@ docs/                     设计、计划、实现说明和验证结果
 - [表面与材质正确性设计](docs/specs/2026-07-10-surface-material-correctness-design.md)
 - [Eigen float 迁移结果](docs/output/eigen-float-migration-results.md)
 - [CUDA Path Tracer 测试与基准](docs/output/cuda-pathtracer-results.md)
+- [OpenGL GLSL Shader 合约](docs/glsl-shader-contract.md)

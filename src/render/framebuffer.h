@@ -20,6 +20,7 @@ public:
     void set_pixel(int x, int y, const Color& color);
     void set_pixels(std::vector<Color> pixels);
     const Color& pixel(int x, int y) const;
+    std::vector<float> to_rgba32f() const;
     std::vector<std::uint8_t> to_rgba8() const;
     std::vector<std::uint8_t> to_rgba8(const DisplaySettings& settings) const;
 

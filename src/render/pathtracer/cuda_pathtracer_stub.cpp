@@ -41,6 +41,19 @@ void CudaPathInteractiveRenderer::render_next_frame(
     throw std::runtime_error("CUDA path backend is unavailable: renderer was built without CUDA support");
 }
 
+void CudaPathInteractiveRenderer::render_next_frame_to_surface(
+    const Scene&,
+    const Camera&,
+    const RenderSettings&,
+    const InteractiveFrameState&,
+    CudaSurfaceHandle) {
+    throw std::runtime_error("CUDA path backend is unavailable: renderer was built without CUDA support");
+}
+
+void CudaPathInteractiveRenderer::download_current_frame(Framebuffer&) {
+    throw std::runtime_error("CUDA path backend is unavailable: renderer was built without CUDA support");
+}
+
 int CudaPathInteractiveRenderer::accumulated_samples() const {
     return 0;
 }

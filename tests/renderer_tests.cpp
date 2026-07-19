@@ -487,11 +487,21 @@ void test_display_settings_apply_exposure_and_tone_mapping() {
 }
 
 void test_viewer_ui_actions_classify_path_resets() {
+    const renderer::CudaOpenGlInteropUiState interop_state;
+    RENDER_CHECK(interop_state.status == "unavailable");
+    RENDER_CHECK(interop_state.detail.empty());
+
     renderer::ViewerUiActions actions;
     actions.display_changed = true;
     RENDER_CHECK(!actions.resets_path_accumulation());
     actions = renderer::ViewerUiActions{};
     actions.ui_style_changed = true;
+    RENDER_CHECK(!actions.resets_path_accumulation());
+    actions = renderer::ViewerUiActions{};
+    actions.shader_reload_requested = true;
+    RENDER_CHECK(!actions.resets_path_accumulation());
+    actions = renderer::ViewerUiActions{};
+    actions.shader_auto_reload_changed = true;
     RENDER_CHECK(!actions.resets_path_accumulation());
 
     actions.lighting_changed = true;
@@ -652,6 +662,13 @@ void test_viewer_title_format_includes_fps_and_path_samples() {
     RENDER_CHECK(path_title.find("60.0 FPS") != std::string::npos);
     RENDER_CHECK(path_title.find("16.7 ms") != std::string::npos);
     RENDER_CHECK(path_title.find("12 spp") != std::string::npos);
+
+    const std::string opengl_title = renderer::format_viewer_title(
+        renderer::InteractiveRenderMode::OpenGl,
+        snapshot,
+        99);
+    RENDER_CHECK(opengl_title.find("opengl") != std::string::npos);
+    RENDER_CHECK(opengl_title.find("spp") == std::string::npos);
 }
 
 void test_framebuffer_clear_set_and_rgba8_conversion() {
@@ -668,6 +685,15 @@ void test_framebuffer_clear_set_and_rgba8_conversion() {
     RENDER_CHECK(rgba[3] == 255);
     RENDER_CHECK(rgba[4] == 255);
     RENDER_CHECK(rgba[7] == 255);
+
+    const std::vector<float> rgba32f = framebuffer.to_rgba32f();
+    RENDER_CHECK(rgba32f.size() == 8);
+    RENDER_CHECK(nearly_equal(rgba32f[0], 0.25f));
+    RENDER_CHECK(nearly_equal(rgba32f[2], 1.0f));
+    RENDER_CHECK(nearly_equal(rgba32f[3], 1.0f));
+    RENDER_CHECK(nearly_equal(rgba32f[4], 1.0f));
+    RENDER_CHECK(nearly_equal(rgba32f[5], 0.25f));
+    RENDER_CHECK(nearly_equal(rgba32f[7], 1.0f));
 }
 
 void test_depth_buffer_clear_resize_and_access() {

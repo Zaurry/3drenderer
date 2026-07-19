@@ -17,7 +17,10 @@ const char* mode_label(InteractiveRenderMode mode) {
     if (mode == InteractiveRenderMode::Ray) {
         return "ray";
     }
-    return "path";
+    if (mode == InteractiveRenderMode::Path) {
+        return "path";
+    }
+    return "opengl";
 }
 
 }  // namespace
@@ -64,7 +67,7 @@ std::string format_viewer_title(
     const FrameRateSnapshot& snapshot,
     int path_sample_count) {
     std::ostringstream title;
-    title << "CPU 3D Renderer Viewer - " << mode_label(mode) << " - ";
+    title << "3D Renderer Viewer - " << mode_label(mode) << " - ";
     if (snapshot.valid) {
         title << std::fixed << std::setprecision(1)
               << snapshot.frames_per_second << " FPS - "

@@ -96,7 +96,9 @@ ViewerUiActions ViewerUi::draw(
     const Bounds3& bounds,
     const FrameRateSnapshot& performance,
     int accumulated_path_samples,
-    ExecutionBackend active_path_backend) {
+    ExecutionBackend active_path_backend,
+    const CudaOpenGlInteropUiState& interop_state,
+    OpenGlShaderUiState& shader_state) {
     ViewerUiActions actions;
     state.ui_font_scale = std::clamp(state.ui_font_scale, 0.75f, 2.0f);
     ImGui::GetStyle().FontScaleMain = state.ui_font_scale;
@@ -122,6 +124,12 @@ ViewerUiActions ViewerUi::draw(
                 "%d spp  |  %s",
                 accumulated_path_samples,
                 active_path_backend == ExecutionBackend::Cuda ? "CUDA" : "CPU");
+            if (active_path_backend == ExecutionBackend::Cuda) {
+                ImGui::Text("CUDA/OpenGL interop: %s", interop_state.status.c_str());
+                if (!interop_state.detail.empty()) {
+                    ImGui::TextWrapped("%s", interop_state.detail.c_str());
+                }
+            }
             if (ImGui::Button(state.path_accumulation_paused ? "Resume accumulation" : "Pause accumulation")) {
                 state.path_accumulation_paused = !state.path_accumulation_paused;
             }
@@ -134,8 +142,8 @@ ViewerUiActions ViewerUi::draw(
 
     if (ImGui::CollapsingHeader("Rendering", ImGuiTreeNodeFlags_DefaultOpen)) {
         int mode = static_cast<int>(state.mode);
-        constexpr const char* modes[] = {"Raster", "Ray", "Path"};
-        if (ImGui::Combo("Mode", &mode, modes, 3)) {
+        constexpr const char* modes[] = {"Raster", "Ray", "Path", "OpenGL"};
+        if (ImGui::Combo("Mode", &mode, modes, 4)) {
             state.mode = static_cast<InteractiveRenderMode>(mode);
             actions.mode_changed = true;
         }
@@ -159,6 +167,28 @@ ViewerUiActions ViewerUi::draw(
         if (ImGui::SliderInt("Render scale", &render_scale_percent, 25, 100, "%d%%")) {
             state.render_scale = static_cast<float>(render_scale_percent) / 100.0f;
             actions.render_scale_changed = true;
+        }
+    }
+
+    if (state.mode == InteractiveRenderMode::OpenGl &&
+        ImGui::CollapsingHeader("GLSL Shader", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::TextUnformatted(shader_state.valid ? "Program: active" : "Program: unavailable");
+        ImGui::TextWrapped("Vertex: %s", shader_state.vertex_path.c_str());
+        ImGui::TextWrapped("Fragment: %s", shader_state.fragment_path.c_str());
+        if (ImGui::Checkbox("Auto reload", &shader_state.auto_reload)) {
+            actions.shader_auto_reload_changed = true;
+        }
+        if (ImGui::Button("Reload shaders (F5)")) {
+            actions.shader_reload_requested = true;
+        }
+        if (!shader_state.error.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Compile/link error");
+            if (ImGui::BeginChild("ShaderError", ImVec2(0.0f, 130.0f), ImGuiChildFlags_Borders)) {
+                ImGui::TextUnformatted(shader_state.error.c_str());
+            }
+            ImGui::EndChild();
+        } else {
+            ImGui::TextDisabled("Watching shader files every 250 ms");
         }
     }
 
@@ -315,7 +345,7 @@ ViewerUiActions ViewerUi::draw(
     }
 
     ImGui::Separator();
-    ImGui::TextDisabled("Tab: toggle panel | R: reset | 1/2/3: mode");
+    ImGui::TextDisabled("Tab: panel | R: reset | 1/2/3/4: mode | F5: GLSL reload");
     ImGui::TextDisabled("Orbit: LMB drag/wheel | Free: hold RMB + WASD");
     ImGui::End();
     return actions;

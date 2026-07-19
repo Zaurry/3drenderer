@@ -1,34 +1,130 @@
 #define SDL_MAIN_HANDLED
 #include "platform/sdl/sdl_display_backend.h"
 
+#include "platform/opengl/gl_shader_program.h"
+
 #include <SDL3/SDL.h>
+#include <glad/gl.h>
 #include <imgui.h>
+#include <imgui_impl_opengl3.h>
 #include <imgui_impl_sdl3.h>
-#include <imgui_impl_sdlrenderer3.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace renderer {
 
-SdlDisplayBackend::SdlDisplayBackend() = default;
+namespace {
+
+constexpr const char* compositor_vertex_shader = R"GLSL(#version 450 core
+out vec2 v_uv;
+
+void main() {
+    const vec2 positions[3] = vec2[3](
+        vec2(-1.0, -1.0),
+        vec2(3.0, -1.0),
+        vec2(-1.0, 3.0));
+    const vec2 position = positions[gl_VertexID];
+    v_uv = position * 0.5 + 0.5;
+    gl_Position = vec4(position, 0.0, 1.0);
+}
+)GLSL";
+
+constexpr const char* compositor_fragment_shader = R"GLSL(#version 450 core
+layout(binding = 0) uniform sampler2D u_linear_image;
+uniform float u_exposure_ev;
+uniform int u_tone_mapper;
+uniform int u_flip_y;
+
+in vec2 v_uv;
+layout(location = 0) out vec4 out_color;
+
+float sanitize_channel(float value) {
+    if (isnan(value)) {
+        return 0.0;
+    }
+    if (isinf(value)) {
+        return value > 0.0 ? 1.0e20 : 0.0;
+    }
+    return value;
+}
+
+vec3 sanitize_color(vec3 color) {
+    return vec3(
+        sanitize_channel(color.r),
+        sanitize_channel(color.g),
+        sanitize_channel(color.b));
+}
+
+vec3 reinhard(vec3 color) {
+    return color / (vec3(1.0) + color);
+}
+
+vec3 aces(vec3 color) {
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+    return clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0, 1.0);
+}
+
+vec3 linear_to_srgb(vec3 color) {
+    const bvec3 low = lessThanEqual(color, vec3(0.0031308));
+    const vec3 lower = color * 12.92;
+    const vec3 upper = 1.055 * pow(max(color, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055;
+    return mix(upper, lower, low);
+}
+
+void main() {
+    vec2 uv = v_uv;
+    if (u_flip_y != 0) {
+        uv.y = 1.0 - uv.y;
+    }
+    vec3 color = max(sanitize_color(texture(u_linear_image, uv).rgb), vec3(0.0));
+    color *= exp2(u_exposure_ev);
+    if (u_tone_mapper == 1) {
+        color = reinhard(color);
+    } else if (u_tone_mapper == 2) {
+        color = aces(color);
+    }
+    out_color = vec4(clamp(linear_to_srgb(color), 0.0, 1.0), 1.0);
+}
+)GLSL";
+
+int tone_mapper_value(ToneMapper tone_mapper) {
+    if (tone_mapper == ToneMapper::Reinhard) {
+        return 1;
+    }
+    if (tone_mapper == ToneMapper::Aces) {
+        return 2;
+    }
+    return 0;
+}
+
+}  // namespace
+
+SdlDisplayBackend::SdlDisplayBackend()
+    : compositor_program_(std::make_unique<GlShaderProgram>()) {}
 
 SdlDisplayBackend::~SdlDisplayBackend() {
+    if (gl_context_ && window_) {
+        SDL_GL_MakeCurrent(window_, static_cast<SDL_GLContext>(gl_context_));
+    }
     if (imgui_initialized_) {
-        ImGui_ImplSDLRenderer3_Shutdown();
+        ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
         imgui_initialized_ = false;
     }
-    if (framebuffer_texture_) {
-        SDL_DestroyTexture(framebuffer_texture_);
-        framebuffer_texture_ = nullptr;
-    }
-    if (renderer_) {
-        SDL_DestroyRenderer(renderer_);
-        renderer_ = nullptr;
+    release_gl_resources();
+    if (gl_context_) {
+        SDL_GL_DestroyContext(static_cast<SDL_GLContext>(gl_context_));
+        gl_context_ = nullptr;
     }
     if (window_) {
         SDL_DestroyWindow(window_);
@@ -47,18 +143,58 @@ bool SdlDisplayBackend::initialize(int width, int height, const char* title) {
     }
     sdl_initialized_ = true;
 
-    window_ = SDL_CreateWindow(title, width, height, SDL_WINDOW_RESIZABLE);
+    if (!SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4) ||
+        !SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 5) ||
+        !SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE) ||
+        !SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1) ||
+        !SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24)) {
+        set_error_from_sdl("SDL_GL_SetAttribute failed");
+        return false;
+    }
+#ifndef NDEBUG
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
+#endif
+
+    window_ = SDL_CreateWindow(
+        title,
+        width,
+        height,
+        SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!window_) {
         set_error_from_sdl("SDL_CreateWindow failed");
         return false;
     }
     SDL_SetWindowMinimumSize(window_, 1, 1);
 
-    renderer_ = SDL_CreateRenderer(window_, nullptr);
-    if (!renderer_) {
-        set_error_from_sdl("SDL_CreateRenderer failed");
+    gl_context_ = SDL_GL_CreateContext(window_);
+    if (!gl_context_) {
+        set_error_from_sdl("SDL_GL_CreateContext failed");
         return false;
     }
+    if (!SDL_GL_MakeCurrent(window_, static_cast<SDL_GLContext>(gl_context_))) {
+        set_error_from_sdl("SDL_GL_MakeCurrent failed");
+        return false;
+    }
+
+    const int loaded_version = gladLoadGL(
+        reinterpret_cast<GLADloadfunc>(SDL_GL_GetProcAddress));
+    if (loaded_version == 0 ||
+        GLAD_VERSION_MAJOR(loaded_version) < 4 ||
+        (GLAD_VERSION_MAJOR(loaded_version) == 4 && GLAD_VERSION_MINOR(loaded_version) < 5)) {
+        last_error_ = "OpenGL 4.5 Core is required";
+        return false;
+    }
+    SDL_GL_SetSwapInterval(0);
+
+    std::string shader_error;
+    if (!compositor_program_->load_sources(
+            compositor_vertex_shader,
+            compositor_fragment_shader,
+            shader_error)) {
+        last_error_ = "Display compositor initialization failed: " + shader_error;
+        return false;
+    }
+    glGenVertexArrays(1, &fullscreen_vao_);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -66,21 +202,25 @@ bool SdlDisplayBackend::initialize(int width, int height, const char* title) {
     io.IniFilename = nullptr;
     io.Fonts->AddFontDefaultVector();
     ImGui::StyleColorsDark();
-    if (!ImGui_ImplSDL3_InitForSDLRenderer(window_, renderer_)) {
-        last_error_ = "ImGui SDL3 initialization failed";
+    if (!ImGui_ImplSDL3_InitForOpenGL(
+            window_,
+            static_cast<SDL_GLContext>(gl_context_))) {
+        last_error_ = "ImGui SDL3/OpenGL initialization failed";
         ImGui::DestroyContext();
         return false;
     }
-    if (!ImGui_ImplSDLRenderer3_Init(renderer_)) {
+    if (!ImGui_ImplOpenGL3_Init("#version 450 core")) {
         ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
-        last_error_ = "ImGui SDL_Renderer initialization failed";
+        last_error_ = "ImGui OpenGL initialization failed";
         return false;
     }
     imgui_initialized_ = true;
 
-    window_width_ = std::max(1, width);
-    window_height_ = std::max(1, height);
+    if (!SDL_GetWindowSizeInPixels(window_, &window_width_, &window_height_)) {
+        window_width_ = std::max(1, width);
+        window_height_ = std::max(1, height);
+    }
     return true;
 }
 
@@ -101,8 +241,12 @@ InputState SdlDisplayBackend::poll_input() {
                 break;
             case SDL_EVENT_WINDOW_RESIZED:
             case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-                window_width_ = std::max(1, event.window.data1);
-                window_height_ = std::max(1, event.window.data2);
+                if (!SDL_GetWindowSizeInPixels(window_, &window_width_, &window_height_)) {
+                    window_width_ = std::max(1, event.window.data1);
+                    window_height_ = std::max(1, event.window.data2);
+                }
+                window_width_ = std::max(1, window_width_);
+                window_height_ = std::max(1, window_height_);
                 input.window_resized = true;
                 input.window_width = window_width_;
                 input.window_height = window_height_;
@@ -138,6 +282,10 @@ InputState SdlDisplayBackend::poll_input() {
                         input.select_ray = true;
                     } else if (event.key.scancode == SDL_SCANCODE_3) {
                         input.select_path = true;
+                    } else if (event.key.scancode == SDL_SCANCODE_4) {
+                        input.select_opengl = true;
+                    } else if (event.key.scancode == SDL_SCANCODE_F5) {
+                        input.reload_shaders = true;
                     } else if (event.key.scancode == SDL_SCANCODE_R) {
                         input.reset_render = true;
                     } else if (event.key.scancode == SDL_SCANCODE_C) {
@@ -173,7 +321,7 @@ void SdlDisplayBackend::begin_ui_frame() {
     if (!imgui_initialized_) {
         throw std::runtime_error("ImGui frame requires an initialized display");
     }
-    ImGui_ImplSDLRenderer3_NewFrame();
+    ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
     ui_frame_started_ = true;
@@ -206,47 +354,70 @@ bool SdlDisplayBackend::set_relative_mouse_mode(bool enabled) {
 void SdlDisplayBackend::present(
     const Framebuffer& framebuffer,
     const DisplaySettings& display_settings) {
-    if (!renderer_ || !ui_frame_started_) {
-        throw std::runtime_error("SDL present requires an initialized renderer and active UI frame");
-    }
-
     ensure_framebuffer_texture(framebuffer.width(), framebuffer.height());
-    const std::vector<std::uint8_t> rgba = framebuffer.to_rgba8(display_settings);
-    if (!SDL_UpdateTexture(
-            framebuffer_texture_,
-            nullptr,
-            rgba.data(),
-            framebuffer.width() * 4)) {
-        set_error_from_sdl("SDL_UpdateTexture failed");
-        throw std::runtime_error(last_error_);
+    const std::vector<float> rgba = framebuffer.to_rgba32f();
+    glBindTexture(GL_TEXTURE_2D, framebuffer_texture_);
+    glTexSubImage2D(
+        GL_TEXTURE_2D,
+        0,
+        0,
+        0,
+        framebuffer.width(),
+        framebuffer.height(),
+        GL_RGBA,
+        GL_FLOAT,
+        rgba.data());
+    present_texture(
+        framebuffer_texture_,
+        framebuffer.width(),
+        framebuffer.height(),
+        true,
+        display_settings);
+}
+
+void SdlDisplayBackend::present_texture(
+    unsigned int linear_texture,
+    int texture_width,
+    int texture_height,
+    bool flip_y,
+    const DisplaySettings& display_settings) {
+    if (!gl_context_ || !ui_frame_started_ || linear_texture == 0 ||
+        texture_width <= 0 || texture_height <= 0) {
+        throw std::runtime_error(
+            "OpenGL present requires an initialized display, active UI frame, and valid texture");
     }
 
-    if (!SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255) || !SDL_RenderClear(renderer_)) {
-        set_error_from_sdl("SDL_RenderClear failed");
-        throw std::runtime_error(last_error_);
-    }
-    int output_width = 0;
-    int output_height = 0;
-    if (!SDL_GetCurrentRenderOutputSize(renderer_, &output_width, &output_height)) {
-        set_error_from_sdl("SDL_GetCurrentRenderOutputSize failed");
-        throw std::runtime_error(last_error_);
-    }
-    const SDL_FRect destination{
-        0.0f,
-        0.0f,
-        static_cast<float>(output_width),
-        static_cast<float>(output_height)};
-    if (!SDL_RenderTexture(renderer_, framebuffer_texture_, nullptr, &destination)) {
-        set_error_from_sdl("SDL_RenderTexture failed");
-        throw std::runtime_error(last_error_);
-    }
+    SDL_GetWindowSizeInPixels(window_, &window_width_, &window_height_);
+    window_width_ = std::max(1, window_width_);
+    window_height_ = std::max(1, window_height_);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, window_width_, window_height_);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glUseProgram(compositor_program_->id());
+    const GLint exposure_location = glGetUniformLocation(
+        compositor_program_->id(), "u_exposure_ev");
+    const GLint tone_mapper_location = glGetUniformLocation(
+        compositor_program_->id(), "u_tone_mapper");
+    const GLint flip_location = glGetUniformLocation(compositor_program_->id(), "u_flip_y");
+    glUniform1f(
+        exposure_location,
+        std::isfinite(display_settings.exposure_ev) ? display_settings.exposure_ev : 0.0f);
+    glUniform1i(tone_mapper_location, tone_mapper_value(display_settings.tone_mapper));
+    glUniform1i(flip_location, flip_y ? 1 : 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, linear_texture);
+    glBindVertexArray(fullscreen_vao_);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
 
     ImGui::Render();
-    ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer_);
-    if (!SDL_RenderPresent(renderer_)) {
-        set_error_from_sdl("SDL_RenderPresent failed");
-        throw std::runtime_error(last_error_);
-    }
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    SDL_GL_SwapWindow(window_);
     ui_frame_started_ = false;
 }
 
@@ -270,29 +441,43 @@ void SdlDisplayBackend::set_error_from_sdl(const char* prefix) {
 }
 
 void SdlDisplayBackend::ensure_framebuffer_texture(int width, int height) {
-    if (framebuffer_texture_ && width == texture_width_ && height == texture_height_) {
+    if (framebuffer_texture_ != 0 && width == texture_width_ && height == texture_height_) {
         return;
     }
-    if (framebuffer_texture_) {
-        SDL_DestroyTexture(framebuffer_texture_);
-        framebuffer_texture_ = nullptr;
+    if (framebuffer_texture_ == 0) {
+        glGenTextures(1, &framebuffer_texture_);
     }
-    framebuffer_texture_ = SDL_CreateTexture(
-        renderer_,
-        SDL_PIXELFORMAT_RGBA32,
-        SDL_TEXTUREACCESS_STREAMING,
+    glBindTexture(GL_TEXTURE_2D, framebuffer_texture_);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RGBA32F,
         width,
-        height);
-    if (!framebuffer_texture_) {
-        set_error_from_sdl("SDL_CreateTexture failed");
-        throw std::runtime_error(last_error_);
-    }
-    if (!SDL_SetTextureScaleMode(framebuffer_texture_, SDL_SCALEMODE_LINEAR)) {
-        set_error_from_sdl("SDL_SetTextureScaleMode failed");
-        throw std::runtime_error(last_error_);
-    }
+        height,
+        0,
+        GL_RGBA,
+        GL_FLOAT,
+        nullptr);
     texture_width_ = width;
     texture_height_ = height;
+}
+
+void SdlDisplayBackend::release_gl_resources() {
+    if (compositor_program_) {
+        compositor_program_->reset();
+    }
+    if (framebuffer_texture_ != 0) {
+        glDeleteTextures(1, &framebuffer_texture_);
+        framebuffer_texture_ = 0;
+    }
+    if (fullscreen_vao_ != 0) {
+        glDeleteVertexArrays(1, &fullscreen_vao_);
+        fullscreen_vao_ = 0;
+    }
 }
 
 }  // namespace renderer

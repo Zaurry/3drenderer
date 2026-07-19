@@ -895,7 +895,8 @@ __global__ void render_sample_kernel(
     int width,
     int height,
     int completed_samples,
-    int* error_code) {
+    int* error_code,
+    cudaSurfaceObject_t output_surface) {
     const int index = blockIdx.x * blockDim.x + threadIdx.x;
     const int pixel_count = width * height;
     if (index >= pixel_count) {
@@ -915,7 +916,15 @@ __global__ void render_sample_kernel(
     const DVec3 sample = trace_path(scene, DRay{camera.eye, direction}, rng, error_code);
     const DVec3 sum = add(accumulation[index], sample);
     accumulation[index] = sum;
-    display[index] = divv(sum, static_cast<float>(completed_samples + 1));
+    const DVec3 color = divv(sum, static_cast<float>(completed_samples + 1));
+    display[index] = color;
+    if (output_surface != 0) {
+        surf2Dwrite(
+            make_float4(color.x, color.y, color.z, 1.0f),
+            output_surface,
+            x * static_cast<int>(sizeof(float4)),
+            y);
+    }
     random_states[index] = rng;
 }
 
@@ -1127,7 +1136,10 @@ public:
         samples_ = 0;
     }
 
-    void render_sample(const DScene& scene, const Camera& camera) {
+    void render_sample(
+        const DScene& scene,
+        const Camera& camera,
+        cudaSurfaceObject_t output_surface = 0) {
         const DCamera packed_camera{
             to_device(camera.eye()),
             to_device(camera.forward()),
@@ -1146,18 +1158,24 @@ public:
             width_,
             height_,
             samples_,
-            error_code_.get());
+            error_code_.get(),
+            output_surface);
         check_cuda(cudaGetLastError(), "render_sample_kernel launch");
         ++samples_;
     }
 
-    std::vector<Color> download_pixels() {
-        check_cuda(cudaDeviceSynchronize(), "path rendering synchronize");
-        std::vector<int> errors;
-        error_code_.download(errors);
-        if (!errors.empty() && errors[0] != 0) {
+    void synchronize_and_check_errors() {
+        int error = 0;
+        check_cuda(
+            cudaMemcpy(&error, error_code_.get(), sizeof(error), cudaMemcpyDeviceToHost),
+            "path rendering synchronize and error check");
+        if (error != 0) {
             throw std::runtime_error("CUDA BVH traversal stack overflow");
         }
+    }
+
+    std::vector<Color> download_pixels() {
+        synchronize_and_check_errors();
         std::vector<DVec3> packed;
         display_.download(packed);
         std::vector<Color> pixels;
@@ -1240,6 +1258,16 @@ public:
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state,
         Framebuffer& target) {
+        render_next_frame_to_surface(scene, camera, settings, frame_state, 0);
+        download_current_frame(target);
+    }
+
+    void render_next_frame_to_surface(
+        const Scene& scene,
+        const Camera& camera,
+        const RenderSettings& settings,
+        const InteractiveFrameState& frame_state,
+        CudaSurfaceHandle surface) {
         if (frame_state.scene_changed || !scene_) {
             scene_ = std::make_unique<CudaSceneStorage>(scene);
         } else if (frame_state.lighting_changed) {
@@ -1256,9 +1284,18 @@ public:
         if (reset_accumulation) {
             frame_.reset(settings.width, settings.height, settings.sample_seed_offset);
         }
-        frame_.render_sample(scene_->view(), camera);
-        if (target.width() != settings.width || target.height() != settings.height) {
-            target.resize(settings.width, settings.height);
+        frame_.render_sample(
+            scene_->view(),
+            camera,
+            static_cast<cudaSurfaceObject_t>(surface));
+        if (surface != 0) {
+            frame_.synchronize_and_check_errors();
+        }
+    }
+
+    void download_current_frame(Framebuffer& target) {
+        if (target.width() != frame_.width() || target.height() != frame_.height()) {
+            target.resize(frame_.width(), frame_.height());
         }
         target.set_pixels(frame_.download_pixels());
     }
@@ -1289,6 +1326,22 @@ void CudaPathInteractiveRenderer::render_next_frame(
     const InteractiveFrameState& frame_state,
     Framebuffer& target) {
     impl_->render_next_frame(scene, camera, settings, frame_state, target);
+}
+
+void CudaPathInteractiveRenderer::render_next_frame_to_surface(
+    const Scene& scene,
+    const Camera& camera,
+    const RenderSettings& settings,
+    const InteractiveFrameState& frame_state,
+    CudaSurfaceHandle surface) {
+    if (surface == 0) {
+        throw std::invalid_argument("CUDA surface output requires a non-zero surface handle");
+    }
+    impl_->render_next_frame_to_surface(scene, camera, settings, frame_state, surface);
+}
+
+void CudaPathInteractiveRenderer::download_current_frame(Framebuffer& target) {
+    impl_->download_current_frame(target);
 }
 
 int CudaPathInteractiveRenderer::accumulated_samples() const {

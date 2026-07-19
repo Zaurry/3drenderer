@@ -3,10 +3,13 @@
 #include "render/interactive/interactive_render_session.h"
 #include "render/renderer.h"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
 namespace renderer {
+
+using CudaSurfaceHandle = std::uint64_t;
 
 bool cuda_path_backend_compiled();
 bool cuda_path_backend_available(std::string* reason = nullptr);
@@ -33,6 +36,13 @@ public:
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state,
         Framebuffer& target);
+    void render_next_frame_to_surface(
+        const Scene& scene,
+        const Camera& camera,
+        const RenderSettings& settings,
+        const InteractiveFrameState& frame_state,
+        CudaSurfaceHandle surface);
+    void download_current_frame(Framebuffer& target);
     int accumulated_samples() const;
 
 private:
