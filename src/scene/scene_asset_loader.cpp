@@ -112,6 +112,14 @@ float roughness_from_shininess(float shininess) {
     return std::clamp(1.0f / std::sqrt(shininess), 0.0f, 1.0f);
 }
 
+bool illum_model_has_transmission(int illum) {
+    // Wavefront illum models 4, 6, 7, and 9 explicitly enable glass
+    // transparency or refraction. Exporters commonly write a default
+    // `Tf 1 1 1` even for ordinary illum 2 materials, so Tf alone must not
+    // turn an opaque surface into a dielectric.
+    return illum == 4 || illum == 6 || illum == 7 || illum == 9;
+}
+
 std::string lowercase_ascii(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));
@@ -230,7 +238,6 @@ Material convert_material(
     const Color diffuse = array_to_color(source.diffuse);
     const Color specular = array_to_color(source.specular);
     const Color emission = array_to_color(source.emission);
-    const Color transmittance = array_to_color(source.transmittance);
 
     material.base_color = diffuse;
     material.emission = emission;
@@ -273,7 +280,7 @@ Material convert_material(
         return material;
     }
 
-    const bool has_transmission = source.illum == 7 || color_energy(transmittance) > 0.0f;
+    const bool has_transmission = illum_model_has_transmission(source.illum);
     if (has_transmission) {
         material.type = MaterialType::Dielectric;
         material.base_color = color_energy(diffuse) > 0.0f ? diffuse : Color(1.0f, 1.0f, 1.0f);
@@ -424,7 +431,7 @@ LoadedScene load_scene_asset(const std::string& path, int width, int height) {
     loaded.scene.directional_lights.push_back(
         DirectionalLight{
             Vec3(-0.5f, -1.0f, -0.25f).normalized(),
-            Color(0.25f, 0.25f, 0.25f)});
+            Color(25.0f, 25.0f, 25.0f)});
     loaded.camera = make_default_camera(loaded.bounds, width, height);
     return loaded;
 }

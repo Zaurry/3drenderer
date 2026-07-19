@@ -1,58 +1,134 @@
 # CPU 3D Renderer
 
-这是一个从零实现的 C++20 CPU 软件 3D 渲染器，用来学习图形管线、光线求交、BVH、Whitted 光线追踪和基础路径追踪。当前版本不使用 OpenGL、Vulkan、DirectX、Embree、OptiX、CUDA 或 RT Core；SDL3 只用于创建窗口、读取输入和把 CPU framebuffer 贴到窗口 surface。
+一个从零实现的 C++20 软件 3D 渲染器，用于学习软件光栅化、光线求交、BVH、Whitted 光线追踪和 Monte Carlo 路径追踪。
 
-## 当前能力
+光栅化器与 Whitted 光追运行在 CPU 上；Path 模式支持 CPU 与 CUDA Core 后端。核心渲染不依赖 OpenGL、Vulkan、DirectX、Embree、OptiX 或 RT Core。SDL3 的 `SDL_Renderer` 只负责显示线性 framebuffer 并叠加 Dear ImGui，Windows 上可能在内部使用 Direct3D 作为显示后端。
 
-- 离线 PNG 渲染：`raster`、`ray`、`path` 三种模式。
-- 实时交互窗口：SDL3 窗口 + 自己的 CPU framebuffer，支持鼠标拖动、滚轮缩放和模式切换。
-- OBJ/MTL 场景加载：保留顶点法线和 UV，支持漫反射、alpha cutout、bump 与双面材质。
-- Path 模式渐进式累积：交互窗口中每帧推进随机种子并累积样本。
-- Path 显式直接光：点光与方向光参与 Lambert 直接照明、硬阴影和距离平方衰减。
-- 标题栏性能显示：viewer 标题栏显示 FPS、单帧毫秒数，path 模式额外显示当前累计 spp。
+## 快速开始
 
-## 构建
+需要 CMake 3.21+ 和支持 C++20 的编译器。CUDA 是可选依赖。
 
 ```powershell
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-.\build\bin\renderer_tests.exe
+cmake --preset default
+cmake --build --preset default-release
+ctest --preset default-release
+
+.\build\default\bin\viewer.exe --scene builtin --mode raster
 ```
 
-当前工程使用 CMake + C++20。Windows 下会生成 Visual Studio/MSBuild 项目。
+首次配置时，CMake 会按需获取缺失的 Eigen3、SDL3 和 Dear ImGui 依赖。
 
-依赖获取方式：
+## 构建预设
 
-- Eigen3: 优先使用本机 CMake package，找不到时通过 FetchContent 下载 Eigen 3.4.0。
-- SDL3: 优先使用本机 CMake package，找不到时通过 FetchContent 下载 SDL 3.2.30。
-- `stb_image_write.h`: 写 PNG。
-- `stb_image.h`: 读取 `map_Kd`、`map_d`、`bump/map_bump` 使用的 PNG/JPG/PPM 等图片贴图。
-- `tiny_obj_loader.h`: 读取 OBJ/MTL 文本并三角化面。
+所有生成文件都位于 `build/` 下，避免在仓库根目录散落多个构建树。
 
-如果 SDL3 已经手动解压到 `build/_deps/sdl3-src`，CMake 会优先使用这个本地目录。
+| Preset | 构建目录 | CUDA | 用途 |
+| --- | --- | --- | --- |
+| `default` | `build/default` | `AUTO` | 日常开发；有 CUDA 编译器时启用 CUDA，否则使用 CPU |
+| `cpu` | `build/cpu` | `OFF` | CPU-only 构建与回归测试 |
+| `cuda` | `build/cuda` | `ON` | 强制验证 CUDA 工具链和 CUDA 后端，默认架构为 `120` |
+
+每个 configure preset 都有对应的 Release build/test preset：
+
+```powershell
+# 日常开发
+cmake --preset default
+cmake --build --preset default-release
+ctest --preset default-release
+
+# 强制 CPU-only
+cmake --preset cpu
+cmake --build --preset cpu-release
+ctest --preset cpu-release
+
+# 强制 CUDA；工具链不可用时配置会明确失败
+cmake --preset cuda
+cmake --build --preset cuda-release
+ctest --preset cuda-release
+```
+
+项目使用 Visual Studio 等多配置生成器时，Release/Debug 由 build/test preset 的 `configuration` 决定，不需要设置 `CMAKE_BUILD_TYPE`。
+
+## 交互 Viewer
+
+启动内置场景：
+
+```powershell
+.\build\default\bin\viewer.exe --scene builtin --mode raster --width 960 --height 540
+```
+
+启动 OBJ 资产场景：
+
+```powershell
+.\build\default\bin\viewer.exe `
+  --scene asset `
+  --asset "Computer Graphics Archive\CornellBox\CornellBox-Original.obj" `
+  --mode path `
+  --path-backend auto `
+  --width 960 `
+  --height 540
+```
+
+如果 `--scene asset` 没有传入 `--asset`，viewer 默认查找：
+
+```text
+Computer Graphics Archive\CornellBox\CornellBox-Original.obj
+```
+
+Viewer 参数：
+
+```text
+--scene builtin|asset
+--asset path\to\scene.obj
+--mode raster|ray|path
+--width integer
+--height integer
+--frames integer
+--path-backend auto|cpu|cuda
+--help
+```
+
+### 参数面板
+
+Dear ImGui 面板提供：
+
+- Raster/Ray/Path 模式，以及 Path CPU/CUDA/Auto 后端。
+- Ray 最大深度、CPU 线程数、tile size 和 25%～100% 内部渲染比例。
+- Path 累积暂停、继续、清零，以及 spp、FPS 和帧耗时显示。
+- Orbit/Free 相机、FOV、轨道距离、移动速度和相机复位。
+- 环境光、方向光和点光的 HDR 参数，以及灯光添加和删除。
+- `-8～+8 EV` 曝光和 None/Reinhard/ACES tone mapping。
+- 75%～200% UI 字体大小和一键恢复默认大小。
+
+曝光、tone mapping 和 UI 字体大小只改变显示，不清空 Path 累积；相机、灯光和渲染尺寸变化会清空累积。UI 不会写入线性 framebuffer，也不会混入 Path 样本。
+
+### 操作
+
+- `Tab`：显示或隐藏参数面板。
+- `C`：切换 Orbit/Free 相机。
+- Orbit：鼠标左键拖动旋转，滚轮缩放。
+- Free：在画面区域按住鼠标右键观察；`W/A/S/D` 移动，`Space` 上升，左右 `Shift` 下降。
+- `1` / `2` / `3`：切换 raster / ray / path。
+- `R`：清空当前累积。
+- `Esc`：退出。
+
+ImGui 捕获鼠标或键盘时，相机和渲染热键不会抢占输入。面板状态仅在当前会话有效，不生成 `imgui.ini`。
 
 ## 离线渲染
 
 ```powershell
-.\build\bin\renderer.exe --mode raster --scene raster_triangle --width 512 --height 512 --output output\raster_triangle.png
-.\build\bin\renderer.exe --mode ray --scene mirror_spheres --width 512 --height 512 --output output\mirror_spheres.png
-.\build\bin\renderer.exe --mode path --scene cornell_box --width 512 --height 512 --spp 32 --output output\cornell_box.png
+.\build\default\bin\renderer.exe --mode raster --scene raster_triangle --width 512 --height 512 --output output\raster_triangle.png
+.\build\default\bin\renderer.exe --mode ray --scene mirror_spheres --width 512 --height 512 --output output\mirror_spheres.png
+.\build\default\bin\renderer.exe --mode path --scene cornell_box --width 512 --height 512 --spp 32 --path-backend auto --output output\cornell_box.png
 ```
 
-OBJ 离线查看器示例：
+OBJ 示例：
 
 ```powershell
-.\build\bin\renderer.exe --mode raster --scene obj_viewer --obj path\to\model.obj --width 512 --height 512 --output output\obj_viewer.png
+.\build\default\bin\renderer.exe --mode raster --scene obj_viewer --obj path\to\model.obj --width 512 --height 512 --output output\obj_viewer.png
 ```
 
-Mary 和 Sponza 示例：
-
-```powershell
-.\build\bin\viewer.exe --scene asset --asset "Computer Graphics Archive\mary\Marry.obj" --mode path --width 1920 --height 1080
-.\build\bin\viewer.exe --scene asset --asset "Computer Graphics Archive\sponza\sponza.obj" --mode raster --width 1280 --height 720
-```
-
-CLI 参数：
+Renderer 参数：
 
 ```text
 --mode raster|ray|path
@@ -61,181 +137,103 @@ CLI 参数：
 --width integer
 --height integer
 --spp integer
---max-depth integer  # 仅控制 Whitted 光线追踪的反弹深度
+--max-depth integer
 --threads integer
+--path-backend auto|cpu|cuda
 --output path\to\file.png
 --help
 ```
 
-## 交互窗口
+`auto` 会在已编译 CUDA 且检测到设备时选择 CUDA，否则提示并回退 CPU；`cuda` 不可用时明确报错；`cpu` 强制使用多线程 CPU 后端。离线 raster/ray 不接受显式 `--path-backend`。
 
-启动内置 Cornell Box：
+## 渲染管线
 
-```powershell
-.\build\bin\viewer.exe --scene builtin --mode raster --width 960 --height 540
-```
+| 模式 | 执行后端 | 当前能力 |
+| --- | --- | --- |
+| `raster` | CPU | 近面裁剪、透视正确插值、深度缓冲、平滑/bump 法线、alpha cutout、Lambert、Blinn-Phong |
+| `ray` | CPU | BVH、球/三角形求交、alpha-aware 硬阴影、平滑/bump 法线、镜面反射、介质折射 |
+| `path` | CPU/CUDA | 渐进累积、点光/方向光直接照明、漫反射半球采样、金属粗糙反射、介质反射/折射、自发光材质、Russian roulette |
 
-启动 Computer Graphics Archive 的 CornellBox：
+CUDA 后端处理球、三角形、CPU 构建并上传的扁平 BVH、OBJ/纹理、alpha cutout、bump、现有材质与灯光；每次 kernel launch 为每个像素推进一个 sample。灯光变化只更新灯光数据，不重新上传几何、纹理或 BVH。
 
-```powershell
-.\build\bin\viewer.exe --scene asset --asset "Computer Graphics Archive\CornellBox\CornellBox-Original.obj" --mode path --width 960 --height 540
-```
+## OBJ/MTL 支持
 
-如果 `--scene asset` 没有指定 `--asset`，viewer 会默认查找：
-
-```text
-Computer Graphics Archive\CornellBox\CornellBox-Original.obj
-```
-
-交互控制：
-
-- 鼠标左键拖动：轨道相机旋转。
-- 鼠标滚轮：缩放。
-- `1`: 切换到 raster。
-- `2`: 切换到 ray。
-- `3`: 切换到 path。
-- `R`: 重置当前渲染累积。
-- `Esc`: 退出。
-
-标题栏示例：
-
-```text
-CPU 3D Renderer Viewer - path - 12.3 FPS - 81.2 ms - 24 spp
-```
-
-## 场景资源
-
-Computer Graphics Archive 这类资源包不提交到仓库。手动下载后放在项目根目录，例如：
-
-```text
-D:\Github\3drenderer\Computer Graphics Archive\CornellBox\CornellBox-Original.obj
-```
-
-仓库会忽略 `Computer Graphics Archive/`，避免误提交大型素材目录。
-
-## 渲染模式
-
-- `raster`: 手写 CPU 光栅化器，包含近面裁剪、透视正确属性插值、深度缓冲、平滑/bump 法线、alpha cutout、Lambert 和 Blinn-Phong 光照。
-- `ray`: Whitted 风格光线追踪器，支持球和三角形求交、BVH、alpha-aware 硬阴影、平滑/bump 法线、镜面反射和介质折射。
-- `path`: 基础 Monte Carlo 路径追踪器，支持 tile 多线程、像素内抖动采样、渐进累积、点光/方向光直接照明、漫反射半球采样、金属粗糙反射、介质反射/折射、自发光材质和基于路径吞吐量的 Russian roulette。
-
-## OBJ/MTL 表面支持
-
-- `vn`: 按重心坐标插值顶点法线；缺失或退化时回退到几何法线。
-- `Kd`、`map_Kd`: 漫反射基色；颜色纹理从 sRGB 解码到线性空间。
-- `d`、`Tr`、`map_d`: alpha cutout；常量与线性 opacity 纹理相乘。
-- `bump`、`map_bump`: 线性高度图，通过 UV 导数构建的 TBN 扰动着色法线。
+- `vn`：插值顶点法线；缺失或退化时回退到几何法线。
+- `Kd`、`map_Kd`：漫反射基色；颜色纹理由 sRGB 解码到线性空间。
+- `d`、`Tr`、`map_d`：alpha cutout；常量 opacity 与线性 opacity 纹理相乘。
+- `illum 4/6/7/9`：映射为折射/玻璃材质；普通材质的默认 `Tf 1 1 1` 不会单独触发透明。
+- `bump`、`map_bump`：线性高度图，通过 UV 导数构建 TBN 并扰动着色法线。
 - OBJ 导入材质默认双面着色；几何法线和着色法线分离，次级光线使用几何法线偏移。
-- 可选纹理缺失或解码失败时输出 warning 并回退到常量材质；结构损坏的 OBJ 仍明确报错退出。
+- 可选纹理缺失或解码失败时警告并回退到常量材质；损坏的 OBJ 会明确报错。
 
-## 现代 PBR 材质路线图
+大型场景资源不提交到仓库。可将 Computer Graphics Archive 等资源包放在项目根目录的 `Computer Graphics Archive/` 中，该目录已被 Git 忽略。
 
-当前材质系统还是教学用的简化模型：`Diffuse`、`Metal`、`Dielectric`、`Emissive` 加少量 OBJ/MTL 参数。要支持现代 PBR 材质，需要逐步补齐下面这些能力：
+## 构建细节
 
-- 资产格式：优先支持 glTF 2.0 的 metallic-roughness 工作流，再兼容 OBJ/MTL 的 PBR 扩展字段，例如 `Pr`、`Pm`、`map_Pr`、`map_Pm`、`norm`、`map_Ke`。glTF 更适合作为现代 PBR 的主格式，因为它明确规定了贴图通道、颜色空间、alpha 模式和材质参数含义。
-- 材质数据结构：把当前 `Material` 扩展成 PBR 参数集，包括 base color、metallic、roughness、normal、occlusion、emissive、alpha mode、alpha cutoff、ior、transmission、clearcoat 等字段。第一阶段可以只做 base color、metallic、roughness、normal、emissive 和 alpha cutout。
-- 贴图系统：当前已经区分 sRGB 颜色纹理与线性数据纹理；后续还需支持多 UV set、独立 wrap/filter、UV transform、mipmap 和各向异性过滤。emissive 通常按 sRGB 读取，normal/roughness/metallic/occlusion 必须保持线性数据。
-- 几何属性：当前保存 OBJ 顶点 normal 和 UV，并能从三角形 UV 导数建立 bump 所需 TBN。normal map 仍需要更可靠的 tangent 生成，后续可对齐 MikkTSpace 规则并支持 glTF tangent 和多套 UV。
-- 着色模型：实现基于微表面的 BRDF，例如 GGX/Trowbridge-Reitz 法线分布、Smith 几何遮蔽、Fresnel-Schlick、能量守恒的 diffuse/specular 混合。raster/ray/path 三条管线都应通过同一个材质评估接口取样和求值。
-- 路径追踪采样：当前点光与方向光已经做显式直接采样，长路径使用 Russian roulette 终止；PBR 还需要 BSDF sample/pdf/evaluate 三件套、面积光与环境光采样和 MIS，否则粗糙金属、室内间接光和小面积光源仍会很难收敛。
-- Alpha 与透明：当前三个渲染器均支持 alpha cutout，ray/path 会跳过透明命中并继续追踪。后续再考虑 alpha blend、折射 transmission、薄表面和体积吸收。
-- 色彩与输出：补齐线性工作流、HDR framebuffer、tone mapping、曝光、白平衡和 sRGB 输出转换。PBR 结果是否可信，很大一部分取决于颜色空间是否正确。
-- 测试与参考：加入小型 glTF/OBJ PBR fixture，分别覆盖 base color、metallic/roughness、normal、emissive、alpha cutout 和纹理颜色空间；再用 Khronos glTF sample models 或自制参考图做视觉回归。
+### CMake 选项
 
-## 学习顺序
+| 选项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `RENDERER_CUDA` | `AUTO` | `AUTO`、`ON` 或 `OFF`；控制 CUDA Path 后端是否参与构建 |
+| `CMAKE_CUDA_ARCHITECTURES` | `120` | 未显式指定时使用的 CUDA 目标架构 |
+| `RENDERER_NATIVE_ARCH` | `OFF` | MSVC 使用 `/arch:AVX2`，其他编译器使用 `-march=native`；仅作用于项目自有目标 |
 
-1. `src/core/math`: 向量、矩阵、射线、AABB。
-2. `src/scene`: 材质、光源、球、三角形、相机、内置场景和 OBJ/MTL 场景加载。
-3. `src/acceleration/bvh.*`: BVH 构建与遍历。
-4. `src/render/rasterizer`: 软件光栅化管线。
-5. `src/render/raytracer`: Whitted 光线追踪。
-6. `src/render/pathtracer`: Monte Carlo 路径追踪。
-7. `src/render/interactive`: raster/ray/path 的交互式渲染 session。
-8. `src/interactive`: 轨道相机和 FPS 统计等交互辅助逻辑。
-9. `src/platform/sdl`: SDL3 窗口、输入和 CPU framebuffer 显示。
-10. `src/main.cpp` 与 `src/viewer_main.cpp`: 离线 CLI 和实时 viewer 入口。
-
-## 当前限制
-
-- 光栅化已支持近面三角形裁剪，但还没有通用六平面齐次裁剪、MSAA 或 mipmap。
-- 路径追踪只对点光和方向光做显式直接采样；还没有面积光/环境光重要性采样、MIS、降噪或 PBR 微表面模型。
-- 实时 path 模式已经能渐进累积，但低 spp 下噪声很重，帧率也取决于分辨率、场景复杂度和 CPU。
-- OBJ/MTL 已支持 `vn`、`map_Kd`、`d/Tr/map_d` 和 `bump/map_bump`；还没有 tangent-space normal map、alpha blend、metallic/roughness、occlusion 或 emissive 贴图解析。
-- Bump 采用逐像素高度有限差分，没有 mipmap，远距离或高频高度图可能出现走样。
-- 当前 UI 只有窗口标题栏 FPS 和键盘热键，还没有 ImGui 风格的画面内参数面板。
-
-## Eigen float 架构与构建模式
-
-项目自有渲染器的数学边界位于 `src/core/math/types.h`：
-
-- `Vec2`、`Vec3` 和 `Vec4` 分别是 Eigen `Vector2f`、`Vector3f` 和
-  `Vector4f` 的别名；`Mat4` 是 Eigen `Matrix4f` 的别名。
-- 渲染器的几何、变换、颜色、采样、光栅化、光线追踪、路径追踪和交互状态均使用
-  Eigen 原生运算与 `float` 标量。
-- `RENDERER_NATIVE_ARCH=OFF` 是默认的可移植配置。设为 `ON` 时，MSVC 会为四个
-  项目自有目标启用 `/arch:AVX2`，其他编译器则启用 `-march=native`。该选项不会
-  重新配置 Eigen，也不会影响第三方目标。
-
-可移植 Release 构建与测试：
+本机 CPU 性能测试可按需创建第四个临时构建树；它仍位于统一的 `build/` 目录中：
 
 ```powershell
-cmake -S . -B build-portable -DRENDERER_NATIVE_ARCH=OFF
-cmake --build build-portable --config Release --parallel 2
-ctest --test-dir build-portable -C Release --output-on-failure
+cmake -S . -B build/native -DRENDERER_CUDA=OFF -DRENDERER_NATIVE_ARCH=ON
+cmake --build build/native --config Release --parallel 4
+ctest --test-dir build/native -C Release --output-on-failure
 ```
 
-本机优化 Release 构建与测试：
+个人机器专用配置可写在不会提交的 `CMakeUserPresets.json` 中。
+
+### 依赖
+
+- Eigen 3.4.0：优先使用本机 CMake package，找不到时通过 FetchContent 获取。
+- SDL 3.2.30：优先使用本机 CMake package，找不到时通过 FetchContent 获取。
+- Dear ImGui 1.92.8：通过 FetchContent 固定版本，仅链接到 `viewer`。
+- stb：读取纹理并写入 PNG。
+- tinyobjloader：解析 OBJ/MTL 并三角化。
+
+若要复用手动准备的 SDL3 源码，可在配置时传入绝对路径，不要把机器路径写进 `CMakeLists.txt`：
 
 ```powershell
-cmake -S . -B build-native -DRENDERER_NATIVE_ARCH=ON
-cmake --build build-native --config Release --parallel 2
-ctest --test-dir build-native -C Release --output-on-failure
+cmake --preset default "-DFETCHCONTENT_SOURCE_DIR_SDL3=D:/path/to/SDL"
 ```
 
-如果配置时需要使用本地 SDL3 源码缓存，请在命令行中通过
-`-DFETCHCONTENT_SOURCE_DIR_SDL3=...` 传入其绝对路径。不要在 `CMakeLists.txt`
-中写入特定机器的依赖路径。
+## 项目结构
 
-```powershell
-$sdl3 = (Resolve-Path ".\build\_deps\sdl3-src").Path
-
-cmake -S . -B build-native `
-  -DRENDERER_NATIVE_ARCH=ON `
-  "-DFETCHCONTENT_SOURCE_DIR_SDL3=$sdl3"
-
-cmake --build build-native --config Release --parallel 2
+```text
+src/core/                 图像、数学与基础数据
+src/scene/                相机、几何、材质、纹理与场景加载
+src/acceleration/         BVH 构建与遍历
+src/render/rasterizer/    软件光栅化
+src/render/raytracer/     Whitted 光线追踪
+src/render/pathtracer/    CPU/CUDA 路径追踪
+src/render/interactive/   交互式渲染 session
+src/interactive/          相机控制、统计和 ImGui 面板
+src/platform/sdl/         SDL3 窗口、输入与 framebuffer 显示
+tests/                    自动化测试
+docs/                     设计、计划、实现说明和验证结果
 ```
 
-## Eigen 迁移验证结果
+推荐按 `core → scene → acceleration → rasterizer/raytracer/pathtracer → interactive → platform` 的顺序阅读。
 
-本机优化 Release 基准测试采用渲染器报告的秒数；每条命令先预热一次，再测量五次。
-测试设备为 AMD Ryzen 7 9800X3D，比较对象是已经提交的 double 基线：
+## 当前限制与路线图
 
-在源码提交 `b7cd8ff` 上进行的最初历史测量中，Mary path 本机优化版本的中位数为
-`0.1315030s`，比 double 基线慢 `23.284%`。这个非最终结果超过 5% 的限制，因此
-触发了性能分析。下表是提交 `476a0bc` 完成针对性修复后的最终测量结果。
+- Raster 尚无通用六平面齐次裁剪、MSAA 和 mipmap。
+- Path 尚无面积光/环境光重要性采样、MIS、降噪和 PBR 微表面模型；低 spp 噪声仍然明显。
+- OBJ/MTL 尚无 tangent-space normal map、alpha blend、metallic/roughness、occlusion 和 emissive 贴图解析。
+- Bump 使用逐像素高度有限差分且没有 mipmap，远距离或高频高度图可能走样。
+- 参数面板尚无逐材质编辑、预设持久化、docking 或多窗口。
 
-| 场景 / 模式 | Double 中位数（秒） | 本机优化样本（秒） | 本机优化中位数（秒） | 变化 |
-| --- | ---: | ---: | ---: | ---: |
-| Mary / raster | 0.0675227 | 0.0580001, 0.0570466, 0.0550683, 0.0552859, 0.0570032 | 0.0570032 | -15.579% |
-| Mary / path | 0.1066670 | 0.0963786, 0.0959811, 0.0967750, 0.0957497, 0.0951254 | 0.0959811 | -10.018% |
-| Sponza / raster | 0.0967525 | 0.0793640, 0.0793388, 0.0781508, 0.0796694, 0.0783349 | 0.0793388 | -17.998% |
-| Cornell box / path | 0.2505130 | 0.182832, 0.181961, 0.188832, 0.187693, 0.186658 | 0.1866580 | -25.490% |
+更完整的后续材质计划见 [现代 PBR 材质路线图](docs/pbr-roadmap.md)。
 
-本机优化版本按基线尺寸生成了 `output/eigen_float_*.png` 以进行视觉验证：Mary 的
-raster/path 图像保持平滑并带有纹理，Sponza 保留了漫反射砖墙纹理和凹凸细节，Cornell
-保留了发光面板和彩色墙壁。四张 PNG 均能解码为有效的 8 位通道，受光覆盖率非零，且
-未发现洋红色回退像素或新的三角形绕序裂缝。由于输出转换会处理非有限值，仅成功解码
-PNG 不能证明渲染器内部的浮点数全部有限。在量化之前，自动化渲染测试会对 raster、ray
-和 path 图像执行 `image_colors_are_finite`，并对相应的交互式帧缓冲执行
-`framebuffer_colors_are_finite`。低采样数 path 图像中的噪点在基线版本中同样存在。
-完整验证证据和命令见 `docs/output/eigen-float-migration-results.md`。
+## 设计与验证文档
 
-ETW 分析将最初 Mary path 的性能下降定位到 BVH 遍历栈：每条光线都会为这个动态增长
-的栈分配内存。提交 `476a0bc` 在保持子节点压栈顺序和遍历行为不变的前提下，将它替换
-为局部固定容量数组。这只是一次针对性的内存分配消除，并不代表进行了更广泛的渲染器
-优化。
-
-这个 CPU 后端不会使用 RTX 5080，也没有 CUDA 路径或 RT Core 集成。后续切实可行的
-优化方向包括降低路径采样方差、改进 BVH 与纹理/凹凸预处理、优化工作线程调度，以及在
-性能分析之后开展经过测量的 SIMD 或运行时指令分派工作。这些内容不属于本次迁移范围。
+- [像素生命周期](docs/render-pixel-lifecycle.md)
+- [交互 Viewer 设计](docs/specs/2026-07-07-interactive-viewer-design.md)
+- [表面与材质正确性设计](docs/specs/2026-07-10-surface-material-correctness-design.md)
+- [Eigen float 迁移结果](docs/output/eigen-float-migration-results.md)
+- [CUDA Path Tracer 测试与基准](docs/output/cuda-pathtracer-results.md)

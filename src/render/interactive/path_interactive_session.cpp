@@ -1,12 +1,26 @@
 #include "render/interactive/path_interactive_session.h"
 
+#include "render/pathtracer/path_backend.h"
+
 #include <algorithm>
 #include <cstdint>
 
 namespace renderer {
 
 void PathInteractiveSession::reset(const Scene& scene, const RenderSettings& settings) {
-    (void)scene;
+    requested_backend_ = settings.path_backend;
+    active_backend_ = resolve_path_backend(settings.path_backend);
+    if (active_backend_ == ExecutionBackend::Cuda) {
+        if (!cuda_renderer_) {
+            cuda_renderer_ = std::make_unique<CudaPathInteractiveRenderer>();
+        }
+        cuda_renderer_->reset(scene, settings);
+        accumulated_samples_ = 0;
+        width_ = settings.width;
+        height_ = settings.height;
+        return;
+    }
+    cuda_renderer_.reset();
     reset_accumulation(settings.width, settings.height);
 }
 
@@ -16,10 +30,22 @@ void PathInteractiveSession::render_next_frame(
     const RenderSettings& settings,
     const InteractiveFrameState& frame_state,
     Framebuffer& target) {
+    if (settings.path_backend != requested_backend_) {
+        reset(scene, settings);
+    }
+    if (active_backend_ == ExecutionBackend::Cuda) {
+        cuda_renderer_->render_next_frame(scene, camera, settings, frame_state, target);
+        accumulated_samples_ = cuda_renderer_->accumulated_samples();
+        width_ = settings.width;
+        height_ = settings.height;
+        return;
+    }
+
     const bool dimensions_changed = settings.width != width_ || settings.height != height_;
     if (dimensions_changed ||
         frame_state.camera_changed ||
         frame_state.scene_changed ||
+        frame_state.lighting_changed ||
         frame_state.framebuffer_resized ||
         frame_state.reset_requested) {
         reset_accumulation(settings.width, settings.height);
@@ -50,6 +76,10 @@ void PathInteractiveSession::render_next_frame(
 
 int PathInteractiveSession::accumulated_samples() const {
     return accumulated_samples_;
+}
+
+ExecutionBackend PathInteractiveSession::active_backend() const {
+    return active_backend_;
 }
 
 void PathInteractiveSession::reset_accumulation(int width, int height) {

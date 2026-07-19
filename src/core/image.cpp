@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -41,6 +42,13 @@ int Image::height() const {
 
 void Image::set_pixel(int x, int y, const Color& color) {
     pixels_[static_cast<std::size_t>(index(x, y))] = color;
+}
+
+void Image::set_pixels(std::vector<Color> pixels) {
+    if (pixels.size() != pixels_.size()) {
+        throw std::invalid_argument("Image pixel count does not match dimensions");
+    }
+    pixels_ = std::move(pixels);
 }
 
 const Color& Image::pixel(int x, int y) const {

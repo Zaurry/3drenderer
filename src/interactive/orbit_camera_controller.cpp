@@ -25,11 +25,43 @@ OrbitCameraController::OrbitCameraController(const Bounds3& bounds, float aspect
     pitch_ = 0.12f;
 }
 
+void OrbitCameraController::set_camera(const Camera& camera) {
+    target_ = camera.eye() + camera.forward() * distance_;
+    const Vec3 offset = -camera.forward();
+    pitch_ = std::asin(std::clamp(offset.y(), -1.0f, 1.0f));
+    pitch_ = std::clamp(pitch_, kMinPitch, kMaxPitch);
+    yaw_ = std::atan2(offset.x(), offset.z());
+}
+
 void OrbitCameraController::set_aspect_ratio(float aspect_ratio) {
     if (!std::isfinite(aspect_ratio) || aspect_ratio <= 0.0f) {
         throw std::invalid_argument("OrbitCameraController aspect ratio must be positive");
     }
     aspect_ratio_ = aspect_ratio;
+}
+
+void OrbitCameraController::set_vertical_fov_degrees(float vertical_fov_degrees) {
+    if (!std::isfinite(vertical_fov_degrees) ||
+        vertical_fov_degrees <= 0.0f ||
+        vertical_fov_degrees >= 180.0f) {
+        throw std::invalid_argument("OrbitCameraController vertical FOV must be in the range (0, 180)");
+    }
+    vertical_fov_degrees_ = vertical_fov_degrees;
+}
+
+float OrbitCameraController::vertical_fov_degrees() const {
+    return vertical_fov_degrees_;
+}
+
+void OrbitCameraController::set_distance(float distance) {
+    if (!std::isfinite(distance) || distance < kMinDistance) {
+        throw std::invalid_argument("OrbitCameraController distance must be finite and positive");
+    }
+    distance_ = distance;
+}
+
+float OrbitCameraController::distance() const {
+    return distance_;
 }
 
 void OrbitCameraController::orbit(float delta_x, float delta_y) {

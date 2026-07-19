@@ -7,9 +7,15 @@
 
 namespace renderer {
 
+enum class ExecutionBackend {
+    Cpu,
+    Cuda
+};
+
 struct RenderResult {
     Image image;
     float seconds = 0.0f;
+    ExecutionBackend backend = ExecutionBackend::Cpu;
 };
 
 class IRenderer {

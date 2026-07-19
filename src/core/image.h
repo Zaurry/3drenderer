@@ -15,6 +15,7 @@ public:
     int height() const;
 
     void set_pixel(int x, int y, const Color& color);
+    void set_pixels(std::vector<Color> pixels);
     const Color& pixel(int x, int y) const;
     Rgb8 pixel_rgb8(int x, int y) const;
     bool write_png(const std::string& path) const;

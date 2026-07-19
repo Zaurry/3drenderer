@@ -50,6 +50,7 @@ public:
     Color sample(const Vec2& uv) const;
     float sample_scalar(const Vec2& uv) const;
     Vec2 texel_size() const;
+    const std::vector<Color>& pixels() const;
 
 private:
     int width_ = 0;

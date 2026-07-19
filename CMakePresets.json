@@ -1,0 +1,110 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "RENDERER_NATIVE_ARCH": "OFF"
+      }
+    },
+    {
+      "name": "default",
+      "displayName": "Default (CUDA Auto)",
+      "description": "Daily development build; enables CUDA when a compiler is available.",
+      "inherits": "base",
+      "cacheVariables": {
+        "RENDERER_CUDA": "AUTO"
+      }
+    },
+    {
+      "name": "cpu",
+      "displayName": "CPU Only",
+      "description": "Disables CUDA for CPU-only development and regression testing.",
+      "inherits": "base",
+      "cacheVariables": {
+        "RENDERER_CUDA": "OFF"
+      }
+    },
+    {
+      "name": "cuda",
+      "displayName": "CUDA Required",
+      "description": "Requires the CUDA toolchain and targets compute capability 12.0.",
+      "inherits": "base",
+      "cacheVariables": {
+        "RENDERER_CUDA": "ON",
+        "CMAKE_CUDA_ARCHITECTURES": "120"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "default-release",
+      "displayName": "Default Release",
+      "configurePreset": "default",
+      "configuration": "Release",
+      "jobs": 4
+    },
+    {
+      "name": "cpu-release",
+      "displayName": "CPU Release",
+      "configurePreset": "cpu",
+      "configuration": "Release",
+      "jobs": 4
+    },
+    {
+      "name": "cuda-release",
+      "displayName": "CUDA Release",
+      "configurePreset": "cuda",
+      "configuration": "Release",
+      "jobs": 4
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "default-release",
+      "displayName": "Test Default Release",
+      "configurePreset": "default",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "jobs": 4,
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "cpu-release",
+      "displayName": "Test CPU Release",
+      "configurePreset": "cpu",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "jobs": 4,
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "cuda-release",
+      "displayName": "Test CUDA Release",
+      "configurePreset": "cuda",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "jobs": 4,
+        "noTestsAction": "error"
+      }
+    }
+  ]
+}

@@ -6,6 +6,12 @@
 #endif
 
 #define TINYOBJLOADER_DISABLE_FAST_FLOAT
+// The San Miguel OBJ files are 599 MiB and 1.06 GiB, respectively.  Keep a
+// finite parser limit, but make it large enough for those assets and map files
+// instead of copying the complete text into a second in-memory buffer.
+#define TINYOBJLOADER_STREAM_READER_MAX_BYTES \
+    (size_t(2) * size_t(1024) * size_t(1024) * size_t(1024))
+#define TINYOBJLOADER_USE_MMAP
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
 

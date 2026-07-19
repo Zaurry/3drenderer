@@ -133,6 +133,10 @@ Vec2 ImageTexture::texel_size() const {
     return Vec2(1.0f / static_cast<float>(width_), 1.0f / static_cast<float>(height_));
 }
 
+const std::vector<Color>& ImageTexture::pixels() const {
+    return pixels_;
+}
+
 const Color& ImageTexture::pixel(int x, int y) const {
     return pixels_[static_cast<std::size_t>(y * width_ + x)];
 }

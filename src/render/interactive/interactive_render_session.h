@@ -16,6 +16,7 @@ enum class InteractiveRenderMode {
 struct InteractiveFrameState {
     bool camera_changed = false;
     bool scene_changed = false;
+    bool lighting_changed = false;
     bool framebuffer_resized = false;
     bool reset_requested = false;
     float delta_seconds = 0.0f;

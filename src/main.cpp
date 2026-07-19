@@ -1,4 +1,6 @@
 #include "render/pathtracer/pathtracer_renderer.h"
+#include "render/pathtracer/path_backend.h"
+#include "render/pathtracer/cuda_pathtracer.h"
 #include "render/rasterizer/rasterizer_renderer.h"
 #include "render/raytracer/raytracer_renderer.h"
 #include "scene/scene_asset_loader.h"
@@ -28,6 +30,8 @@ struct CliOptions {
     int samples_per_pixel = 1;
     int max_depth = 5;
     int thread_count = 0;
+    renderer::PathBackend path_backend = renderer::PathBackend::Auto;
+    bool path_backend_specified = false;
     bool help = false;
 };
 
@@ -45,6 +49,7 @@ void print_help() {
         << "  --spp integer       samples per pixel, default 1\n"
         << "  --max-depth integer Whitted ray bounce depth, default 5\n"
         << "  --threads integer   path tracer worker threads, default hardware threads\n"
+        << "  --path-backend auto|cpu|cuda  path execution backend, default auto\n"
         << "  --help              show this help\n";
 }
 
@@ -92,6 +97,9 @@ CliOptions parse_args(int argc, char** argv) {
             options.max_depth = parse_positive_int(require_value(argc, argv, i, arg), arg);
         } else if (arg == "--threads") {
             options.thread_count = parse_positive_int(require_value(argc, argv, i, arg), arg);
+        } else if (arg == "--path-backend") {
+            options.path_backend = renderer::parse_path_backend(require_value(argc, argv, i, arg));
+            options.path_backend_specified = true;
         } else if (arg == "--output") {
             options.output_path = require_value(argc, argv, i, arg);
         } else {
@@ -101,6 +109,9 @@ CliOptions parse_args(int argc, char** argv) {
 
     if (!options.help && options.output_path.empty()) {
         throw std::invalid_argument("--output is required");
+    }
+    if (options.path_backend_specified && options.mode != "path") {
+        throw std::invalid_argument("--path-backend is only valid with --mode path");
     }
     return options;
 }
@@ -199,6 +210,7 @@ renderer::RenderSettings make_settings(const CliOptions& options) {
     settings.samples_per_pixel = options.samples_per_pixel;
     settings.max_depth = options.max_depth;
     settings.thread_count = options.thread_count;
+    settings.path_backend = options.path_backend;
     return settings;
 }
 
@@ -213,6 +225,13 @@ int main(int argc, char** argv) {
         }
 
         SceneBundle bundle = make_scene_bundle(options);
+        if (options.mode == "path" && options.path_backend == renderer::PathBackend::Auto) {
+            std::string reason;
+            if (!renderer::cuda_path_backend_available(&reason)) {
+                std::cerr << "warning: CUDA path backend unavailable, using CPU: "
+                          << reason << '\n';
+            }
+        }
         std::unique_ptr<renderer::IRenderer> renderer_instance = make_renderer(options.mode);
         const renderer::RenderSettings settings = make_settings(options);
         const renderer::RenderResult result =
@@ -228,6 +247,9 @@ int main(int argc, char** argv) {
                   << " spp=" << settings.samples_per_pixel;
         if (options.mode == "ray") {
             std::cout << " max_depth=" << settings.max_depth;
+        }
+        if (options.mode == "path") {
+            std::cout << " backend=" << renderer::execution_backend_name(result.backend);
         }
         std::cout << " seconds=" << result.seconds
                   << " output=" << options.output_path << "\n";

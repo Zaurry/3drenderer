@@ -10,8 +10,11 @@
 #include "core/random.h"
 #include "core/timer.h"
 #include "interactive/frame_rate_counter.h"
+#include "interactive/free_camera_controller.h"
 #include "interactive/orbit_camera_controller.h"
+#include "interactive/viewer_ui.h"
 #include "platform/sdl/sdl_display_backend.h"
+#include "render/display_settings.h"
 #include "render/renderer.h"
 #include "render/render_settings.h"
 #include "render/depth_buffer.h"
@@ -21,6 +24,8 @@
 #include "render/interactive/raster_interactive_session.h"
 #include "render/interactive/ray_interactive_session.h"
 #include "render/pathtracer/pathtracer_renderer.h"
+#include "render/pathtracer/cuda_pathtracer.h"
+#include "render/pathtracer/path_backend.h"
 #include "render/rasterizer/raster_geometry.h"
 #include "render/rasterizer/rasterizer_renderer.h"
 #include "render/raytracer/raytracer_renderer.h"
@@ -36,6 +41,7 @@
 #include "scene/texture.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
@@ -392,6 +398,38 @@ void test_image_stores_gamma_corrected_pixels() {
     RENDER_CHECK(pixel.b == 0);
 }
 
+void test_image_and_framebuffer_bulk_pixel_assignment_validates_size() {
+    const std::vector<renderer::Color> pixels{
+        renderer::Color(1.0f, 0.0f, 0.0f),
+        renderer::Color(0.0f, 1.0f, 0.0f)};
+
+    renderer::Image image(2, 1);
+    image.set_pixels(pixels);
+    RENDER_CHECK(nearly_equal(image.pixel(0, 0).x(), 1.0f));
+    RENDER_CHECK(nearly_equal(image.pixel(1, 0).y(), 1.0f));
+
+    renderer::Framebuffer framebuffer(2, 1);
+    framebuffer.set_pixels(pixels);
+    RENDER_CHECK(nearly_equal(framebuffer.pixel(0, 0).x(), 1.0f));
+    RENDER_CHECK(nearly_equal(framebuffer.pixel(1, 0).y(), 1.0f));
+
+    bool image_threw = false;
+    try {
+        image.set_pixels(std::vector<renderer::Color>(1));
+    } catch (const std::invalid_argument&) {
+        image_threw = true;
+    }
+    RENDER_CHECK(image_threw);
+
+    bool framebuffer_threw = false;
+    try {
+        framebuffer.set_pixels(std::vector<renderer::Color>(3));
+    } catch (const std::invalid_argument&) {
+        framebuffer_threw = true;
+    }
+    RENDER_CHECK(framebuffer_threw);
+}
+
 void test_to_rgb8_uses_standard_srgb_transfer_curve() {
     RENDER_CHECK(renderer::channel_to_rgb8(0.0031308f) == 10);
     RENDER_CHECK(renderer::channel_to_rgb8(0.5f) == 188);
@@ -407,6 +445,68 @@ void test_to_rgb8_sanitizes_non_finite_channels() {
     RENDER_CHECK(infinity_pixel.r == 255);
 }
 
+void test_display_settings_apply_exposure_and_tone_mapping() {
+    const renderer::Color source(0.25f, 0.5f, 2.0f);
+    const renderer::DisplaySettings defaults;
+    const renderer::Rgb8 default_pixel = renderer::to_display_rgb8(source, defaults);
+    const renderer::Rgb8 legacy_pixel = renderer::to_rgb8(source);
+    RENDER_CHECK(default_pixel.r == legacy_pixel.r);
+    RENDER_CHECK(default_pixel.g == legacy_pixel.g);
+    RENDER_CHECK(default_pixel.b == legacy_pixel.b);
+
+    renderer::DisplaySettings exposed;
+    exposed.exposure_ev = 1.0f;
+    const renderer::Color doubled = renderer::apply_display_transform(source, exposed);
+    RENDER_CHECK((doubled - source * 2.0f).cwiseAbs().maxCoeff() < 1e-6f);
+
+    renderer::DisplaySettings reinhard;
+    reinhard.tone_mapper = renderer::ToneMapper::Reinhard;
+    const renderer::Color reinhard_value = renderer::apply_display_transform(
+        renderer::Color::Constant(3.0f),
+        reinhard);
+    RENDER_CHECK((reinhard_value - renderer::Color::Constant(0.75f)).cwiseAbs().maxCoeff() < 1e-6f);
+
+    renderer::DisplaySettings aces;
+    aces.exposure_ev = 3.0f;
+    aces.tone_mapper = renderer::ToneMapper::Aces;
+    const renderer::Color aces_value = renderer::apply_display_transform(
+        renderer::Color(0.0f, 1.0f, 10000.0f),
+        aces);
+    RENDER_CHECK(aces_value.allFinite());
+    RENDER_CHECK(aces_value.minCoeff() >= 0.0f);
+    RENDER_CHECK(aces_value.maxCoeff() <= 1.0f);
+
+    renderer::Framebuffer framebuffer(1, 1);
+    framebuffer.set_pixel(0, 0, renderer::Color::Constant(0.25f));
+    const std::vector<std::uint8_t> original = framebuffer.to_rgba8();
+    const std::vector<std::uint8_t> brighter = framebuffer.to_rgba8(exposed);
+    RENDER_CHECK(original.size() == 4);
+    RENDER_CHECK(brighter.size() == 4);
+    RENDER_CHECK(brighter[0] > original[0]);
+    RENDER_CHECK(brighter[3] == 255);
+}
+
+void test_viewer_ui_actions_classify_path_resets() {
+    renderer::ViewerUiActions actions;
+    actions.display_changed = true;
+    RENDER_CHECK(!actions.resets_path_accumulation());
+    actions = renderer::ViewerUiActions{};
+    actions.ui_style_changed = true;
+    RENDER_CHECK(!actions.resets_path_accumulation());
+
+    actions.lighting_changed = true;
+    RENDER_CHECK(actions.resets_path_accumulation());
+    actions = renderer::ViewerUiActions{};
+    actions.camera_parameters_changed = true;
+    RENDER_CHECK(actions.resets_path_accumulation());
+    actions = renderer::ViewerUiActions{};
+    actions.render_scale_changed = true;
+    RENDER_CHECK(actions.resets_path_accumulation());
+    actions = renderer::ViewerUiActions{};
+    actions.path_backend_changed = true;
+    RENDER_CHECK(actions.resets_path_accumulation());
+}
+
 void test_orbit_camera_controller_zoom_and_orbit_change_camera() {
     renderer::Bounds3 bounds(renderer::Vec3(-1, 0, -1), renderer::Vec3(1, 2, 1));
     renderer::OrbitCameraController controller(bounds, 1.0f);
@@ -418,6 +518,10 @@ void test_orbit_camera_controller_zoom_and_orbit_change_camera() {
 
     RENDER_CHECK((after.eye() - before.eye()).norm() > 0.001f);
     RENDER_CHECK(after.viewport_width() > 0.0f);
+    controller.set_vertical_fov_degrees(60.0f);
+    controller.set_distance(3.0f);
+    RENDER_CHECK(nearly_equal(controller.vertical_fov_degrees(), 60.0f));
+    RENDER_CHECK(nearly_equal(controller.distance(), 3.0f));
 }
 
 void test_orbit_camera_controller_horizontal_drag_tracks_scene_direction() {
@@ -429,6 +533,83 @@ void test_orbit_camera_controller_horizontal_drag_tracks_scene_direction() {
     const float after_x = controller.camera().eye().x();
 
     RENDER_CHECK(after_x < before_x);
+}
+
+void test_free_camera_controller_looks_and_clamps_pitch() {
+    const renderer::Camera initial(
+        renderer::Vec3::Zero(),
+        -renderer::Vec3::UnitZ(),
+        renderer::Vec3::UnitY(),
+        45.0f,
+        1.0f);
+    renderer::FreeCameraController controller(initial, 1.0f, 2.0f);
+    controller.set_vertical_fov_degrees(65.0f);
+    controller.set_movement_speed(3.5f);
+    RENDER_CHECK(nearly_equal(controller.vertical_fov_degrees(), 65.0f));
+    RENDER_CHECK(nearly_equal(controller.movement_speed(), 3.5f));
+
+    controller.look(10.0f, 0.0f);
+    RENDER_CHECK(controller.camera().forward().x() > 0.09f);
+
+    controller.look(0.0f, -10000.0f);
+    const renderer::Camera pitched = controller.camera();
+    RENDER_CHECK(pitched.forward().y() > 0.99f);
+    RENDER_CHECK(pitched.forward().allFinite());
+    RENDER_CHECK(pitched.right().allFinite());
+
+    controller.set_aspect_ratio(2.0f);
+    const renderer::Camera resized = controller.camera();
+    RENDER_CHECK(nearly_equal(
+        resized.viewport_width() / resized.viewport_height(),
+        2.0f,
+        1e-5f));
+}
+
+void test_free_camera_controller_moves_in_camera_and_world_directions() {
+    const renderer::Camera initial(
+        renderer::Vec3::Zero(),
+        -renderer::Vec3::UnitZ(),
+        renderer::Vec3::UnitY(),
+        45.0f,
+        1.0f);
+    renderer::FreeCameraController controller(initial, 1.0f, 2.0f);
+
+    RENDER_CHECK(controller.move(1.0f, 0.0f, 0.0f, 0.5f));
+    RENDER_CHECK((controller.camera().eye() - renderer::Vec3(0.0f, 0.0f, -1.0f)).norm() < 1e-5f);
+    RENDER_CHECK(controller.move(0.0f, 1.0f, 0.0f, 0.5f));
+    RENDER_CHECK((controller.camera().eye() - renderer::Vec3(1.0f, 0.0f, -1.0f)).norm() < 1e-5f);
+    RENDER_CHECK(controller.move(0.0f, 0.0f, 1.0f, 0.5f));
+    RENDER_CHECK((controller.camera().eye() - renderer::Vec3(1.0f, 1.0f, -1.0f)).norm() < 1e-5f);
+    RENDER_CHECK(controller.move(0.0f, 0.0f, -1.0f, 0.5f));
+    RENDER_CHECK((controller.camera().eye() - renderer::Vec3(1.0f, 0.0f, -1.0f)).norm() < 1e-5f);
+    RENDER_CHECK(!controller.move(0.0f, 0.0f, 0.0f, 1.0f));
+
+    renderer::FreeCameraController diagonal(initial, 1.0f, 2.0f);
+    RENDER_CHECK(diagonal.move(1.0f, 1.0f, 0.0f, 0.5f));
+    RENDER_CHECK(nearly_equal(diagonal.camera().eye().norm(), 1.0f, 1e-5f));
+}
+
+void test_camera_mode_switch_preserves_pose() {
+    const renderer::Bounds3 bounds(
+        renderer::Vec3(-1.0f, 0.0f, -1.0f),
+        renderer::Vec3(1.0f, 2.0f, 1.0f));
+    renderer::OrbitCameraController orbit(bounds, 1.0f);
+    orbit.orbit(25.0f, -10.0f);
+    orbit.zoom(1.0f);
+    const renderer::Camera orbit_pose = orbit.camera();
+
+    renderer::FreeCameraController free_camera(orbit_pose, 1.0f, 1.0f);
+    const renderer::Camera free_pose = free_camera.camera();
+    RENDER_CHECK((free_pose.eye() - orbit_pose.eye()).norm() < 1e-5f);
+    RENDER_CHECK((free_pose.forward() - orbit_pose.forward()).norm() < 1e-5f);
+
+    free_camera.look(12.0f, -7.0f);
+    RENDER_CHECK(free_camera.move(1.0f, -1.0f, 1.0f, 0.25f));
+    const renderer::Camera moved_free_pose = free_camera.camera();
+    orbit.set_camera(moved_free_pose);
+    const renderer::Camera restored_orbit_pose = orbit.camera();
+    RENDER_CHECK((restored_orbit_pose.eye() - moved_free_pose.eye()).norm() < 1e-5f);
+    RENDER_CHECK((restored_orbit_pose.forward() - moved_free_pose.forward()).norm() < 1e-5f);
 }
 
 void test_frame_rate_counter_reports_window_average() {
@@ -1283,6 +1464,7 @@ void test_render_settings_defaults_are_useful() {
     RENDER_CHECK(settings.samples_per_pixel == 1);
     RENDER_CHECK(settings.max_depth == 5);
     RENDER_CHECK(settings.sample_seed_offset == 0);
+    RENDER_CHECK(settings.path_backend == renderer::PathBackend::Auto);
 }
 
 bool image_colors_are_finite(const renderer::Image& image) {
@@ -1531,6 +1713,7 @@ void test_pathtracer_renders_emissive_scene() {
     settings.samples_per_pixel = 2;
     settings.max_depth = 3;
     settings.thread_count = 1;
+    settings.path_backend = renderer::PathBackend::Cpu;
 
     renderer::PathTracerRenderer renderer_instance;
     renderer::RenderResult result = renderer_instance.render(scene, camera, settings);
@@ -1561,7 +1744,9 @@ renderer::Scene make_path_direct_light_scene() {
     return scene;
 }
 
-renderer::Color render_one_path_pixel(const renderer::Scene& scene) {
+renderer::Color render_one_path_pixel(
+    const renderer::Scene& scene,
+    renderer::PathBackend backend = renderer::PathBackend::Cpu) {
     const renderer::Camera camera(
         renderer::Vec3(0.0f, 0.0f, 0.0f),
         renderer::Vec3(0.0f, 0.0f, -1.0f),
@@ -1574,6 +1759,7 @@ renderer::Color render_one_path_pixel(const renderer::Scene& scene) {
     settings.samples_per_pixel = 1;
     settings.max_depth = 1;
     settings.thread_count = 1;
+    settings.path_backend = backend;
     return renderer::PathTracerRenderer().render(scene, camera, settings).image.pixel(0, 0);
 }
 
@@ -1659,6 +1845,7 @@ renderer::Color render_roulette_layer_sample(
     settings.max_depth = max_depth;
     settings.thread_count = 1;
     settings.sample_seed_offset = seed_offset;
+    settings.path_backend = renderer::PathBackend::Cpu;
     return renderer::PathTracerRenderer().render(scene, camera, settings).image.pixel(0, 0);
 }
 
@@ -2125,6 +2312,7 @@ void test_path_interactive_session_matches_direct_samples_and_resets() {
     settings.max_depth = 1;
     settings.thread_count = 1;
     settings.sample_seed_offset = 70;
+    settings.path_backend = renderer::PathBackend::Cpu;
     renderer::Framebuffer framebuffer(settings.width, settings.height);
     renderer::InteractiveFrameState frame_state;
     constexpr float accumulation_tolerance = 1e-6f;
@@ -2178,6 +2366,11 @@ void test_path_interactive_session_matches_direct_samples_and_resets() {
         accumulated_before_reset,
         framebuffer,
         reset_difference_tolerance));
+    RENDER_CHECK(path.accumulated_samples() == 1);
+
+    frame_state = renderer::InteractiveFrameState{};
+    frame_state.lighting_changed = true;
+    path.render_next_frame(scene, changed_camera, settings, frame_state, framebuffer);
     RENDER_CHECK(path.accumulated_samples() == 1);
 }
 
@@ -2470,6 +2663,388 @@ void test_scene_asset_loader_preserves_obj_mtl_materials() {
     std::remove(mtl_path.c_str());
 }
 
+void test_scene_asset_loader_does_not_treat_default_tf_as_transmission() {
+    const std::string obj_path = "test_tf_materials.obj";
+    const std::string mtl_path = "test_tf_materials.mtl";
+    {
+        std::ofstream mtl(mtl_path);
+        mtl << "newmtl opaque\nKd 0.8 0.7 0.6\nKs 0 0 0\nd 1\nTf 1 1 1\nillum 2\n";
+        for (const int illum : {4, 6, 7, 9}) {
+            mtl << "newmtl glass" << illum << "\n";
+            mtl << "Kd 0.1 0.1 0.1\nKs 0 0 0\nd 1\nTf 0.7 0.8 0.9\n";
+            mtl << "illum " << illum << "\n";
+        }
+    }
+    {
+        std::ofstream obj(obj_path);
+        obj << "mtllib " << mtl_path << "\n";
+        obj << "v 0 0 0\nv 1 0 0\nv 0 1 0\n";
+        obj << "usemtl opaque\nf 1 2 3\n";
+        for (const int illum : {4, 6, 7, 9}) {
+            obj << "usemtl glass" << illum << "\nf 1 2 3\n";
+        }
+    }
+
+    const renderer::LoadedScene loaded = renderer::load_scene_asset(obj_path, 64, 64);
+    RENDER_CHECK(loaded.scene.triangles.size() == 5);
+    const int opaque_id = loaded.scene.triangles[0].material_id();
+    RENDER_CHECK(opaque_id >= 0);
+    RENDER_CHECK(loaded.scene.materials[static_cast<std::size_t>(opaque_id)].type ==
+        renderer::MaterialType::Diffuse);
+    RENDER_CHECK(nearly_equal(
+        loaded.scene.materials[static_cast<std::size_t>(opaque_id)].opacity,
+        1.0f));
+    for (std::size_t triangle_index = 1; triangle_index < loaded.scene.triangles.size(); ++triangle_index) {
+        const int material_id = loaded.scene.triangles[triangle_index].material_id();
+        RENDER_CHECK(material_id >= 0);
+        RENDER_CHECK(loaded.scene.materials[static_cast<std::size_t>(material_id)].type ==
+            renderer::MaterialType::Dielectric);
+    }
+
+    std::remove(obj_path.c_str());
+    std::remove(mtl_path.c_str());
+}
+
+void test_path_backend_selection_contract() {
+    RENDER_CHECK(renderer::parse_path_backend("auto") == renderer::PathBackend::Auto);
+    RENDER_CHECK(renderer::parse_path_backend("cpu") == renderer::PathBackend::Cpu);
+    RENDER_CHECK(renderer::parse_path_backend("cuda") == renderer::PathBackend::Cuda);
+    RENDER_CHECK(renderer::resolve_path_backend(renderer::PathBackend::Cpu) ==
+        renderer::ExecutionBackend::Cpu);
+
+    bool invalid_threw = false;
+    try {
+        (void)renderer::parse_path_backend("invalid");
+    } catch (const std::invalid_argument&) {
+        invalid_threw = true;
+    }
+    RENDER_CHECK(invalid_threw);
+
+    std::string reason;
+    if (renderer::cuda_path_backend_available(&reason)) {
+        RENDER_CHECK(renderer::cuda_path_backend_compiled());
+        RENDER_CHECK(renderer::resolve_path_backend(renderer::PathBackend::Auto) ==
+            renderer::ExecutionBackend::Cuda);
+        RENDER_CHECK(renderer::resolve_path_backend(renderer::PathBackend::Cuda) ==
+            renderer::ExecutionBackend::Cuda);
+    } else {
+        RENDER_CHECK(!reason.empty());
+        RENDER_CHECK(renderer::resolve_path_backend(renderer::PathBackend::Auto) ==
+            renderer::ExecutionBackend::Cpu);
+        bool explicit_cuda_threw = false;
+        try {
+            (void)renderer::resolve_path_backend(renderer::PathBackend::Cuda);
+        } catch (const std::runtime_error&) {
+            explicit_cuda_threw = true;
+        }
+        RENDER_CHECK(explicit_cuda_threw);
+    }
+}
+
+renderer::Color image_mean(const renderer::Image& image) {
+    renderer::Color sum = renderer::Color::Zero();
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            sum += image.pixel(x, y);
+        }
+    }
+    return sum / static_cast<float>(image.width() * image.height());
+}
+
+void test_cuda_pathtracer_matches_cpu_statistics_when_available() {
+    if (!renderer::cuda_path_backend_available()) {
+        return;
+    }
+
+    const renderer::Scene scene = renderer::make_cornell_box_scene();
+    const renderer::Camera camera(
+        renderer::Vec3(0.0f, 0.15f, 1.5f),
+        renderer::Vec3(0.0f, 0.15f, -2.0f),
+        renderer::Vec3::UnitY(),
+        45.0f,
+        1.0f);
+    renderer::RenderSettings settings;
+    settings.width = 48;
+    settings.height = 48;
+    settings.samples_per_pixel = 16;
+    settings.sample_seed_offset = 91;
+
+    settings.path_backend = renderer::PathBackend::Cpu;
+    const renderer::RenderResult cpu = renderer::PathTracerRenderer().render(scene, camera, settings);
+    settings.path_backend = renderer::PathBackend::Cuda;
+    const renderer::RenderResult cuda = renderer::PathTracerRenderer().render(scene, camera, settings);
+
+    RENDER_CHECK(cpu.backend == renderer::ExecutionBackend::Cpu);
+    RENDER_CHECK(cuda.backend == renderer::ExecutionBackend::Cuda);
+    RENDER_CHECK(image_colors_are_finite(cuda.image));
+    const renderer::Color cpu_mean = image_mean(cpu.image);
+    const renderer::Color cuda_mean = image_mean(cuda.image);
+    for (int channel = 0; channel < 3; ++channel) {
+        const float tolerance = std::max(0.01f, std::abs(cpu_mean[channel]) * 0.05f);
+        RENDER_CHECK(std::abs(cpu_mean[channel] - cuda_mean[channel]) <= tolerance);
+    }
+}
+
+void test_cuda_pathtracer_alpha_texture_and_interactive_reset_when_available() {
+    if (!renderer::cuda_path_backend_available()) {
+        return;
+    }
+
+    renderer::Scene scene;
+    scene.environment = renderer::Color::Zero();
+    scene.textures.emplace_back(
+        1,
+        1,
+        std::vector<renderer::Color>{renderer::Color::Zero()});
+    renderer::Material cutout;
+    cutout.opacity_texture_id = 0;
+    cutout.alpha_cutoff = 0.5f;
+    renderer::Material light;
+    light.type = renderer::MaterialType::Emissive;
+    light.emission = renderer::Color(2.0f, 1.0f, 0.5f);
+    scene.materials.push_back(cutout);
+    scene.materials.push_back(light);
+    scene.triangles.push_back(make_test_triangle_at_z(-1.0f, 0));
+    scene.triangles.push_back(make_test_triangle_at_z(-2.0f, 1));
+
+    const renderer::Camera camera(
+        renderer::Vec3::Zero(),
+        -renderer::Vec3::UnitZ(),
+        renderer::Vec3::UnitY(),
+        20.0f,
+        1.0f);
+    renderer::RenderSettings settings;
+    settings.width = 16;
+    settings.height = 16;
+    settings.samples_per_pixel = 1;
+    settings.path_backend = renderer::PathBackend::Cuda;
+
+    const renderer::RenderResult result = renderer::PathTracerRenderer().render(scene, camera, settings);
+    RENDER_CHECK(image_colors_are_finite(result.image));
+    RENDER_CHECK(result.image.pixel(8, 8).x() > 1.5f);
+
+    renderer::PathInteractiveSession session;
+    renderer::Framebuffer framebuffer(settings.width, settings.height);
+    renderer::InteractiveFrameState frame_state;
+    session.reset(scene, settings);
+    session.render_next_frame(scene, camera, settings, frame_state, framebuffer);
+    session.render_next_frame(scene, camera, settings, frame_state, framebuffer);
+    RENDER_CHECK(session.active_backend() == renderer::ExecutionBackend::Cuda);
+    RENDER_CHECK(session.accumulated_samples() == 2);
+    RENDER_CHECK(framebuffer_colors_are_finite(framebuffer));
+    frame_state.camera_changed = true;
+    session.render_next_frame(scene, camera, settings, frame_state, framebuffer);
+    RENDER_CHECK(session.accumulated_samples() == 1);
+
+    frame_state = renderer::InteractiveFrameState{};
+    frame_state.reset_requested = true;
+    session.render_next_frame(scene, camera, settings, frame_state, framebuffer);
+    RENDER_CHECK(session.accumulated_samples() == 1);
+
+    frame_state = renderer::InteractiveFrameState{};
+    frame_state.scene_changed = true;
+    session.render_next_frame(scene, camera, settings, frame_state, framebuffer);
+    RENDER_CHECK(session.accumulated_samples() == 1);
+
+    scene.environment = renderer::Color(0.1f, 0.2f, 0.3f);
+    frame_state = renderer::InteractiveFrameState{};
+    frame_state.lighting_changed = true;
+    session.render_next_frame(scene, camera, settings, frame_state, framebuffer);
+    RENDER_CHECK(session.accumulated_samples() == 1);
+
+    settings.width = 12;
+    settings.height = 10;
+    frame_state = renderer::InteractiveFrameState{};
+    frame_state.framebuffer_resized = true;
+    session.render_next_frame(scene, camera, settings, frame_state, framebuffer);
+    RENDER_CHECK(session.accumulated_samples() == 1);
+    RENDER_CHECK(framebuffer.width() == 12);
+    RENDER_CHECK(framebuffer.height() == 10);
+
+    settings.path_backend = renderer::PathBackend::Cpu;
+    frame_state = renderer::InteractiveFrameState{};
+    session.render_next_frame(scene, camera, settings, frame_state, framebuffer);
+    RENDER_CHECK(session.active_backend() == renderer::ExecutionBackend::Cpu);
+    RENDER_CHECK(session.accumulated_samples() == 1);
+}
+
+void test_cuda_pathtracer_lighting_contracts_when_available() {
+    if (!renderer::cuda_path_backend_available()) {
+        return;
+    }
+
+    renderer::Scene environment_scene;
+    environment_scene.environment = renderer::Color(0.2f, 0.3f, 0.4f);
+    const renderer::Color environment = render_one_path_pixel(
+        environment_scene,
+        renderer::PathBackend::Cuda);
+    RENDER_CHECK((environment - environment_scene.environment).cwiseAbs().maxCoeff() < 1e-6f);
+
+    renderer::Scene back_face_scene;
+    back_face_scene.environment = renderer::Color::Zero();
+    renderer::Material one_sided_light;
+    one_sided_light.type = renderer::MaterialType::Emissive;
+    one_sided_light.emission = renderer::Color(1.5f, 0.5f, 0.25f);
+    one_sided_light.two_sided = false;
+    back_face_scene.materials.push_back(one_sided_light);
+    back_face_scene.triangles.emplace_back(
+        renderer::Vec3(-1.0f, -1.0f, -1.0f),
+        renderer::Vec3(0.0f, 1.0f, -1.0f),
+        renderer::Vec3(1.0f, -1.0f, -1.0f),
+        0);
+    const renderer::Color one_sided = render_one_path_pixel(
+        back_face_scene,
+        renderer::PathBackend::Cuda);
+    RENDER_CHECK(one_sided.maxCoeff() < 1e-6f);
+    back_face_scene.materials[0].two_sided = true;
+    const renderer::Color two_sided = render_one_path_pixel(
+        back_face_scene,
+        renderer::PathBackend::Cuda);
+    RENDER_CHECK(two_sided.x() > 1.4f);
+
+    renderer::Scene dark = make_path_direct_light_scene();
+    const renderer::Color unlit = render_one_path_pixel(dark, renderer::PathBackend::Cuda);
+    renderer::Scene directional = dark;
+    directional.directional_lights.push_back(renderer::DirectionalLight{
+        renderer::Vec3(0.0f, 0.0f, -1.0f),
+        renderer::Color(2.0f, 2.0f, 2.0f)});
+    const renderer::Color directionally_lit = render_one_path_pixel(
+        directional,
+        renderer::PathBackend::Cuda);
+    RENDER_CHECK(directionally_lit.x() > unlit.x() + 0.5f);
+
+    renderer::Scene near_scene = dark;
+    near_scene.point_lights.push_back(renderer::PointLight{
+        renderer::Vec3(0.0f, 0.0f, 1.0f),
+        renderer::Color(8.0f, 8.0f, 8.0f)});
+    renderer::Scene far_scene = dark;
+    far_scene.point_lights.push_back(renderer::PointLight{
+        renderer::Vec3(0.0f, 0.0f, 3.0f),
+        renderer::Color(8.0f, 8.0f, 8.0f)});
+    const renderer::Color near_value = render_one_path_pixel(
+        near_scene,
+        renderer::PathBackend::Cuda);
+    const renderer::Color far_value = render_one_path_pixel(
+        far_scene,
+        renderer::PathBackend::Cuda);
+    RENDER_CHECK(near_value.x() > far_value.x() * 3.5f);
+
+    renderer::Scene visible = dark;
+    visible.point_lights.push_back(renderer::PointLight{
+        renderer::Vec3(2.0f, 0.0f, 0.0f),
+        renderer::Color(20.0f, 20.0f, 20.0f)});
+    renderer::Scene blocked = visible;
+    blocked.triangles.emplace_back(
+        renderer::Vec3(1.0f, -10.0f, -2.0f),
+        renderer::Vec3(1.0f, 10.0f, -2.0f),
+        renderer::Vec3(1.0f, 0.0f, 1.0f),
+        0);
+    const renderer::Color visible_value = render_one_path_pixel(
+        visible,
+        renderer::PathBackend::Cuda);
+    const renderer::Color blocked_value = render_one_path_pixel(
+        blocked,
+        renderer::PathBackend::Cuda);
+    RENDER_CHECK(visible_value.x() > blocked_value.x() + 0.05f);
+
+    const renderer::Scene roulette_scene = make_path_roulette_layer_scene();
+    const renderer::Camera camera(
+        renderer::Vec3::Zero(),
+        -renderer::Vec3::UnitZ(),
+        renderer::Vec3::UnitY(),
+        10.0f,
+        1.0f);
+    renderer::RenderSettings settings;
+    settings.width = 1;
+    settings.height = 1;
+    settings.samples_per_pixel = 2048;
+    settings.path_backend = renderer::PathBackend::Cuda;
+    const renderer::Color roulette_mean =
+        renderer::PathTracerRenderer().render(roulette_scene, camera, settings).image.pixel(0, 0);
+    RENDER_CHECK(roulette_mean.allFinite());
+    RENDER_CHECK(roulette_mean.x() > 0.9f);
+    RENDER_CHECK(roulette_mean.x() < 1.1f);
+}
+
+void test_cuda_pathtracer_spheres_materials_and_bump_texture_when_available() {
+    if (!renderer::cuda_path_backend_available()) {
+        return;
+    }
+
+    renderer::Scene scene;
+    scene.environment = renderer::Color(0.08f, 0.12f, 0.18f);
+    renderer::Material diffuse;
+    diffuse.base_color = renderer::Color(0.8f, 0.8f, 0.8f);
+    diffuse.diffuse_texture_id = 0;
+    diffuse.bump_texture_id = 1;
+    diffuse.bump_scale = 0.4f;
+    renderer::Material metal;
+    metal.type = renderer::MaterialType::Metal;
+    metal.base_color = renderer::Color(0.9f, 0.75f, 0.55f);
+    metal.roughness = 0.08f;
+    renderer::Material dielectric;
+    dielectric.type = renderer::MaterialType::Dielectric;
+    dielectric.ior = 1.5f;
+    scene.materials = {diffuse, metal, dielectric};
+    scene.textures.emplace_back(
+        2,
+        2,
+        std::vector<renderer::Color>{
+            renderer::Color(1.0f, 0.2f, 0.2f), renderer::Color(0.2f, 1.0f, 0.2f),
+            renderer::Color(0.2f, 0.2f, 1.0f), renderer::Color(1.0f, 1.0f, 0.2f)});
+    scene.textures.emplace_back(
+        2,
+        2,
+        std::vector<renderer::Color>{
+            renderer::Color::Zero(), renderer::Color::Ones(),
+            renderer::Color::Ones(), renderer::Color::Zero()});
+    scene.triangles.emplace_back(
+        renderer::Vec3(-3.0f, -1.0f, -2.0f),
+        renderer::Vec3(3.0f, -1.0f, -2.0f),
+        renderer::Vec3(0.0f, 2.5f, -3.0f),
+        0,
+        renderer::Vec2(0.0f, 0.0f),
+        renderer::Vec2(2.0f, 0.0f),
+        renderer::Vec2(1.0f, 2.0f));
+    scene.spheres.emplace_back(renderer::Vec3(-0.7f, -0.25f, -1.3f), 0.45f, 1);
+    scene.spheres.emplace_back(renderer::Vec3(0.7f, -0.25f, -1.3f), 0.45f, 2);
+    scene.directional_lights.push_back(renderer::DirectionalLight{
+        renderer::Vec3(-0.4f, -0.6f, -1.0f).normalized(),
+        renderer::Color(2.0f, 2.0f, 2.0f)});
+
+    const renderer::Camera camera(
+        renderer::Vec3(0.0f, 0.0f, 1.2f),
+        renderer::Vec3(0.0f, 0.0f, -2.0f),
+        renderer::Vec3::UnitY(),
+        45.0f,
+        1.0f);
+    renderer::RenderSettings settings;
+    settings.width = 40;
+    settings.height = 40;
+    settings.samples_per_pixel = 32;
+    settings.sample_seed_offset = 123;
+    settings.path_backend = renderer::PathBackend::Cpu;
+    const renderer::RenderResult cpu = renderer::PathTracerRenderer().render(scene, camera, settings);
+    settings.path_backend = renderer::PathBackend::Cuda;
+    const renderer::RenderResult cuda = renderer::PathTracerRenderer().render(scene, camera, settings);
+    RENDER_CHECK(image_colors_are_finite(cuda.image));
+    const renderer::Color cpu_mean = image_mean(cpu.image);
+    const renderer::Color cuda_mean = image_mean(cuda.image);
+    for (int channel = 0; channel < 3; ++channel) {
+        const float tolerance = std::max(0.01f, std::abs(cpu_mean[channel]) * 0.05f);
+        RENDER_CHECK(std::abs(cpu_mean[channel] - cuda_mean[channel]) <= tolerance);
+    }
+
+    for (int cycle = 0; cycle < 3; ++cycle) {
+        settings.width = 8;
+        settings.height = 8;
+        settings.samples_per_pixel = 1;
+        const renderer::RenderResult recreated =
+            renderer::PathTracerRenderer().render(scene, camera, settings);
+        RENDER_CHECK(image_colors_are_finite(recreated.image));
+    }
+}
+
 int main() {
     RENDER_CHECK(1 + 1 == 2);
     test_vec3_arithmetic();
@@ -2482,14 +3057,20 @@ int main() {
     test_camera_rejects_non_finite_screen_coordinates();
     test_orbit_camera_controller_zoom_and_orbit_change_camera();
     test_orbit_camera_controller_horizontal_drag_tracks_scene_direction();
+    test_free_camera_controller_looks_and_clamps_pitch();
+    test_free_camera_controller_moves_in_camera_and_world_directions();
+    test_camera_mode_switch_preserves_pose();
     test_frame_rate_counter_reports_window_average();
     test_viewer_title_format_includes_fps_and_path_samples();
     test_ray_and_bounds_intersection();
     test_bounds_intersection_counts_corner_touch_as_hit();
     test_image_invalid_dimensions_throw_invalid_argument();
     test_image_stores_gamma_corrected_pixels();
+    test_image_and_framebuffer_bulk_pixel_assignment_validates_size();
     test_to_rgb8_uses_standard_srgb_transfer_curve();
     test_to_rgb8_sanitizes_non_finite_channels();
+    test_display_settings_apply_exposure_and_tone_mapping();
+    test_viewer_ui_actions_classify_path_resets();
     test_framebuffer_clear_set_and_rgba8_conversion();
     test_depth_buffer_clear_resize_and_access();
     test_sphere_intersection();
@@ -2562,6 +3143,12 @@ int main() {
     test_scene_asset_loader_imports_alpha_and_bump_maps();
     test_scene_asset_loader_warns_for_missing_optional_maps();
     test_scene_asset_loader_preserves_obj_mtl_materials();
+    test_scene_asset_loader_does_not_treat_default_tf_as_transmission();
+    test_path_backend_selection_contract();
+    test_cuda_pathtracer_matches_cpu_statistics_when_available();
+    test_cuda_pathtracer_alpha_texture_and_interactive_reset_when_available();
+    test_cuda_pathtracer_lighting_contracts_when_available();
+    test_cuda_pathtracer_spheres_materials_and_bump_texture_when_available();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;
 }

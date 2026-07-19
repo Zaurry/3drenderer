@@ -12,6 +12,10 @@ public:
     RenderResult render(const Scene& scene, const Camera& camera, const RenderSettings& settings) override;
 
 private:
+    RenderResult render_cpu(
+        const Scene& scene,
+        const Camera& camera,
+        const RenderSettings& settings);
     Color trace_path(
         const Ray& ray,
         const Scene& scene,

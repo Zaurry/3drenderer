@@ -10,7 +10,12 @@ class OrbitCameraController {
 public:
     OrbitCameraController(const Bounds3& bounds, float aspect_ratio);
 
+    void set_camera(const Camera& camera);
     void set_aspect_ratio(float aspect_ratio);
+    void set_vertical_fov_degrees(float vertical_fov_degrees);
+    float vertical_fov_degrees() const;
+    void set_distance(float distance);
+    float distance() const;
     void orbit(float delta_x, float delta_y);
     void zoom(float wheel_delta);
     Camera camera() const;

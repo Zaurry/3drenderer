@@ -1,6 +1,8 @@
 #include "render/pathtracer/pathtracer_renderer.h"
 
 #include "core/timer.h"
+#include "render/pathtracer/cuda_pathtracer.h"
+#include "render/pathtracer/path_backend.h"
 #include "render/scene_intersector.h"
 #include "sampling/sampler.h"
 #include "scene/material_evaluator.h"
@@ -78,6 +80,16 @@ int worker_count_for(const RenderSettings& settings, int total_tiles) {
 }  // namespace
 
 RenderResult PathTracerRenderer::render(const Scene& scene, const Camera& camera, const RenderSettings& settings) {
+    if (resolve_path_backend(settings.path_backend) == ExecutionBackend::Cuda) {
+        return render_cuda_path(scene, camera, settings);
+    }
+    return render_cpu(scene, camera, settings);
+}
+
+RenderResult PathTracerRenderer::render_cpu(
+    const Scene& scene,
+    const Camera& camera,
+    const RenderSettings& settings) {
     Timer timer;
     Image image(settings.width, settings.height);
     const SceneIntersector intersector(scene);
@@ -138,7 +150,7 @@ RenderResult PathTracerRenderer::render(const Scene& scene, const Camera& camera
         worker.join();
     }
 
-    return RenderResult{image, timer.elapsed_seconds()};
+    return RenderResult{image, timer.elapsed_seconds(), ExecutionBackend::Cpu};
 }
 
 Color PathTracerRenderer::trace_path(

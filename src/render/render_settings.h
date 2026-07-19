@@ -12,6 +12,12 @@ enum class RenderMode {
     Path
 };
 
+enum class PathBackend {
+    Auto,
+    Cpu,
+    Cuda
+};
+
 struct RenderSettings {
     int width = 512;
     int height = 512;
@@ -21,6 +27,7 @@ struct RenderSettings {
     int tile_size = 16;
     int thread_count = 0;
     std::uint64_t sample_seed_offset = 0;
+    PathBackend path_backend = PathBackend::Auto;
     Color background = Color(0.02f, 0.03f, 0.05f);
 };
 

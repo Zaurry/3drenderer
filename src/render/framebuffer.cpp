@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <utility>
 
 namespace renderer {
 
@@ -42,15 +43,26 @@ void Framebuffer::set_pixel(int x, int y, const Color& color) {
     pixels_[static_cast<std::size_t>(index(x, y))] = color;
 }
 
+void Framebuffer::set_pixels(std::vector<Color> pixels) {
+    if (pixels.size() != pixels_.size()) {
+        throw std::invalid_argument("Framebuffer pixel count does not match dimensions");
+    }
+    pixels_ = std::move(pixels);
+}
+
 const Color& Framebuffer::pixel(int x, int y) const {
     return pixels_[static_cast<std::size_t>(index(x, y))];
 }
 
 std::vector<std::uint8_t> Framebuffer::to_rgba8() const {
+    return to_rgba8(DisplaySettings{});
+}
+
+std::vector<std::uint8_t> Framebuffer::to_rgba8(const DisplaySettings& settings) const {
     std::vector<std::uint8_t> bytes;
     bytes.reserve(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_) * 4U);
     for (const Color& color : pixels_) {
-        const Rgb8 converted = to_rgb8(color);
+        const Rgb8 converted = to_display_rgb8(color, settings);
         bytes.push_back(converted.r);
         bytes.push_back(converted.g);
         bytes.push_back(converted.b);

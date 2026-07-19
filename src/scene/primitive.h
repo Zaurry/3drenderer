@@ -118,6 +118,18 @@ public:
         return Bounds3(center_ - radius_vec, center_ + radius_vec);
     }
 
+    const Vec3& center() const {
+        return center_;
+    }
+
+    float radius() const {
+        return radius_;
+    }
+
+    int material_id() const {
+        return material_id_;
+    }
+
 private:
     Vec3 center_;
     float radius_;

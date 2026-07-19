@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/color.h"
+#include "render/display_settings.h"
 
 #include <cstdint>
 #include <vector>
@@ -17,8 +18,10 @@ public:
     void resize(int width, int height);
     void clear(const Color& color);
     void set_pixel(int x, int y, const Color& color);
+    void set_pixels(std::vector<Color> pixels);
     const Color& pixel(int x, int y) const;
     std::vector<std::uint8_t> to_rgba8() const;
+    std::vector<std::uint8_t> to_rgba8(const DisplaySettings& settings) const;
 
 private:
     int width_ = 0;
