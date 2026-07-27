@@ -125,6 +125,18 @@ SdlDisplayBackend::SdlDisplayBackend()
     : compositor_program_(std::make_unique<GlShaderProgram>()),
       dialog_inbox_(std::make_shared<DialogInbox>()) {}
 
+std::filesystem::path SdlDisplayBackend::preferred_session_path() {
+    char* preference_path = SDL_GetPrefPath("Zaurry", "3D Renderer");
+    if (!preference_path) {
+        throw std::runtime_error(
+            std::string("SDL_GetPrefPath failed: ") + SDL_GetError());
+    }
+    const std::filesystem::path result =
+        std::filesystem::path(preference_path) / "last-session.json";
+    SDL_free(preference_path);
+    return result;
+}
+
 SdlDisplayBackend::~SdlDisplayBackend() {
     dialog_inbox_.reset();
     if (gl_context_ && window_) {
@@ -237,6 +249,55 @@ bool SdlDisplayBackend::initialize(int width, int height, const char* title) {
         window_height_ = std::max(1, height);
     }
     return true;
+}
+
+bool SdlDisplayBackend::constrain_window_to_display() {
+    if (!window_) {
+        last_error_ = "cannot constrain an uninitialized window";
+        return false;
+    }
+    const SDL_DisplayID display = SDL_GetDisplayForWindow(window_);
+    SDL_Rect usable;
+    if (display == 0 || !SDL_GetDisplayUsableBounds(display, &usable)) {
+        set_error_from_sdl("SDL_GetDisplayUsableBounds failed");
+        return false;
+    }
+    int logical_width = 0;
+    int logical_height = 0;
+    if (!SDL_GetWindowSize(window_, &logical_width, &logical_height)) {
+        set_error_from_sdl("SDL_GetWindowSize failed");
+        return false;
+    }
+    const int constrained_width =
+        std::clamp(logical_width, 320, std::max(320, usable.w));
+    const int constrained_height =
+        std::clamp(logical_height, 240, std::max(240, usable.h));
+    if ((constrained_width != logical_width ||
+         constrained_height != logical_height) &&
+        !SDL_SetWindowSize(window_, constrained_width, constrained_height)) {
+        set_error_from_sdl("SDL_SetWindowSize failed");
+        return false;
+    }
+    if (!SDL_GetWindowSizeInPixels(window_, &window_width_, &window_height_)) {
+        set_error_from_sdl("SDL_GetWindowSizeInPixels failed");
+        return false;
+    }
+    window_width_ = std::max(1, window_width_);
+    window_height_ = std::max(1, window_height_);
+    return true;
+}
+
+std::pair<int, int> SdlDisplayBackend::logical_window_size() const {
+    int width = 0;
+    int height = 0;
+    if (!window_ || !SDL_GetWindowSize(window_, &width, &height)) {
+        return {0, 0};
+    }
+    return {std::max(1, width), std::max(1, height)};
+}
+
+std::pair<int, int> SdlDisplayBackend::drawable_size() const {
+    return {window_width_, window_height_};
 }
 
 InputState SdlDisplayBackend::poll_input() {

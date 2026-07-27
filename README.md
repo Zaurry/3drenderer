@@ -96,6 +96,16 @@ ctest --preset cuda-release
 Computer Graphics Archive\CornellBox\CornellBox-Original.obj
 ```
 
+直接双击 `viewer.exe` 或零参数运行时，Viewer 会自动恢复上一次零参数会话，包括未保存的场景对象、变换、材质覆盖、相机、渲染模式、Path 后端、窗口大小和主要显示设置。窗口保存逻辑尺寸，实际 framebuffer 会按当前系统 DPI 和 `render scale` 重新建立；Path 累积和 Undo/Redo 历史不会恢复。
+
+会话保存在 SDL 为当前用户分配的应用配置目录中的 `Zaurry\3D Renderer\last-session.json`。修改停止约 1 秒后自动写入，并在正常退出时再次写入。会话损坏或资产缺失时会显示警告；仍有可用对象时部分恢复，否则载入默认 Cornell 资产。
+
+任何带参数的启动都不会读取或覆盖这份会话，因此 `--asset`、`--scene-file` 和 `--frames` 脚本保持确定性。若要显式跳过恢复并启动默认场景，可使用：
+
+```powershell
+.\build\default\bin\viewer.exe --no-restore-last
+```
+
 Viewer 参数：
 
 ```text
@@ -109,6 +119,7 @@ Viewer 参数：
 --path-backend auto|cpu|cuda
 --gl-vertex-shader path\to\shader.vert
 --gl-fragment-shader path\to\shader.frag
+--no-restore-last
 --help
 ```
 
@@ -142,7 +153,7 @@ Dear ImGui 面板提供：
 - `R`：清空当前累积。
 - `Esc`：退出。
 
-ImGui 捕获鼠标或键盘时，相机和渲染热键不会抢占输入。面板状态仅在当前会话有效，不生成 `imgui.ini`。
+ImGui 捕获鼠标或键盘时，相机和渲染热键不会抢占输入。零参数运行会通过 Viewer 会话文件恢复主要面板与显示状态，但不生成 `imgui.ini`。
 
 ### 场景对象与材质覆盖
 

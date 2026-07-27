@@ -12,6 +12,7 @@
 #include "interactive/frame_rate_counter.h"
 #include "interactive/free_camera_controller.h"
 #include "interactive/orbit_camera_controller.h"
+#include "interactive/viewer_session.h"
 #include "interactive/viewer_ui.h"
 #include "platform/sdl/sdl_display_backend.h"
 #include "render/display_settings.h"
@@ -3461,6 +3462,193 @@ void test_scene_document_material_overrides_are_per_object_and_roundtrip() {
     std::filesystem::remove_all(directory);
 }
 
+void test_viewer_session_roundtrip_and_partial_asset_recovery() {
+    const std::filesystem::path directory = "test_viewer_session";
+    const std::filesystem::path obj_path = directory / "model.obj";
+    const std::filesystem::path session_path = directory / "last-session.json";
+    const std::filesystem::path original_scene_path =
+        directory / "original.rscene";
+    std::filesystem::remove_all(directory);
+    std::filesystem::create_directories(directory);
+    {
+        std::ofstream obj(obj_path);
+        obj << "v -1 -1 0\n";
+        obj << "v 1 -1 0\n";
+        obj << "v 0 1 0\n";
+        obj << "f 1 2 3\n";
+    }
+
+    renderer::SceneDocument document;
+    const renderer::ObjectId imported =
+        document.import_path(obj_path, 64, 64).front();
+    renderer::SceneObject* imported_object = document.find(imported);
+    RENDER_CHECK(imported_object != nullptr);
+    imported_object->transform.translation =
+        renderer::Vec3(2.0f, 3.0f, 4.0f);
+    const auto source_material =
+        document.material_properties(imported, 0);
+    RENDER_CHECK(source_material.has_value());
+    renderer::SceneMaterialOverride material_override = *source_material;
+    material_override.base_color = renderer::Color(0.2f, 0.4f, 0.8f);
+    RENDER_CHECK(document.set_material_override(imported, material_override));
+    document.checkpoint();
+    document.restore_file_state(original_scene_path, true);
+    const std::filesystem::path file_path_before = document.file_path();
+    RENDER_CHECK(document.dirty());
+
+    renderer::ViewerSessionState state;
+    state.document_path = document.file_path();
+    state.document_dirty = document.dirty();
+    state.window_width = 1400;
+    state.window_height = 900;
+    state.ui.mode = renderer::InteractiveRenderMode::Path;
+    state.ui.camera_mode = renderer::ViewerCameraMode::Free;
+    state.ui.render_scale = 0.75f;
+    state.ui.ui_font_scale = 1.25f;
+    state.ui.path_accumulation_paused = true;
+    state.ui.show_point_light_markers = false;
+    state.ui.panel_visible = false;
+    state.ui.display.exposure_ev = 1.5f;
+    state.ui.display.tone_mapper = renderer::ToneMapper::Aces;
+    state.ui.selected_objects = {imported};
+    state.ui.active_object = imported;
+    state.ui.material_editor_object = imported;
+    state.ui.selected_material_slot = 0;
+    state.ui.gizmo_operation = 2;
+    state.ui.gizmo_local = true;
+    state.render_settings.max_depth = 9;
+    state.render_settings.tile_size = 32;
+    state.render_settings.thread_count = 3;
+    state.render_settings.path_backend = renderer::PathBackend::Cpu;
+    state.camera.eye = renderer::Vec3(4.0f, 5.0f, 6.0f);
+    state.camera.forward =
+        renderer::Vec3(-1.0f, -0.5f, -2.0f).normalized();
+    state.camera.up = renderer::Vec3::UnitY();
+    state.camera.vertical_fov_degrees = 52.0f;
+    state.camera.orbit_distance = 7.5f;
+    state.camera.free_movement_speed = 2.25f;
+
+    renderer::ViewerSessionStore::save(session_path, document, state);
+    RENDER_CHECK(document.file_path() == file_path_before);
+    RENDER_CHECK(document.dirty());
+    RENDER_CHECK(!std::filesystem::exists(session_path.string() + ".tmp"));
+
+    nlohmann::json saved_json;
+    {
+        std::ifstream input(session_path);
+        input >> saved_json;
+    }
+    RENDER_CHECK(saved_json.at("version").get<int>() == 1);
+    const auto& source =
+        saved_json.at("document").at("snapshot").at("assets").at(0).at("source");
+    RENDER_CHECK(source.at("kind").get<std::string>() == "obj");
+    RENDER_CHECK(std::filesystem::path(
+        source.at("path").get<std::string>()).is_absolute());
+
+    renderer::ViewerSessionState loaded =
+        renderer::ViewerSessionStore::load(session_path);
+    RENDER_CHECK(loaded.window_width == 1400);
+    RENDER_CHECK(loaded.window_height == 900);
+    RENDER_CHECK(loaded.document.file_path() == file_path_before);
+    RENDER_CHECK(loaded.document.dirty());
+    RENDER_CHECK(!loaded.document.can_undo());
+    RENDER_CHECK(!loaded.document.can_redo());
+    RENDER_CHECK(loaded.document.objects().size() == 2);
+    RENDER_CHECK(loaded.document.find(imported) != nullptr);
+    RENDER_CHECK(loaded.document.find(imported)->transform.translation.isApprox(
+        renderer::Vec3(2.0f, 3.0f, 4.0f)));
+    RENDER_CHECK(loaded.document.material_override(imported, 0) != nullptr);
+    RENDER_CHECK(
+        loaded.document.material_override(imported, 0)->base_color.isApprox(
+            material_override.base_color));
+    RENDER_CHECK(loaded.ui.mode == renderer::InteractiveRenderMode::Path);
+    RENDER_CHECK(loaded.ui.camera_mode == renderer::ViewerCameraMode::Free);
+    RENDER_CHECK(nearly_equal(loaded.ui.render_scale, 0.75f));
+    RENDER_CHECK(nearly_equal(loaded.ui.ui_font_scale, 1.25f));
+    RENDER_CHECK(loaded.ui.path_accumulation_paused);
+    RENDER_CHECK(!loaded.ui.show_point_light_markers);
+    RENDER_CHECK(!loaded.ui.panel_visible);
+    RENDER_CHECK(nearly_equal(loaded.ui.display.exposure_ev, 1.5f));
+    RENDER_CHECK(loaded.ui.display.tone_mapper == renderer::ToneMapper::Aces);
+    RENDER_CHECK(loaded.ui.selected_objects == std::vector<renderer::ObjectId>{imported});
+    RENDER_CHECK(loaded.ui.active_object == imported);
+    RENDER_CHECK(loaded.ui.material_editor_object == imported);
+    RENDER_CHECK(loaded.ui.gizmo_operation == 2);
+    RENDER_CHECK(loaded.ui.gizmo_local);
+    RENDER_CHECK(loaded.render_settings.max_depth == 9);
+    RENDER_CHECK(loaded.render_settings.tile_size == 32);
+    RENDER_CHECK(loaded.render_settings.thread_count == 3);
+    RENDER_CHECK(
+        loaded.render_settings.path_backend == renderer::PathBackend::Cpu);
+    RENDER_CHECK(loaded.camera.eye.isApprox(state.camera.eye));
+    RENDER_CHECK(loaded.camera.forward.isApprox(state.camera.forward));
+    RENDER_CHECK(nearly_equal(
+        loaded.camera.vertical_fov_degrees,
+        state.camera.vertical_fov_degrees));
+    RENDER_CHECK(nearly_equal(
+        loaded.camera.orbit_distance,
+        state.camera.orbit_distance));
+    RENDER_CHECK(nearly_equal(
+        loaded.camera.free_movement_speed,
+        state.camera.free_movement_speed));
+
+    renderer::SceneDocument mixed = renderer::SceneDocument::from_scene(
+        renderer::make_cornell_box_scene(),
+        "Builtin Cornell Box",
+        "cornell_box");
+    mixed.import_path(obj_path, 64, 64);
+    state.document_path.clear();
+    state.document_dirty = true;
+    renderer::ViewerSessionStore::save(session_path, mixed, state);
+    renderer::ViewerSessionState restored_mixed =
+        renderer::ViewerSessionStore::load(session_path);
+    RENDER_CHECK(restored_mixed.document.assets().size() == 2);
+    RENDER_CHECK(restored_mixed.document.objects().size() == 3);
+
+    {
+        std::ifstream input(session_path);
+        input >> saved_json;
+    }
+    for (auto& asset_json :
+         saved_json["document"]["snapshot"]["assets"]) {
+        auto& asset_source = asset_json["source"];
+        if (asset_source.at("kind").get<std::string>() == "obj") {
+            asset_source["path"] =
+                std::filesystem::absolute(directory / "missing.obj").generic_string();
+        }
+    }
+    {
+        std::ofstream output(session_path);
+        output << saved_json.dump(2) << '\n';
+    }
+    renderer::ViewerSessionState partial =
+        renderer::ViewerSessionStore::load(session_path);
+    RENDER_CHECK(partial.document.assets().size() == 1);
+    RENDER_CHECK(partial.document.objects().size() == 2);
+    const bool saw_missing_warning = std::any_of(
+        partial.document.warnings().begin(),
+        partial.document.warnings().end(),
+        [](const std::string& warning) {
+            return warning.find("missing session asset") != std::string::npos;
+        });
+    RENDER_CHECK(saw_missing_warning);
+
+    saved_json["version"] = 999;
+    {
+        std::ofstream output(session_path);
+        output << saved_json.dump(2) << '\n';
+    }
+    bool rejected_version = false;
+    try {
+        static_cast<void>(renderer::ViewerSessionStore::load(session_path));
+    } catch (const std::runtime_error&) {
+        rejected_version = true;
+    }
+    RENDER_CHECK(rejected_version);
+
+    std::filesystem::remove_all(directory);
+}
+
 int main() {
     RENDER_CHECK(1 + 1 == 2);
     test_vec3_arithmetic();
@@ -3567,6 +3755,7 @@ int main() {
     test_cuda_pathtracer_spheres_materials_and_bump_texture_when_available();
     test_scene_document_import_transform_hierarchy_history_and_roundtrip();
     test_scene_document_material_overrides_are_per_object_and_roundtrip();
+    test_viewer_session_roundtrip_and_partial_asset_recovery();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;
 }

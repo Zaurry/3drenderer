@@ -1,6 +1,7 @@
 #include "interactive/frame_rate_counter.h"
 #include "interactive/free_camera_controller.h"
 #include "interactive/orbit_camera_controller.h"
+#include "interactive/viewer_session.h"
 #include "interactive/viewer_ui.h"
 #include "platform/opengl/cuda_opengl_interop.h"
 #include "platform/sdl/sdl_display_backend.h"
@@ -25,6 +26,7 @@
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -43,6 +45,7 @@ struct ViewerOptions {
     renderer::PathBackend path_backend = renderer::PathBackend::Auto;
     std::filesystem::path gl_vertex_shader;
     std::filesystem::path gl_fragment_shader;
+    bool restore_last_session = true;
 };
 
 struct ViewerScene {
@@ -66,6 +69,7 @@ void print_help() {
         << "  --path-backend auto|cpu|cuda  path execution backend, default auto\n"
         << "  --gl-vertex-shader path    OpenGL vertex shader override\n"
         << "  --gl-fragment-shader path  OpenGL fragment shader override\n"
+        << "  --no-restore-last  start the default scene without restoring the last session\n"
         << "  --help             show this help\n";
 }
 
@@ -142,6 +146,8 @@ ViewerOptions parse_args(int argc, char** argv) {
             options.gl_vertex_shader = require_value(argc, argv, i, arg);
         } else if (arg == "--gl-fragment-shader") {
             options.gl_fragment_shader = require_value(argc, argv, i, arg);
+        } else if (arg == "--no-restore-last") {
+            options.restore_last_session = false;
         } else {
             throw std::invalid_argument("unknown argument: " + arg);
         }
@@ -236,7 +242,10 @@ ViewerScene load_viewer_scene(
     renderer::Scene scene = renderer::make_cornell_box_scene();
     renderer::Bounds3 bounds = scene_bounds(scene);
     renderer::SceneDocument document =
-        renderer::SceneDocument::from_scene(scene, "Builtin Cornell Box");
+        renderer::SceneDocument::from_scene(
+            scene,
+            "Builtin Cornell Box",
+            "cornell_box");
     return ViewerScene{
         std::move(document),
         std::move(scene),
@@ -328,11 +337,102 @@ void transition_camera_mode(
     }
 }
 
+struct ViewerSessionSignature {
+    renderer::InteractiveRenderMode mode =
+        renderer::InteractiveRenderMode::Raster;
+    renderer::ViewerCameraMode camera_mode =
+        renderer::ViewerCameraMode::Orbit;
+    renderer::PathBackend path_backend = renderer::PathBackend::Auto;
+    renderer::ToneMapper tone_mapper = renderer::ToneMapper::None;
+    int max_depth = 0;
+    int tile_size = 0;
+    int thread_count = 0;
+    int logical_width = 0;
+    int logical_height = 0;
+    float render_scale = 1.0f;
+    float ui_font_scale = 1.0f;
+    float exposure_ev = 0.0f;
+    bool path_accumulation_paused = false;
+    bool show_point_light_markers = true;
+    bool panel_visible = true;
+    std::vector<renderer::ObjectId> selected_objects;
+    renderer::ObjectId active_object = renderer::kInvalidObjectId;
+    renderer::ObjectId material_editor_object = renderer::kInvalidObjectId;
+    std::size_t selected_material_slot = 0;
+    int gizmo_operation = 0;
+    bool gizmo_local = false;
+    std::filesystem::path document_path;
+    bool document_dirty = false;
+
+    bool operator==(const ViewerSessionSignature&) const = default;
+};
+
+ViewerSessionSignature make_session_signature(
+    const renderer::ViewerUiState& ui,
+    const renderer::RenderSettings& settings,
+    const renderer::SceneDocument& document,
+    std::pair<int, int> logical_size) {
+    ViewerSessionSignature signature;
+    signature.mode = ui.mode;
+    signature.camera_mode = ui.camera_mode;
+    signature.path_backend = settings.path_backend;
+    signature.tone_mapper = ui.display.tone_mapper;
+    signature.max_depth = settings.max_depth;
+    signature.tile_size = settings.tile_size;
+    signature.thread_count = settings.thread_count;
+    signature.logical_width = logical_size.first;
+    signature.logical_height = logical_size.second;
+    signature.render_scale = ui.render_scale;
+    signature.ui_font_scale = ui.ui_font_scale;
+    signature.exposure_ev = ui.display.exposure_ev;
+    signature.path_accumulation_paused = ui.path_accumulation_paused;
+    signature.show_point_light_markers = ui.show_point_light_markers;
+    signature.panel_visible = ui.panel_visible;
+    signature.selected_objects = ui.selected_objects;
+    signature.active_object = ui.active_object;
+    signature.material_editor_object = ui.material_editor_object;
+    signature.selected_material_slot = ui.selected_material_slot;
+    signature.gizmo_operation = ui.gizmo_operation;
+    signature.gizmo_local = ui.gizmo_local;
+    signature.document_path = document.file_path();
+    signature.document_dirty = document.dirty();
+    return signature;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     try {
         ViewerOptions options = parse_args(argc, argv);
+        bool session_enabled = argc == 1 && options.restore_last_session;
+        std::filesystem::path session_path;
+        std::optional<renderer::ViewerSessionState> restored_session;
+        std::string startup_status;
+        if (session_enabled) {
+            try {
+                session_path =
+                    renderer::SdlDisplayBackend::preferred_session_path();
+                if (std::filesystem::exists(session_path)) {
+                    restored_session =
+                        renderer::ViewerSessionStore::load(session_path);
+                    options.width = restored_session->window_width;
+                    options.height = restored_session->window_height;
+                    options.mode = restored_session->ui.mode;
+                    options.path_backend =
+                        restored_session->render_settings.path_backend;
+                    startup_status = "Restored last viewer session";
+                }
+            } catch (const std::exception& error) {
+                startup_status =
+                    "Last session restore failed; loaded the default scene";
+                std::cerr << "warning: " << startup_status << ": "
+                          << error.what() << '\n';
+                restored_session.reset();
+            }
+        }
+        if (session_path.empty()) {
+            session_enabled = false;
+        }
         const std::filesystem::path executable_path = std::filesystem::absolute(argv[0]);
         options.gl_vertex_shader = resolve_shader_path(
             options.gl_vertex_shader,
@@ -342,27 +442,82 @@ int main(int argc, char** argv) {
             options.gl_fragment_shader,
             executable_path,
             std::filesystem::path("shaders") / "opengl" / "raster.frag");
-        ViewerScene viewer_scene = load_viewer_scene(options, executable_path);
+        ViewerScene viewer_scene = [&]() {
+            if (!restored_session) {
+                return load_viewer_scene(options, executable_path);
+            }
+            renderer::SceneDocument document =
+                std::move(restored_session->document);
+            renderer::Scene scene = document.render_scene();
+            const renderer::Bounds3 bounds = document.scene_bounds();
+            const renderer::ViewerCameraSessionState& saved_camera =
+                restored_session->camera;
+            renderer::Camera camera(
+                saved_camera.eye,
+                saved_camera.eye + saved_camera.forward,
+                saved_camera.up,
+                saved_camera.vertical_fov_degrees,
+                static_cast<float>(options.width) /
+                    static_cast<float>(options.height));
+            return ViewerScene{
+                std::move(document),
+                std::move(scene),
+                bounds,
+                std::move(camera)};
+        }();
+        if (restored_session) {
+            std::cout << "session=restored path="
+                      << session_path.string() << '\n';
+            for (const std::string& warning :
+                 viewer_scene.document.warnings()) {
+                std::cerr << "warning: " << warning << '\n';
+            }
+        }
 
         renderer::SdlDisplayBackend display;
         if (!display.initialize(options.width, options.height, "3D Renderer Viewer")) {
             throw std::runtime_error(display.last_error());
         }
+        if (restored_session && !display.constrain_window_to_display()) {
+            std::cerr << "warning: failed to constrain restored window size: "
+                      << display.last_error() << '\n';
+        }
         renderer::CudaOpenGlInteropTexture cuda_gl_interop;
 
-        renderer::ViewerUiState ui_state;
-        ui_state.mode = options.mode;
+        renderer::ViewerUiState ui_state = restored_session
+            ? restored_session->ui
+            : renderer::ViewerUiState{};
+        if (!restored_session) {
+            ui_state.mode = options.mode;
+        }
+        if (!startup_status.empty()) {
+            ui_state.scene_status = startup_status;
+        }
         renderer::ViewerUi viewer_ui;
 
-        int window_width = options.width;
-        int window_height = options.height;
-        renderer::RenderSettings settings;
-        settings.width = options.width;
-        settings.height = options.height;
+        const auto initial_drawable_size = display.drawable_size();
+        int window_width = std::max(1, initial_drawable_size.first);
+        int window_height = std::max(1, initial_drawable_size.second);
+        renderer::RenderSettings settings = restored_session
+            ? restored_session->render_settings
+            : renderer::RenderSettings{};
+        settings.width = scaled_dimension(window_width, ui_state.render_scale);
+        settings.height = scaled_dimension(window_height, ui_state.render_scale);
         settings.samples_per_pixel = 1;
-        settings.max_depth = 4;
-        settings.thread_count = 1;
-        settings.path_backend = options.path_backend;
+        if (!restored_session) {
+            settings.max_depth = 4;
+            settings.thread_count = 1;
+            settings.path_backend = options.path_backend;
+        } else if (settings.path_backend == renderer::PathBackend::Cuda) {
+            std::string reason;
+            if (!renderer::cuda_path_backend_available(&reason)) {
+                settings.path_backend = renderer::PathBackend::Auto;
+                ui_state.scene_status =
+                    "Saved CUDA backend is unavailable; using automatic fallback";
+                std::cerr << "warning: " << ui_state.scene_status
+                          << ": " << reason << '\n';
+            }
+        }
         bool cuda_gl_interop_initialized = false;
         const auto initialize_cuda_gl_interop = [&]() {
             if (!cuda_gl_interop_initialized &&
@@ -372,7 +527,7 @@ int main(int argc, char** argv) {
             }
         };
         if (ui_state.mode == renderer::InteractiveRenderMode::Path &&
-            options.path_backend == renderer::PathBackend::Auto) {
+            settings.path_backend == renderer::PathBackend::Auto) {
             initialize_cuda_gl_interop();
             std::string reason;
             if (!renderer::cuda_path_backend_available(&reason)) {
@@ -392,6 +547,25 @@ int main(int argc, char** argv) {
             orbit_camera.camera(),
             camera_aspect_ratio,
             scene_radius);
+        if (restored_session) {
+            const renderer::ViewerCameraSessionState& saved_camera =
+                restored_session->camera;
+            const renderer::Camera restored_camera(
+                saved_camera.eye,
+                saved_camera.eye + saved_camera.forward,
+                saved_camera.up,
+                saved_camera.vertical_fov_degrees,
+                camera_aspect_ratio);
+            orbit_camera.set_distance(saved_camera.orbit_distance);
+            orbit_camera.set_camera(restored_camera);
+            orbit_camera.set_vertical_fov_degrees(
+                saved_camera.vertical_fov_degrees);
+            free_camera.set_camera(restored_camera);
+            free_camera.set_vertical_fov_degrees(
+                saved_camera.vertical_fov_degrees);
+            free_camera.set_movement_speed(
+                saved_camera.free_movement_speed);
+        }
         renderer::OrbitCameraController initial_orbit_camera = orbit_camera;
         renderer::FreeCameraController initial_free_camera = free_camera;
         const auto reset_cameras_for_scene = [&]() {
@@ -451,6 +625,58 @@ int main(int argc, char** argv) {
             display.set_title(title);
         };
         set_viewer_title(0);
+
+        const auto save_session_now = [&]() {
+            if (!session_enabled) {
+                return true;
+            }
+            try {
+                renderer::ViewerSessionState state;
+                state.document_path = viewer_scene.document.file_path();
+                state.document_dirty = viewer_scene.document.dirty();
+                const auto logical_size = display.logical_window_size();
+                state.window_width = logical_size.first > 0
+                    ? logical_size.first
+                    : options.width;
+                state.window_height = logical_size.second > 0
+                    ? logical_size.second
+                    : options.height;
+                state.ui = ui_state;
+                state.render_settings = settings;
+                const renderer::Camera camera =
+                    ui_state.camera_mode == renderer::ViewerCameraMode::Orbit
+                    ? orbit_camera.camera()
+                    : free_camera.camera();
+                state.camera.eye = camera.eye();
+                state.camera.forward = camera.forward();
+                state.camera.up = camera.up();
+                state.camera.vertical_fov_degrees =
+                    ui_state.camera_mode == renderer::ViewerCameraMode::Orbit
+                    ? orbit_camera.vertical_fov_degrees()
+                    : free_camera.vertical_fov_degrees();
+                state.camera.orbit_distance = orbit_camera.distance();
+                state.camera.free_movement_speed =
+                    free_camera.movement_speed();
+                renderer::ViewerSessionStore::save(
+                    session_path,
+                    viewer_scene.document,
+                    state);
+                return true;
+            } catch (const std::exception& error) {
+                ui_state.scene_status =
+                    "Session auto-save failed: " + std::string(error.what());
+                std::cerr << "warning: " << ui_state.scene_status << '\n';
+                return false;
+            }
+        };
+        ViewerSessionSignature last_session_signature =
+            make_session_signature(
+                ui_state,
+                settings,
+                viewer_scene.document,
+                display.logical_window_size());
+        bool session_save_pending = session_enabled;
+        auto session_changed_at = std::chrono::steady_clock::now();
 
         int rendered_frames = 0;
         bool path_presented_from_interop = false;
@@ -812,6 +1038,7 @@ int main(int argc, char** argv) {
                 viewer_scene.scene,
                 camera);
             const bool path_needs_preview =
+                rendered_frames == 0 ||
                 mode_changed ||
                 ui_actions.path_backend_changed ||
                 frame_state.camera_changed ||
@@ -910,6 +1137,28 @@ int main(int argc, char** argv) {
                 display.present(framebuffer, ui_state.display);
             }
 
+            if (session_enabled) {
+                const ViewerSessionSignature signature =
+                    make_session_signature(
+                        ui_state,
+                        settings,
+                        viewer_scene.document,
+                        display.logical_window_size());
+                if (!(signature == last_session_signature) ||
+                    document_scene_changed ||
+                    camera_changed) {
+                    last_session_signature = signature;
+                    session_save_pending = true;
+                    session_changed_at = std::chrono::steady_clock::now();
+                }
+                if (session_save_pending &&
+                    std::chrono::steady_clock::now() - session_changed_at >=
+                        std::chrono::seconds(1)) {
+                    save_session_now();
+                    session_save_pending = false;
+                }
+            }
+
             ++rendered_frames;
             const int path_samples = accumulated_samples(session.get());
             const auto frame_end = std::chrono::steady_clock::now();
@@ -927,6 +1176,9 @@ int main(int argc, char** argv) {
             }
         }
 
+        if (session_enabled) {
+            save_session_now();
+        }
         std::cout << "viewer mode=" << mode_name(ui_state.mode)
                   << " frames=" << rendered_frames
                   << " size=" << settings.width << "x" << settings.height;

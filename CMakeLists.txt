@@ -148,6 +148,7 @@ set(RENDERER_CORE_SOURCES
     src/interactive/frame_rate_counter.cpp
     src/interactive/free_camera_controller.cpp
     src/interactive/orbit_camera_controller.cpp
+    src/interactive/viewer_session.cpp
     src/render/depth_buffer.cpp
     src/render/display_settings.cpp
     src/render/framebuffer.cpp

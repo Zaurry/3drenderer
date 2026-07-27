@@ -2,8 +2,10 @@
 
 #include "render/framebuffer.h"
 
+#include <filesystem>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 struct SDL_Window;
@@ -69,7 +71,12 @@ public:
     SdlDisplayBackend(const SdlDisplayBackend&) = delete;
     SdlDisplayBackend& operator=(const SdlDisplayBackend&) = delete;
 
+    static std::filesystem::path preferred_session_path();
+
     bool initialize(int width, int height, const char* title);
+    bool constrain_window_to_display();
+    std::pair<int, int> logical_window_size() const;
+    std::pair<int, int> drawable_size() const;
     InputState poll_input();
     void begin_ui_frame();
     bool wants_mouse_capture() const;

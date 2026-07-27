@@ -235,12 +235,16 @@ SceneDocument::SceneDocument() {
     history_.push_back(state_);
 }
 
-SceneDocument SceneDocument::from_scene(Scene scene, std::string name) {
+SceneDocument SceneDocument::from_scene(
+    Scene scene,
+    std::string name,
+    std::string builtin_id) {
     SceneDocument document;
     document.state_.environment = scene.environment;
     auto asset = std::make_shared<SceneMeshAsset>();
     asset->id = document.next_asset_id_++;
     asset->source_path.clear();
+    asset->builtin_id = std::move(builtin_id);
     asset->local_scene = std::move(scene);
     asset->material_names.reserve(asset->local_scene.materials.size());
     for (std::size_t index = 0; index < asset->local_scene.materials.size(); ++index) {
@@ -1030,17 +1034,20 @@ const std::vector<std::string>& SceneDocument::warnings() const {
     return warnings_;
 }
 
-void SceneDocument::save(const std::filesystem::path& path) {
-    const std::filesystem::path absolute_path = normalized_absolute(path);
-    const std::filesystem::path base = absolute_path.parent_path();
+nlohmann::json SceneDocument::serialize_document(
+    const std::filesystem::path& base,
+    bool session_snapshot) const {
     for (const SceneObject& object : state_.objects) {
         if (object.type != SceneObjectType::Mesh) {
             continue;
         }
         const auto asset = find_asset(object.asset_id);
-        if (asset && asset->source_path.empty()) {
+        if (asset && asset->source_path.empty() &&
+            (!session_snapshot || asset->builtin_id.empty())) {
             throw std::runtime_error(
-                "embedded builtin geometry cannot be saved as an .rscene asset");
+                session_snapshot
+                    ? "embedded geometry has no session builtin id"
+                    : "embedded builtin geometry cannot be saved as an .rscene asset");
         }
     }
     nlohmann::json root;
@@ -1048,18 +1055,40 @@ void SceneDocument::save(const std::filesystem::path& path) {
     root["environment"] = vec3_json(state_.environment);
     root["assets"] = nlohmann::json::array();
     for (const auto& asset : assets_) {
-        if (asset->source_path.empty()) {
-            continue;
+        if (session_snapshot) {
+            nlohmann::json source;
+            if (!asset->source_path.empty()) {
+                source = {
+                    {"kind", "obj"},
+                    {"path", normalized_absolute(asset->source_path).generic_string()},
+                };
+            } else if (!asset->builtin_id.empty()) {
+                source = {
+                    {"kind", "builtin"},
+                    {"id", asset->builtin_id},
+                };
+            } else {
+                continue;
+            }
+            root["assets"].push_back({
+                {"id", asset->id},
+                {"source", std::move(source)},
+            });
+        } else {
+            if (asset->source_path.empty()) {
+                continue;
+            }
+            std::error_code error;
+            std::filesystem::path stored =
+                std::filesystem::relative(asset->source_path, base, error);
+            if (error) {
+                stored = asset->source_path;
+            }
+            root["assets"].push_back({
+                {"id", asset->id},
+                {"path", stored.generic_string()},
+            });
         }
-        std::error_code error;
-        std::filesystem::path stored = std::filesystem::relative(asset->source_path, base, error);
-        if (error) {
-            stored = asset->source_path;
-        }
-        root["assets"].push_back({
-            {"id", asset->id},
-            {"path", stored.generic_string()},
-        });
     }
     root["objects"] = nlohmann::json::array();
     for (const SceneObject& object : state_.objects) {
@@ -1106,7 +1135,13 @@ void SceneDocument::save(const std::filesystem::path& path) {
         }
         root["objects"].push_back(std::move(object_entry));
     }
+    return root;
+}
 
+void SceneDocument::save(const std::filesystem::path& path) {
+    const std::filesystem::path absolute_path = normalized_absolute(path);
+    const nlohmann::json root =
+        serialize_document(absolute_path.parent_path(), false);
     const std::filesystem::path temporary = absolute_path.string() + ".tmp";
     std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
     if (!output) {
@@ -1131,30 +1166,104 @@ void SceneDocument::save(const std::filesystem::path& path) {
     mark_saved();
 }
 
-SceneDocument SceneDocument::load(const std::filesystem::path& path, int width, int height) {
-    const std::filesystem::path absolute_path = normalized_absolute(path);
-    std::ifstream input(absolute_path, std::ios::binary);
-    if (!input) {
-        throw std::runtime_error("failed to open scene file: " + absolute_path.string());
+nlohmann::json SceneDocument::session_snapshot() const {
+    return serialize_document({}, true);
+}
+
+void SceneDocument::restore_file_state(
+    const std::filesystem::path& path,
+    bool dirty_value) {
+    file_path_ = path.empty()
+        ? std::filesystem::path()
+        : normalized_absolute(path);
+    if (dirty_value) {
+        saved_cursor_.reset();
+    } else {
+        saved_cursor_ = history_cursor_;
     }
-    nlohmann::json root;
-    input >> root;
+}
+
+SceneDocument SceneDocument::deserialize_document(
+    const nlohmann::json& root,
+    const std::filesystem::path& document_path,
+    int width,
+    int height,
+    bool session_snapshot) {
     const int version = root.value("version", 0);
     if (version != 1 && version != 2) {
         throw std::runtime_error("unsupported scene file version");
     }
 
     SceneDocument document;
-    document.file_path_ = absolute_path;
+    document.file_path_ = session_snapshot
+        ? std::filesystem::path()
+        : document_path;
     document.state_.objects.clear();
     document.assets_.clear();
     document.state_.environment = parse_vec3(root.at("environment"), "environment");
     std::unordered_map<AssetId, AssetId> asset_ids;
+    std::unordered_set<AssetId> stored_asset_ids;
     for (const auto& asset_json : root.at("assets")) {
         const AssetId stored_id = asset_json.at("id").get<AssetId>();
+        if (stored_id == kInvalidAssetId ||
+            !stored_asset_ids.insert(stored_id).second) {
+            throw std::runtime_error("scene asset ids must be unique and nonzero");
+        }
+        if (session_snapshot) {
+            const auto& source = asset_json.at("source");
+            const std::string kind = source.at("kind").get<std::string>();
+            if (kind == "builtin") {
+                const std::string builtin_id = source.at("id").get<std::string>();
+                if (builtin_id != "cornell_box") {
+                    document.warnings_.push_back(
+                        "unknown session builtin asset: " + builtin_id);
+                    continue;
+                }
+                Scene builtin_scene = make_cornell_box_scene();
+                auto asset = std::make_shared<SceneMeshAsset>();
+                asset->id = document.next_asset_id_++;
+                asset->builtin_id = builtin_id;
+                asset->local_scene = std::move(builtin_scene);
+                asset->material_names.reserve(asset->local_scene.materials.size());
+                for (std::size_t index = 0;
+                     index < asset->local_scene.materials.size();
+                     ++index) {
+                    asset->material_names.push_back(
+                        "Material " + std::to_string(index + 1));
+                }
+                for (const Triangle& triangle : asset->local_scene.triangles) {
+                    asset->local_bounds.expand(triangle.bounds());
+                }
+                document.assets_.push_back(asset);
+                asset_ids[stored_id] = asset->id;
+                continue;
+            }
+            if (kind != "obj") {
+                document.warnings_.push_back(
+                    "unknown session asset source kind: " + kind);
+                continue;
+            }
+            const std::filesystem::path asset_path =
+                source.at("path").get<std::string>();
+            if (!std::filesystem::exists(asset_path)) {
+                document.warnings_.push_back(
+                    "missing session asset: " + asset_path.string());
+                continue;
+            }
+            try {
+                const auto asset = document.load_asset(asset_path, width, height);
+                asset_ids[stored_id] = asset->id;
+            } catch (const std::exception& error) {
+                document.warnings_.push_back(
+                    "failed to restore session asset '" + asset_path.string() +
+                    "': " + error.what());
+            }
+            continue;
+        }
+
         std::filesystem::path asset_path = asset_json.at("path").get<std::string>();
         if (asset_path.is_relative()) {
-            asset_path = absolute_path.parent_path() / asset_path;
+            asset_path = document_path.parent_path() / asset_path;
         }
         if (!std::filesystem::exists(asset_path)) {
             document.warnings_.push_back("missing asset: " + asset_path.string());
@@ -1189,6 +1298,14 @@ SceneDocument SceneDocument::load(const std::filesystem::path& path, int width, 
         object.locked = object_json.value("locked", false);
         const AssetId stored_asset = object_json.value("asset", kInvalidAssetId);
         const auto mapped = asset_ids.find(stored_asset);
+        if (session_snapshot &&
+            object.type == SceneObjectType::Mesh &&
+            mapped == asset_ids.end()) {
+            document.warnings_.push_back(
+                "skipped object '" + object.name +
+                "' because its session asset is unavailable");
+            continue;
+        }
         object.asset_id = mapped == asset_ids.end() ? kInvalidAssetId : mapped->second;
         object.light_color = parse_vec3(object_json.at("light_color"), "light_color");
         if (version >= 2 && object_json.contains("material_overrides")) {
@@ -1243,6 +1360,33 @@ SceneDocument SceneDocument::load(const std::filesystem::path& path, int width, 
         document.next_object_id_ = std::max(document.next_object_id_, object.id + 1);
         document.state_.objects.push_back(std::move(object));
     }
+    if (session_snapshot) {
+        bool removed_object = true;
+        while (removed_object) {
+            removed_object = false;
+            std::unordered_set<ObjectId> surviving_ids;
+            for (const SceneObject& object : document.state_.objects) {
+                surviving_ids.insert(object.id);
+            }
+            const auto removed_begin = std::remove_if(
+                document.state_.objects.begin(),
+                document.state_.objects.end(),
+                [&](const SceneObject& object) {
+                    if (object.parent_id == kInvalidObjectId ||
+                        surviving_ids.contains(object.parent_id)) {
+                        return false;
+                    }
+                    document.warnings_.push_back(
+                        "skipped object '" + object.name +
+                        "' because its session parent is unavailable");
+                    removed_object = true;
+                    return true;
+                });
+            document.state_.objects.erase(
+                removed_begin,
+                document.state_.objects.end());
+        }
+    }
     for (const SceneObject& object : document.state_.objects) {
         if (object.parent_id != kInvalidObjectId && !document.find(object.parent_id)) {
             throw std::runtime_error("scene object references a missing parent");
@@ -1270,6 +1414,38 @@ SceneDocument SceneDocument::load(const std::filesystem::path& path, int width, 
     document.render_dirty_ = true;
     document.rebuild_render_scene();
     return document;
+}
+
+SceneDocument SceneDocument::load(
+    const std::filesystem::path& path,
+    int width,
+    int height) {
+    const std::filesystem::path absolute_path = normalized_absolute(path);
+    std::ifstream input(absolute_path, std::ios::binary);
+    if (!input) {
+        throw std::runtime_error(
+            "failed to open scene file: " + absolute_path.string());
+    }
+    nlohmann::json root;
+    input >> root;
+    return deserialize_document(
+        root,
+        absolute_path,
+        width,
+        height,
+        false);
+}
+
+SceneDocument SceneDocument::from_session_snapshot(
+    const nlohmann::json& snapshot,
+    int width,
+    int height) {
+    return deserialize_document(
+        snapshot,
+        {},
+        width,
+        height,
+        true);
 }
 
 }  // namespace renderer

@@ -6,6 +6,8 @@
 #include "scene/light.h"
 #include "scene/scene.h"
 
+#include <nlohmann/json_fwd.hpp>
+
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -40,6 +42,7 @@ struct SceneTransform {
 struct SceneMeshAsset {
     AssetId id = kInvalidAssetId;
     std::filesystem::path source_path;
+    std::string builtin_id;
     Scene local_scene;
     Bounds3 local_bounds;
     std::vector<std::string> warnings;
@@ -84,10 +87,19 @@ class SceneDocument {
 public:
     SceneDocument();
 
-    static SceneDocument from_scene(Scene scene, std::string name);
+    static SceneDocument from_scene(
+        Scene scene,
+        std::string name,
+        std::string builtin_id = {});
     static SceneDocument load(const std::filesystem::path& path, int width, int height);
+    static SceneDocument from_session_snapshot(
+        const nlohmann::json& snapshot,
+        int width,
+        int height);
 
     void save(const std::filesystem::path& path);
+    nlohmann::json session_snapshot() const;
+    void restore_file_state(const std::filesystem::path& path, bool dirty);
     std::vector<ObjectId> import_path(const std::filesystem::path& path, int width, int height);
 
     const std::vector<SceneObject>& objects() const;
@@ -179,6 +191,15 @@ private:
     bool is_effectively_visible(ObjectId id) const;
     Mat4 world_matrix_recursive(ObjectId id, int depth) const;
     static bool decompose_matrix(const Mat4& matrix, SceneTransform& transform);
+    nlohmann::json serialize_document(
+        const std::filesystem::path& base,
+        bool session_snapshot) const;
+    static SceneDocument deserialize_document(
+        const nlohmann::json& root,
+        const std::filesystem::path& document_path,
+        int width,
+        int height,
+        bool session_snapshot);
     void ensure_render_scene() const;
 };
 
