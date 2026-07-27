@@ -14,6 +14,7 @@ struct LoadedScene {
     Camera camera;
     Bounds3 bounds;
     std::vector<std::string> warnings;
+    std::vector<std::string> material_names;
 };
 
 LoadedScene load_scene_asset(const std::string& path, int width, int height);

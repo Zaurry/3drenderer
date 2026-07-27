@@ -37,13 +37,17 @@
 #include "scene/obj_loader.h"
 #include "scene/primitive.h"
 #include "scene/scene_asset_loader.h"
+#include "scene/scene_document.h"
 #include "scene/scene.h"
 #include "scene/texture.h"
+
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -2679,6 +2683,12 @@ void test_scene_asset_loader_preserves_obj_mtl_materials() {
 
     renderer::LoadedScene loaded = renderer::load_scene_asset(obj_path, 64, 64);
     RENDER_CHECK(loaded.scene.triangles.size() == 4);
+    RENDER_CHECK(loaded.material_names.size() == loaded.scene.materials.size());
+    RENDER_CHECK(loaded.material_names[0] == "red");
+    RENDER_CHECK(loaded.material_names[1] == "light");
+    RENDER_CHECK(loaded.material_names[2] == "mirror");
+    RENDER_CHECK(loaded.material_names[3] == "glass");
+    RENDER_CHECK(loaded.material_names[4] == "<default>");
     RENDER_CHECK(has_red_like_material(loaded.scene));
     RENDER_CHECK(has_nonzero_emissive_material(loaded.scene));
     RENDER_CHECK(has_material_type(loaded.scene, renderer::MaterialType::Metal));
@@ -3071,6 +3081,386 @@ void test_cuda_pathtracer_spheres_materials_and_bump_texture_when_available() {
     }
 }
 
+void test_scene_document_import_transform_hierarchy_history_and_roundtrip() {
+    const std::filesystem::path directory = "test_scene_document_assets";
+    const std::filesystem::path nested = directory / "nested";
+    const std::filesystem::path scene_path = directory / "test_scene.rscene";
+    std::filesystem::remove_all(directory);
+    std::filesystem::create_directories(nested);
+    const auto write_triangle = [](const std::filesystem::path& path, float x) {
+        std::ofstream obj(path);
+        obj << "v " << x - 0.5f << " -0.5 0\n";
+        obj << "v " << x + 0.5f << " -0.5 0\n";
+        obj << "v " << x << " 0.5 0\n";
+        obj << "f 1 2 3\n";
+    };
+    write_triangle(directory / "first.obj", 0.0f);
+    write_triangle(nested / "second.obj", 2.0f);
+
+    renderer::SceneDocument document;
+    const std::vector<renderer::ObjectId> imported =
+        document.import_path(directory, 64, 64);
+    RENDER_CHECK(imported.size() == 2);
+    RENDER_CHECK(document.assets().size() == 2);
+    RENDER_CHECK(document.render_scene().triangles.size() == 2);
+    RENDER_CHECK(document.render_scene().directional_lights.size() == 1);
+
+    renderer::SceneObject* first = document.find(imported[0]);
+    RENDER_CHECK(first != nullptr);
+    first->transform.translation = renderer::Vec3(3.0f, 1.0f, -2.0f);
+    document.checkpoint();
+    document.rebuild_render_scene();
+    const renderer::Mat4 before_reparent = document.world_matrix(first->id);
+    const renderer::ObjectId group = document.create_group("Moved group");
+    renderer::SceneObject* group_object = document.find(group);
+    group_object->transform.translation = renderer::Vec3(-4.0f, 2.0f, 0.0f);
+    document.checkpoint();
+    RENDER_CHECK(document.reparent(first->id, group));
+    RENDER_CHECK(document.world_matrix(first->id).isApprox(before_reparent, 1.0e-4f));
+
+    const renderer::ObjectId duplicate = document.duplicate_subtree(first->id);
+    RENDER_CHECK(duplicate != renderer::kInvalidObjectId);
+    RENDER_CHECK(document.assets().size() == 2);
+    RENDER_CHECK(document.render_scene().triangles.size() == 3);
+    RENDER_CHECK(document.undo());
+    RENDER_CHECK(document.render_scene().triangles.size() == 2);
+    RENDER_CHECK(document.redo());
+    RENDER_CHECK(document.render_scene().triangles.size() == 3);
+
+    const renderer::SceneObject* root = nullptr;
+    for (const renderer::SceneObject& object : document.objects()) {
+        if (object.type == renderer::SceneObjectType::Group &&
+            object.parent_id == renderer::kInvalidObjectId &&
+            object.name == directory.filename().string()) {
+            root = &object;
+            break;
+        }
+    }
+    RENDER_CHECK(root != nullptr);
+    document.find(root->id)->visible = false;
+    document.rebuild_render_scene();
+    RENDER_CHECK(document.render_scene().triangles.size() == 2);
+    document.find(root->id)->visible = true;
+    document.rebuild_render_scene();
+    RENDER_CHECK(document.render_scene().triangles.size() == 3);
+
+    document.save(scene_path);
+    RENDER_CHECK(!document.dirty());
+    renderer::SceneDocument loaded =
+        renderer::SceneDocument::load(scene_path, 64, 64);
+    RENDER_CHECK(!loaded.dirty());
+    RENDER_CHECK(loaded.assets().size() == 2);
+    RENDER_CHECK(loaded.render_scene().triangles.size() == 3);
+    RENDER_CHECK(loaded.objects().size() == document.objects().size());
+
+    const renderer::Ray pick_ray(
+        renderer::Vec3(3.0f, 1.0f, 2.0f),
+        renderer::Vec3(0.0f, 0.0f, -1.0f));
+    const auto pick = loaded.pick(pick_ray);
+    RENDER_CHECK(pick.has_value());
+
+    std::filesystem::remove_all(directory);
+}
+
+void test_scene_document_material_overrides_are_per_object_and_roundtrip() {
+    const std::filesystem::path directory =
+        "test_scene_document_material_overrides";
+    const std::filesystem::path obj_path = directory / "model.obj";
+    const std::filesystem::path mtl_path = directory / "model.mtl";
+    const std::filesystem::path texture_path = directory / "surface.ppm";
+    const std::filesystem::path scene_path = directory / "materials.rscene";
+    const std::filesystem::path version_one_path =
+        directory / "materials-v1.rscene";
+    const std::filesystem::path invalid_slot_path =
+        directory / "materials-invalid-slot.rscene";
+    const std::filesystem::path missing_asset_path =
+        directory / "materials-missing-asset.rscene";
+    std::filesystem::remove_all(directory);
+    std::filesystem::create_directories(directory);
+    write_single_pixel_ppm(texture_path.string(), 128);
+    {
+        std::ofstream mtl(mtl_path);
+        mtl << "newmtl TexturedSurface\n";
+        mtl << "Kd 0.8 0.6 0.4\n";
+        mtl << "d 0.9\n";
+        mtl << "map_Kd surface.ppm\n";
+        mtl << "map_d surface.ppm\n";
+        mtl << "bump -bm 0.3 surface.ppm\n";
+        mtl << "newmtl PlainSurface\n";
+        mtl << "Kd 0.2 0.3 0.4\n";
+    }
+    {
+        std::ofstream obj(obj_path);
+        obj << "mtllib model.mtl\n";
+        obj << "v -1 -1 0\n";
+        obj << "v 0 -1 0\n";
+        obj << "v -1 1 0\n";
+        obj << "v 0 -1 0\n";
+        obj << "v 1 -1 0\n";
+        obj << "v 1 1 0\n";
+        obj << "vt 0 0\nvt 1 0\nvt 0 1\n";
+        obj << "vn 0 0 1\n";
+        obj << "usemtl TexturedSurface\n";
+        obj << "f 1/1/1 2/2/1 3/3/1\n";
+        obj << "usemtl PlainSurface\n";
+        obj << "f 4/1/1 5/2/1 6/3/1\n";
+    }
+
+    renderer::SceneDocument document;
+    const renderer::ObjectId first_id =
+        document.import_path(obj_path, 64, 64).front();
+    const renderer::ObjectId second_id =
+        document.import_path(obj_path, 64, 64).front();
+    RENDER_CHECK(document.assets().size() == 1);
+    const renderer::SceneMeshAsset* asset =
+        document.asset_for_object(first_id);
+    RENDER_CHECK(asset != nullptr);
+    RENDER_CHECK(asset == document.asset_for_object(second_id));
+    RENDER_CHECK(asset->material_names.size() == 3);
+    RENDER_CHECK(asset->material_names[0] == "TexturedSurface");
+    RENDER_CHECK(asset->material_names[1] == "PlainSurface");
+    RENDER_CHECK(asset->material_names[2] == "<default>");
+
+    const auto source_textured = document.material_properties(first_id, 0);
+    const auto source_plain = document.material_properties(first_id, 1);
+    RENDER_CHECK(source_textured.has_value());
+    RENDER_CHECK(source_plain.has_value());
+    RENDER_CHECK(source_textured->use_diffuse_texture);
+    RENDER_CHECK(source_textured->use_opacity_texture);
+    RENDER_CHECK(source_textured->use_bump_texture);
+    RENDER_CHECK(!source_plain->use_diffuse_texture);
+    RENDER_CHECK(!source_plain->use_opacity_texture);
+    RENDER_CHECK(!source_plain->use_bump_texture);
+
+    renderer::SceneMaterialOverride material_override = *source_textured;
+    material_override.type = renderer::MaterialType::Metal;
+    material_override.base_color = renderer::Color(0.25f, 0.5f, 0.75f);
+    material_override.emission = renderer::Color(2.0f, 3.0f, 4.0f);
+    material_override.roughness = 0.15f;
+    material_override.ior = 1.7f;
+    material_override.opacity = 0.55f;
+    material_override.alpha_cutoff = 0.4f;
+    material_override.bump_scale = 0.7f;
+    material_override.two_sided = false;
+    RENDER_CHECK(document.set_material_override(first_id, material_override));
+    document.checkpoint();
+    RENDER_CHECK(document.material_override(first_id, 0) != nullptr);
+    RENDER_CHECK(document.material_override(second_id, 0) == nullptr);
+
+    const renderer::Scene& overridden_scene = document.render_scene();
+    RENDER_CHECK(overridden_scene.triangles.size() == 4);
+    const int first_material_id =
+        overridden_scene.triangles[0].material_id();
+    const int second_material_id =
+        overridden_scene.triangles[2].material_id();
+    RENDER_CHECK(first_material_id >= 0);
+    RENDER_CHECK(second_material_id >= 0);
+    const renderer::Material& first_material =
+        overridden_scene.materials[static_cast<std::size_t>(first_material_id)];
+    const renderer::Material& second_material =
+        overridden_scene.materials[static_cast<std::size_t>(second_material_id)];
+    RENDER_CHECK(first_material.type == renderer::MaterialType::Metal);
+    RENDER_CHECK(second_material.type == renderer::MaterialType::Diffuse);
+    RENDER_CHECK(nearly_equal(first_material.base_color.x(), 0.25f));
+    RENDER_CHECK(nearly_equal(second_material.base_color.x(), 0.8f));
+    RENDER_CHECK(first_material.diffuse_texture_id >= 0);
+    RENDER_CHECK(first_material.diffuse_texture_id ==
+        second_material.diffuse_texture_id);
+    RENDER_CHECK(first_material.opacity_texture_id ==
+        second_material.opacity_texture_id);
+    RENDER_CHECK(first_material.bump_texture_id ==
+        second_material.bump_texture_id);
+    RENDER_CHECK(overridden_scene.textures.size() ==
+        asset->local_scene.textures.size());
+    const renderer::Color texture_sample =
+        overridden_scene
+            .textures[static_cast<std::size_t>(
+                first_material.diffuse_texture_id)]
+            .sample(renderer::Vec2::Zero());
+    const renderer::Color tinted =
+        renderer::sample_material_base_color(
+            overridden_scene,
+            first_material,
+            renderer::Vec2::Zero());
+    RENDER_CHECK(nearly_equal(
+        tinted.x(),
+        texture_sample.x() * material_override.base_color.x()));
+    RENDER_CHECK(nearly_equal(
+        tinted.y(),
+        texture_sample.y() * material_override.base_color.y()));
+    RENDER_CHECK(nearly_equal(
+        tinted.z(),
+        texture_sample.z() * material_override.base_color.z()));
+
+    RENDER_CHECK(document.undo());
+    RENDER_CHECK(document.material_override(first_id, 0) == nullptr);
+    RENDER_CHECK(document.redo());
+    RENDER_CHECK(document.material_override(first_id, 0) != nullptr);
+
+    const renderer::ObjectId duplicate_id =
+        document.duplicate_subtree(first_id);
+    RENDER_CHECK(duplicate_id != renderer::kInvalidObjectId);
+    RENDER_CHECK(document.material_override(duplicate_id, 0) != nullptr);
+    renderer::SceneMaterialOverride duplicate_override =
+        *document.material_override(duplicate_id, 0);
+    duplicate_override.base_color = renderer::Color(0.9f, 0.1f, 0.2f);
+    duplicate_override.use_diffuse_texture = false;
+    RENDER_CHECK(document.set_material_override(
+        duplicate_id,
+        duplicate_override));
+    document.checkpoint();
+    RENDER_CHECK(document.material_override(first_id, 0)->base_color.isApprox(
+        material_override.base_color));
+    RENDER_CHECK(document.material_override(duplicate_id, 0)->base_color.isApprox(
+        duplicate_override.base_color));
+    const renderer::Scene& duplicated_scene = document.render_scene();
+    RENDER_CHECK(
+        duplicated_scene
+            .materials[static_cast<std::size_t>(
+                duplicated_scene.triangles[0].material_id())]
+            .diffuse_texture_id >= 0);
+    RENDER_CHECK(
+        duplicated_scene
+            .materials[static_cast<std::size_t>(
+                duplicated_scene.triangles[4].material_id())]
+            .diffuse_texture_id == -1);
+
+    renderer::SceneObject* first_object = document.find(first_id);
+    RENDER_CHECK(first_object != nullptr);
+    first_object->locked = true;
+    RENDER_CHECK(!document.set_material_override(first_id, material_override));
+    RENDER_CHECK(!document.clear_material_override(first_id, 0));
+    first_object->locked = false;
+
+    RENDER_CHECK(document.clear_material_override(duplicate_id, 0));
+    document.checkpoint();
+    RENDER_CHECK(document.material_override(duplicate_id, 0) == nullptr);
+    RENDER_CHECK(document.undo());
+    RENDER_CHECK(document.material_override(duplicate_id, 0) != nullptr);
+    RENDER_CHECK(document.redo());
+    RENDER_CHECK(document.material_override(duplicate_id, 0) == nullptr);
+    const auto reset_properties =
+        document.material_properties(duplicate_id, 0);
+    RENDER_CHECK(reset_properties.has_value());
+    RENDER_CHECK(reset_properties->base_color.isApprox(
+        asset->local_scene.materials[0].base_color));
+
+    document.save(scene_path);
+    nlohmann::json saved_json;
+    {
+        std::ifstream input(scene_path);
+        input >> saved_json;
+    }
+    RENDER_CHECK(saved_json.at("version").get<int>() == 2);
+    std::size_t objects_with_overrides = 0;
+    for (const auto& object_json : saved_json.at("objects")) {
+        if (object_json.contains("material_overrides")) {
+            ++objects_with_overrides;
+        }
+    }
+    RENDER_CHECK(objects_with_overrides == 1);
+
+    renderer::SceneDocument loaded =
+        renderer::SceneDocument::load(scene_path, 64, 64);
+    RENDER_CHECK(!loaded.dirty());
+    RENDER_CHECK(loaded.assets().size() == 1);
+    RENDER_CHECK(loaded.material_override(first_id, 0) != nullptr);
+    RENDER_CHECK(loaded.material_override(second_id, 0) == nullptr);
+    RENDER_CHECK(loaded.material_override(duplicate_id, 0) == nullptr);
+    RENDER_CHECK(loaded.asset_for_object(first_id)->material_names[0] ==
+        "TexturedSurface");
+    RENDER_CHECK(loaded.material_override(first_id, 0)->base_color.isApprox(
+        material_override.base_color));
+    RENDER_CHECK(
+        loaded.material_override(first_id, 0)->type ==
+        material_override.type);
+    RENDER_CHECK(nearly_equal(
+        loaded.material_override(first_id, 0)->roughness,
+        material_override.roughness));
+    RENDER_CHECK(nearly_equal(
+        loaded.material_override(first_id, 0)->ior,
+        material_override.ior));
+    RENDER_CHECK(loaded.material_override(first_id, 0)->emission.isApprox(
+        material_override.emission));
+    RENDER_CHECK(nearly_equal(
+        loaded.material_override(first_id, 0)->opacity,
+        material_override.opacity));
+    RENDER_CHECK(nearly_equal(
+        loaded.material_override(first_id, 0)->alpha_cutoff,
+        material_override.alpha_cutoff));
+    RENDER_CHECK(nearly_equal(
+        loaded.material_override(first_id, 0)->bump_scale,
+        material_override.bump_scale));
+    RENDER_CHECK(
+        loaded.material_override(first_id, 0)->two_sided ==
+        material_override.two_sided);
+    RENDER_CHECK(loaded.material_override(first_id, 0)->use_diffuse_texture);
+    RENDER_CHECK(loaded.material_override(first_id, 0)->use_opacity_texture);
+    RENDER_CHECK(loaded.material_override(first_id, 0)->use_bump_texture);
+
+    nlohmann::json version_one_json = saved_json;
+    version_one_json["version"] = 1;
+    for (auto& object_json : version_one_json["objects"]) {
+        object_json.erase("material_overrides");
+    }
+    {
+        std::ofstream output(version_one_path);
+        output << version_one_json.dump(2) << '\n';
+    }
+    renderer::SceneDocument version_one =
+        renderer::SceneDocument::load(version_one_path, 64, 64);
+    for (const renderer::SceneObject& object : version_one.objects()) {
+        RENDER_CHECK(object.material_overrides.empty());
+    }
+
+    nlohmann::json invalid_slot_json = saved_json;
+    bool changed_slot = false;
+    for (auto& object_json : invalid_slot_json["objects"]) {
+        if (object_json.contains("material_overrides")) {
+            object_json["material_overrides"][0]["slot"] = 999;
+            changed_slot = true;
+            break;
+        }
+    }
+    RENDER_CHECK(changed_slot);
+    {
+        std::ofstream output(invalid_slot_path);
+        output << invalid_slot_json.dump(2) << '\n';
+    }
+    renderer::SceneDocument invalid_slot =
+        renderer::SceneDocument::load(invalid_slot_path, 64, 64);
+    RENDER_CHECK(invalid_slot.material_override(first_id, 999) != nullptr);
+    RENDER_CHECK(!invalid_slot.material_properties(first_id, 999).has_value());
+    const bool saw_slot_warning = std::any_of(
+        invalid_slot.warnings().begin(),
+        invalid_slot.warnings().end(),
+        [](const std::string& warning) {
+            return warning.find("material override slot") != std::string::npos;
+        });
+    RENDER_CHECK(saw_slot_warning);
+    RENDER_CHECK(invalid_slot.render_scene().triangles.size() == 6);
+
+    nlohmann::json missing_asset_json = saved_json;
+    missing_asset_json["assets"][0]["path"] = "missing.obj";
+    {
+        std::ofstream output(missing_asset_path);
+        output << missing_asset_json.dump(2) << '\n';
+    }
+    renderer::SceneDocument missing_asset =
+        renderer::SceneDocument::load(missing_asset_path, 64, 64);
+    RENDER_CHECK(missing_asset.material_override(first_id, 0) != nullptr);
+    RENDER_CHECK(missing_asset.render_scene().triangles.empty());
+    const bool saw_missing_warning = std::any_of(
+        missing_asset.warnings().begin(),
+        missing_asset.warnings().end(),
+        [](const std::string& warning) {
+            return warning.find("missing asset") != std::string::npos;
+        });
+    RENDER_CHECK(saw_missing_warning);
+
+    std::filesystem::remove_all(directory);
+}
+
 int main() {
     RENDER_CHECK(1 + 1 == 2);
     test_vec3_arithmetic();
@@ -3175,6 +3565,8 @@ int main() {
     test_cuda_pathtracer_alpha_texture_and_interactive_reset_when_available();
     test_cuda_pathtracer_lighting_contracts_when_available();
     test_cuda_pathtracer_spheres_materials_and_bump_texture_when_available();
+    test_scene_document_import_transform_hierarchy_history_and_roundtrip();
+    test_scene_document_material_overrides_are_per_object_and_roundtrip();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;
 }

@@ -4,6 +4,8 @@
 
 Raster 与 Whitted Ray 运行在 CPU 上；OpenGL 模式使用 OpenGL 4.5 Core 和可热重载 GLSL；Path 模式支持 CPU 与 CUDA Core 后端。SDL3 负责窗口与输入，OpenGL 统一显示四种模式的线性 framebuffer 并叠加 Dear ImGui。CUDA Path 在兼容设备上通过 CUDA–OpenGL interop 直接写入显示 texture，失败时自动回退 CPU staging；Path 后端不依赖 OptiX 或 RT Core。
 
+Viewer 内置完整的场景对象系统：可同时导入多个 OBJ 或整个目录，以层级对象组织共享网格资产，为每个对象独立设置变换和材质覆盖，并将编辑结果保存为 `.rscene`。
+
 ## 快速开始
 
 需要 CMake 3.21+、支持 C++20 的编译器和 OpenGL 4.5 驱动。CUDA 是可选依赖。
@@ -70,6 +72,24 @@ ctest --preset cuda-release
   --height 540
 ```
 
+`--asset` 可重复使用，也可直接传入目录；目录中的 OBJ 会被递归导入：
+
+```powershell
+.\build\default\bin\viewer.exe `
+  --asset "Computer Graphics Archive\hw1\model-a.obj" `
+  --asset "Computer Graphics Archive\hw1\model-b.obj" `
+  --asset "Computer Graphics Archive\shared-assets" `
+  --mode raster
+```
+
+打开已保存的场景文档：
+
+```powershell
+.\build\default\bin\viewer.exe `
+  --scene-file path\to\scene.rscene `
+  --mode path
+```
+
 如果 `--scene asset` 没有传入 `--asset`，viewer 默认查找：
 
 ```text
@@ -80,7 +100,8 @@ Viewer 参数：
 
 ```text
 --scene builtin|asset
---asset path\to\scene.obj
+--asset path\to\model-or-directory  (可重复)
+--scene-file path\to\scene.rscene
 --mode raster|ray|path|opengl
 --width integer
 --height integer
@@ -102,6 +123,9 @@ Dear ImGui 面板提供：
 - Path 累积暂停、继续、清零，以及 spp、FPS 和帧耗时显示。
 - Orbit/Free 相机、FOV、轨道距离、移动速度和相机复位。
 - 环境光、方向光和点光的 HDR 参数，以及灯光添加和删除。
+- 场景 Outliner、层级重设、可见性、锁定、复制、删除和对象独立 TRS 变换。
+- 按 MTL 名称选择材质槽，并为当前对象覆盖类型、颜色、粗糙度、IOR、自发光、透明、bump 和双面参数。
+- OBJ/目录导入、`.rscene` 打开与保存，以及场景编辑 Undo/Redo。
 - `-8～+8 EV` 曝光和 None/Reinhard/ACES tone mapping。
 - 75%～200% UI 字体大小和一键恢复默认大小。
 
@@ -119,6 +143,14 @@ Dear ImGui 面板提供：
 - `Esc`：退出。
 
 ImGui 捕获鼠标或键盘时，相机和渲染热键不会抢占输入。面板状态仅在当前会话有效，不生成 `imgui.ini`。
+
+### 场景对象与材质覆盖
+
+重复导入同一 OBJ 时，多个对象共享原始网格、材质和纹理资产，但各自保存变换与材质覆盖。复制对象会继承当前外观，之后继续编辑不会影响原对象。
+
+材质覆盖不会写回 OBJ/MTL，也不会修改引用同一资产的其他对象。`Base color / tint` 始终与原 `map_Kd` 相乘；Diffuse、Opacity 和 Bump texture 开关默认保留原贴图。当前版本只覆盖参数，不替换贴图文件。
+
+`.rscene` 当前格式版本为 2，保存对象层级、变换、灯光和非空材质覆盖，并继续兼容版本 1。材质槽越界时保留覆盖数据、渲染时忽略并显示警告。完整操作与格式边界见 [场景对象系统](docs/scene-object-system.md)。
 
 ## 离线渲染
 
@@ -240,7 +272,7 @@ docs/                     设计、计划、实现说明和验证结果
 - Path 尚无面积光/环境光重要性采样、MIS、降噪和 PBR 微表面模型；低 spp 噪声仍然明显。
 - OBJ/MTL 尚无 tangent-space normal map、alpha blend、metallic/roughness、occlusion 和 emissive 贴图解析。
 - Bump 使用逐像素高度有限差分且没有 mipmap，远距离或高频高度图可能走样。
-- 参数面板尚无逐材质编辑、预设持久化、docking 或多窗口。
+- 材质编辑器尚不支持替换贴图文件、材质预设持久化、docking 或多窗口。
 
 更完整的后续材质计划见 [现代 PBR 材质路线图](docs/pbr-roadmap.md)。
 
@@ -252,3 +284,4 @@ docs/                     设计、计划、实现说明和验证结果
 - [Eigen float 迁移结果](docs/output/eigen-float-migration-results.md)
 - [CUDA Path Tracer 测试与基准](docs/output/cuda-pathtracer-results.md)
 - [OpenGL GLSL Shader 合约](docs/glsl-shader-contract.md)
+- [场景对象系统与材质覆盖](docs/scene-object-system.md)

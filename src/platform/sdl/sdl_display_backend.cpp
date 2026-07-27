@@ -10,13 +10,26 @@
 #include <imgui_impl_sdl3.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace renderer {
+
+struct SdlDisplayBackend::DialogInbox {
+    std::mutex mutex;
+    std::vector<FileDialogResult> results;
+    std::atomic_bool open = false;
+};
+
+struct SdlDisplayBackend::DialogCallbackData {
+    std::weak_ptr<DialogInbox> inbox;
+    FileDialogKind kind = FileDialogKind::ImportFiles;
+};
 
 namespace {
 
@@ -109,9 +122,11 @@ int tone_mapper_value(ToneMapper tone_mapper) {
 }  // namespace
 
 SdlDisplayBackend::SdlDisplayBackend()
-    : compositor_program_(std::make_unique<GlShaderProgram>()) {}
+    : compositor_program_(std::make_unique<GlShaderProgram>()),
+      dialog_inbox_(std::make_shared<DialogInbox>()) {}
 
 SdlDisplayBackend::~SdlDisplayBackend() {
+    dialog_inbox_.reset();
     if (gl_context_ && window_) {
         SDL_GL_MakeCurrent(window_, static_cast<SDL_GLContext>(gl_context_));
     }
@@ -254,6 +269,8 @@ InputState SdlDisplayBackend::poll_input() {
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
                 if (event.button.button == SDL_BUTTON_LEFT) {
                     left_mouse_down_ = true;
+                    left_mouse_dragged_ = false;
+                    input.left_mouse_pressed = true;
                 } else if (event.button.button == SDL_BUTTON_RIGHT) {
                     right_mouse_down_ = true;
                 }
@@ -261,11 +278,20 @@ InputState SdlDisplayBackend::poll_input() {
             case SDL_EVENT_MOUSE_BUTTON_UP:
                 if (event.button.button == SDL_BUTTON_LEFT) {
                     left_mouse_down_ = false;
+                    input.left_mouse_released = true;
+                    input.left_mouse_clicked = !left_mouse_dragged_;
+                    left_mouse_dragged_ = false;
                 } else if (event.button.button == SDL_BUTTON_RIGHT) {
                     right_mouse_down_ = false;
                 }
                 break;
             case SDL_EVENT_MOUSE_MOTION:
+                input.mouse_x = event.motion.x;
+                input.mouse_y = event.motion.y;
+                if (left_mouse_down_ &&
+                    (std::abs(event.motion.xrel) + std::abs(event.motion.yrel) > 0.5f)) {
+                    left_mouse_dragged_ = true;
+                }
                 if (left_mouse_down_ || right_mouse_down_ || relative_mouse_mode_) {
                     input.mouse_delta_x += event.motion.xrel;
                     input.mouse_delta_y += event.motion.yrel;
@@ -273,6 +299,11 @@ InputState SdlDisplayBackend::poll_input() {
                 break;
             case SDL_EVENT_MOUSE_WHEEL:
                 input.wheel_delta += event.wheel.y;
+                break;
+            case SDL_EVENT_DROP_FILE:
+                if (event.drop.data && event.drop.data[0] != '\0') {
+                    input.dropped_paths.emplace_back(event.drop.data);
+                }
                 break;
             case SDL_EVENT_KEY_DOWN:
                 if (!event.key.repeat) {
@@ -286,7 +317,9 @@ InputState SdlDisplayBackend::poll_input() {
                         input.select_opengl = true;
                     } else if (event.key.scancode == SDL_SCANCODE_F5) {
                         input.reload_shaders = true;
-                    } else if (event.key.scancode == SDL_SCANCODE_R) {
+                    } else if (
+                        event.key.scancode == SDL_SCANCODE_R &&
+                        (event.key.mod & SDL_KMOD_CTRL) != 0) {
                         input.reset_render = true;
                     } else if (event.key.scancode == SDL_SCANCODE_C) {
                         input.toggle_camera_mode = true;
@@ -304,6 +337,11 @@ InputState SdlDisplayBackend::poll_input() {
 
     input.left_mouse_down = left_mouse_down_;
     input.right_mouse_down = right_mouse_down_;
+    float current_mouse_x = 0.0f;
+    float current_mouse_y = 0.0f;
+    SDL_GetMouseState(&current_mouse_x, &current_mouse_y);
+    input.mouse_x = current_mouse_x;
+    input.mouse_y = current_mouse_y;
     if (SDL_GetKeyboardFocus() == window_) {
         const bool* keyboard = SDL_GetKeyboardState(nullptr);
         input.move_forward = keyboard[SDL_SCANCODE_W];
@@ -313,6 +351,10 @@ InputState SdlDisplayBackend::poll_input() {
         input.move_up = keyboard[SDL_SCANCODE_SPACE];
         input.move_down =
             keyboard[SDL_SCANCODE_LSHIFT] || keyboard[SDL_SCANCODE_RSHIFT];
+    }
+    if (dialog_inbox_) {
+        std::scoped_lock lock(dialog_inbox_->mutex);
+        input.dialog_results.swap(dialog_inbox_->results);
     }
     return input;
 }
@@ -349,6 +391,113 @@ bool SdlDisplayBackend::set_relative_mouse_mode(bool enabled) {
     }
     relative_mouse_mode_ = enabled;
     return true;
+}
+
+void SdlDisplayBackend::dialog_callback(
+    void* userdata,
+    const char* const* filelist,
+    int) {
+    const std::unique_ptr<DialogCallbackData> callback_data(
+        static_cast<DialogCallbackData*>(userdata));
+    const std::shared_ptr<DialogInbox> inbox = callback_data->inbox.lock();
+    if (!inbox) {
+        return;
+    }
+
+    FileDialogResult result;
+    result.kind = callback_data->kind;
+    if (!filelist) {
+        const char* error = SDL_GetError();
+        result.error = error ? error : "file dialog failed";
+    } else {
+        for (const char* const* path = filelist; *path; ++path) {
+            result.paths.emplace_back(*path);
+        }
+    }
+    {
+        std::scoped_lock lock(inbox->mutex);
+        inbox->results.push_back(std::move(result));
+    }
+    inbox->open = false;
+}
+
+bool SdlDisplayBackend::show_dialog(
+    FileDialogKind kind,
+    const std::string& default_location) {
+    if (!window_ || !dialog_inbox_) {
+        last_error_ = "file dialog requires an initialized window";
+        return false;
+    }
+    bool expected = false;
+    if (!dialog_inbox_->open.compare_exchange_strong(expected, true)) {
+        last_error_ = "a file dialog is already open";
+        return false;
+    }
+
+    auto* callback_data = new DialogCallbackData{dialog_inbox_, kind};
+    const char* location = default_location.empty() ? nullptr : default_location.c_str();
+    static constexpr SDL_DialogFileFilter model_filters[]{
+        {"Wavefront OBJ", "obj"},
+    };
+    static constexpr SDL_DialogFileFilter scene_filters[]{
+        {"Renderer scene", "rscene"},
+    };
+    switch (kind) {
+        case FileDialogKind::ImportFiles:
+            SDL_ShowOpenFileDialog(
+                &SdlDisplayBackend::dialog_callback,
+                callback_data,
+                window_,
+                model_filters,
+                1,
+                location,
+                true);
+            break;
+        case FileDialogKind::ImportFolder:
+            SDL_ShowOpenFolderDialog(
+                &SdlDisplayBackend::dialog_callback,
+                callback_data,
+                window_,
+                location,
+                false);
+            break;
+        case FileDialogKind::OpenScene:
+            SDL_ShowOpenFileDialog(
+                &SdlDisplayBackend::dialog_callback,
+                callback_data,
+                window_,
+                scene_filters,
+                1,
+                location,
+                false);
+            break;
+        case FileDialogKind::SaveScene:
+            SDL_ShowSaveFileDialog(
+                &SdlDisplayBackend::dialog_callback,
+                callback_data,
+                window_,
+                scene_filters,
+                1,
+                location);
+            break;
+    }
+    return true;
+}
+
+bool SdlDisplayBackend::show_import_files_dialog(const std::string& default_location) {
+    return show_dialog(FileDialogKind::ImportFiles, default_location);
+}
+
+bool SdlDisplayBackend::show_import_folder_dialog(const std::string& default_location) {
+    return show_dialog(FileDialogKind::ImportFolder, default_location);
+}
+
+bool SdlDisplayBackend::show_open_scene_dialog(const std::string& default_location) {
+    return show_dialog(FileDialogKind::OpenScene, default_location);
+}
+
+bool SdlDisplayBackend::show_save_scene_dialog(const std::string& default_location) {
+    return show_dialog(FileDialogKind::SaveScene, default_location);
 }
 
 void SdlDisplayBackend::present(

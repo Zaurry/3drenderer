@@ -355,9 +355,14 @@ LoadedScene load_scene_asset(const std::string& path, int width, int height) {
             texture_cache,
             loaded.warnings,
             warning_keys));
+        loaded.material_names.push_back(
+            source.name.empty()
+                ? "Material " + std::to_string(loaded.material_names.size() + 1)
+                : source.name);
     }
     const int fallback_material_id = static_cast<int>(loaded.scene.materials.size());
     loaded.scene.materials.push_back(fallback_material());
+    loaded.material_names.push_back("<default>");
 
     const tinyobj::attrib_t& attrib = reader.GetAttrib();
     for (const tinyobj::shape_t& shape : reader.GetShapes()) {

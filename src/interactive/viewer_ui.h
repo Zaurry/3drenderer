@@ -8,8 +8,11 @@
 #include "render/interactive/interactive_render_session.h"
 #include "render/renderer.h"
 #include "scene/scene.h"
+#include "scene/scene_document.h"
 
+#include <cstddef>
 #include <string>
+#include <vector>
 
 namespace renderer {
 
@@ -25,7 +28,17 @@ struct ViewerUiState {
     float render_scale = 1.0f;
     float ui_font_scale = 1.0f;
     bool path_accumulation_paused = false;
+    bool show_point_light_markers = true;
     bool panel_visible = true;
+    std::vector<ObjectId> selected_objects;
+    ObjectId active_object = kInvalidObjectId;
+    int gizmo_operation = 0;
+    bool gizmo_local = false;
+    bool gizmo_was_using = false;
+    bool gizmo_hovered = false;
+    ObjectId material_editor_object = kInvalidObjectId;
+    std::size_t selected_material_slot = 0;
+    std::string scene_status;
 };
 
 struct OpenGlShaderUiState {
@@ -54,6 +67,13 @@ struct ViewerUiActions {
     bool ui_style_changed = false;
     bool shader_reload_requested = false;
     bool shader_auto_reload_changed = false;
+    bool scene_changed = false;
+    bool import_files_requested = false;
+    bool import_folder_requested = false;
+    bool open_scene_requested = false;
+    bool save_scene_requested = false;
+    bool save_scene_as_requested = false;
+    ObjectId focus_object = kInvalidObjectId;
 
     bool resets_path_accumulation() const {
         return mode_changed ||
@@ -62,6 +82,7 @@ struct ViewerUiActions {
             camera_parameters_changed ||
             camera_reset_requested ||
             lighting_changed ||
+            scene_changed ||
             render_scale_changed ||
             reset_requested;
     }
@@ -72,7 +93,7 @@ public:
     ViewerUiActions draw(
         ViewerUiState& state,
         RenderSettings& render_settings,
-        Scene& scene,
+        SceneDocument& document,
         OrbitCameraController& orbit_camera,
         FreeCameraController& free_camera,
         const Bounds3& scene_bounds,
@@ -81,6 +102,22 @@ public:
         ExecutionBackend active_path_backend,
         const CudaOpenGlInteropUiState& interop_state,
         OpenGlShaderUiState& shader_state);
+
+    bool draw_scene_gizmo(
+        ViewerUiState& state,
+        SceneDocument& document,
+        const Camera& camera,
+        const Bounds3& scene_bounds);
+
+    void draw_scene_selection(
+        const ViewerUiState& state,
+        const SceneDocument& document,
+        const Camera& camera) const;
+
+    void draw_point_light_markers(
+        const ViewerUiState& state,
+        const Scene& scene,
+        const Camera& camera) const;
 };
 
 }  // namespace renderer

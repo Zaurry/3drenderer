@@ -4,12 +4,26 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 struct SDL_Window;
 
 namespace renderer {
 
 class GlShaderProgram;
+
+enum class FileDialogKind {
+    ImportFiles,
+    ImportFolder,
+    OpenScene,
+    SaveScene,
+};
+
+struct FileDialogResult {
+    FileDialogKind kind = FileDialogKind::ImportFiles;
+    std::vector<std::string> paths;
+    std::string error;
+};
 
 struct InputState {
     bool quit_requested = false;
@@ -18,7 +32,12 @@ struct InputState {
     int window_height = 0;
 
     bool left_mouse_down = false;
+    bool left_mouse_pressed = false;
+    bool left_mouse_released = false;
+    bool left_mouse_clicked = false;
     bool right_mouse_down = false;
+    float mouse_x = 0.0f;
+    float mouse_y = 0.0f;
     float mouse_delta_x = 0.0f;
     float mouse_delta_y = 0.0f;
     float wheel_delta = 0.0f;
@@ -38,6 +57,8 @@ struct InputState {
     bool reload_shaders = false;
     bool reset_render = false;
     bool toggle_ui = false;
+    std::vector<std::string> dropped_paths;
+    std::vector<FileDialogResult> dialog_results;
 };
 
 class SdlDisplayBackend {
@@ -54,6 +75,10 @@ public:
     bool wants_mouse_capture() const;
     bool wants_keyboard_capture() const;
     bool set_relative_mouse_mode(bool enabled);
+    bool show_import_files_dialog(const std::string& default_location = {});
+    bool show_import_folder_dialog(const std::string& default_location = {});
+    bool show_open_scene_dialog(const std::string& default_location = {});
+    bool show_save_scene_dialog(const std::string& default_location = {});
     void present(const Framebuffer& framebuffer, const DisplaySettings& display_settings);
     void present_texture(
         unsigned int linear_texture,
@@ -65,6 +90,9 @@ public:
     const std::string& last_error() const;
 
 private:
+    struct DialogInbox;
+    struct DialogCallbackData;
+
     SDL_Window* window_ = nullptr;
     void* gl_context_ = nullptr;
     unsigned int framebuffer_texture_ = 0;
@@ -74,6 +102,7 @@ private:
     bool imgui_initialized_ = false;
     bool ui_frame_started_ = false;
     bool left_mouse_down_ = false;
+    bool left_mouse_dragged_ = false;
     bool right_mouse_down_ = false;
     bool relative_mouse_mode_ = false;
     int window_width_ = 0;
@@ -81,7 +110,13 @@ private:
     int texture_width_ = 0;
     int texture_height_ = 0;
     std::string last_error_;
+    std::shared_ptr<DialogInbox> dialog_inbox_;
 
+    bool show_dialog(FileDialogKind kind, const std::string& default_location);
+    static void dialog_callback(
+        void* userdata,
+        const char* const* filelist,
+        int filter);
     void set_error_from_sdl(const char* prefix);
     void ensure_framebuffer_texture(int width, int height);
     void release_gl_resources();

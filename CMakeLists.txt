@@ -9,6 +9,14 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+FetchContent_Declare(
+    nlohmann_json
+    URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+    URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
 option(RENDERER_NATIVE_ARCH "Enable native CPU instruction tuning" OFF)
 option(RENDERER_BUILD_VIEWER "Build the SDL3/OpenGL interactive viewer" ON)
 
@@ -62,7 +70,7 @@ if(RENDERER_BUILD_VIEWER)
         set(SDL_STATIC ON CACHE BOOL "" FORCE)
         set(SDL_AUDIO OFF CACHE BOOL "" FORCE)
         set(SDL_CAMERA OFF CACHE BOOL "" FORCE)
-        set(SDL_DIALOG OFF CACHE BOOL "" FORCE)
+        set(SDL_DIALOG ON CACHE BOOL "" FORCE)
         set(SDL_GPU OFF CACHE BOOL "" FORCE)
         set(SDL_HAPTIC OFF CACHE BOOL "" FORCE)
         set(SDL_JOYSTICK OFF CACHE BOOL "" FORCE)
@@ -105,6 +113,15 @@ if(RENDERER_BUILD_VIEWER)
     )
     FetchContent_MakeAvailable(imgui)
 
+    FetchContent_Declare(
+        imguizmo
+        URL https://github.com/CedricGuillemet/ImGuizmo/archive/dc25afb98bc3ebe00dfc9a23ba7235fead2ccb1d.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(imguizmo)
+    target_include_directories(imguizmo SYSTEM PUBLIC "${imgui_SOURCE_DIR}")
+    target_link_libraries(imguizmo PUBLIC renderer_imgui)
+
     add_library(renderer_glad STATIC external/glad/src/gl.c)
     target_include_directories(renderer_glad SYSTEM PUBLIC external/glad/include)
     target_link_libraries(renderer_glad PUBLIC OpenGL::GL)
@@ -122,6 +139,7 @@ if(RENDERER_BUILD_VIEWER)
         "${imgui_SOURCE_DIR}/backends"
     )
     target_link_libraries(renderer_imgui PUBLIC ${RENDERER_SDL_TARGET} OpenGL::GL)
+
 endif()
 
 set(RENDERER_CORE_SOURCES
@@ -148,6 +166,7 @@ set(RENDERER_CORE_SOURCES
     src/scene/mesh.cpp
     src/scene/obj_loader.cpp
     src/scene/scene_asset_loader.cpp
+    src/scene/scene_document.cpp
     src/scene/scene.cpp
     src/scene/texture.cpp
 )
@@ -166,6 +185,7 @@ target_include_directories(renderer_core
         "${CMAKE_CURRENT_SOURCE_DIR}/external/tinyobjloader"
 )
 target_link_libraries(renderer_core PUBLIC Eigen3::Eigen)
+target_link_libraries(renderer_core PUBLIC nlohmann_json::nlohmann_json)
 if(RENDERER_HAS_CUDA)
     target_link_libraries(renderer_core PRIVATE CUDA::cudart)
     set_target_properties(renderer_core PROPERTIES
@@ -219,6 +239,7 @@ if(RENDERER_BUILD_VIEWER)
         renderer_core
         renderer_opengl
         renderer_imgui
+        imguizmo
         renderer_glad
         ${RENDERER_SDL_TARGET}
     )
