@@ -81,6 +81,7 @@ public:
     void begin_ui_frame();
     bool wants_mouse_capture() const;
     bool wants_keyboard_capture() const;
+    bool main_window_has_keyboard_focus() const;
     bool set_relative_mouse_mode(bool enabled);
     bool show_import_files_dialog(const std::string& default_location = {});
     bool show_import_folder_dialog(const std::string& default_location = {});
@@ -116,6 +117,7 @@ private:
     int window_height_ = 0;
     int texture_width_ = 0;
     int texture_height_ = 0;
+    std::string imgui_ini_path_;
     std::string last_error_;
     std::shared_ptr<DialogInbox> dialog_inbox_;
 

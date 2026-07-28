@@ -30,6 +30,10 @@ struct ViewerUiState {
     bool path_accumulation_paused = false;
     bool show_point_light_markers = true;
     bool panel_visible = true;
+    bool scene_panel_visible = true;
+    bool inspector_panel_visible = true;
+    bool rendering_panel_visible = true;
+    bool camera_lighting_panel_visible = true;
     std::vector<ObjectId> selected_objects;
     ObjectId active_object = kInvalidObjectId;
     int gizmo_operation = 0;
@@ -101,7 +105,8 @@ public:
         int accumulated_path_samples,
         ExecutionBackend active_path_backend,
         const CudaOpenGlInteropUiState& interop_state,
-        OpenGlShaderUiState& shader_state);
+        OpenGlShaderUiState& shader_state,
+        bool scene_shortcuts_enabled);
 
     bool draw_scene_gizmo(
         ViewerUiState& state,

@@ -108,7 +108,7 @@ if(RENDERER_BUILD_VIEWER)
 
     FetchContent_Declare(
         imgui
-        URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.8.tar.gz
+        URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.8-docking.tar.gz
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_MakeAvailable(imgui)

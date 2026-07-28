@@ -119,6 +119,18 @@ int tone_mapper_value(ToneMapper tone_mapper) {
     return 0;
 }
 
+std::filesystem::path preferred_data_path(const char* filename) {
+    char* preference_path = SDL_GetPrefPath("Zaurry", "3D Renderer");
+    if (!preference_path) {
+        throw std::runtime_error(
+            std::string("SDL_GetPrefPath failed: ") + SDL_GetError());
+    }
+    const std::filesystem::path result =
+        std::filesystem::path(preference_path) / filename;
+    SDL_free(preference_path);
+    return result;
+}
+
 }  // namespace
 
 SdlDisplayBackend::SdlDisplayBackend()
@@ -126,15 +138,7 @@ SdlDisplayBackend::SdlDisplayBackend()
       dialog_inbox_(std::make_shared<DialogInbox>()) {}
 
 std::filesystem::path SdlDisplayBackend::preferred_session_path() {
-    char* preference_path = SDL_GetPrefPath("Zaurry", "3D Renderer");
-    if (!preference_path) {
-        throw std::runtime_error(
-            std::string("SDL_GetPrefPath failed: ") + SDL_GetError());
-    }
-    const std::filesystem::path result =
-        std::filesystem::path(preference_path) / "last-session.json";
-    SDL_free(preference_path);
-    return result;
+    return preferred_data_path("last-session.json");
 }
 
 SdlDisplayBackend::~SdlDisplayBackend() {
@@ -226,9 +230,21 @@ bool SdlDisplayBackend::initialize(int width, int height, const char* title) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    io.IniFilename = nullptr;
+    imgui_ini_path_ = preferred_data_path("imgui.ini").string();
+    io.IniFilename = imgui_ini_path_.c_str();
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+#ifdef _WIN32
+    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+    io.ConfigDpiScaleFonts = true;
+    io.ConfigDpiScaleViewports = true;
+#endif
     io.Fonts->AddFontDefaultVector();
     ImGui::StyleColorsDark();
+#ifdef _WIN32
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding = 0.0f;
+    style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+#endif
     if (!ImGui_ImplSDL3_InitForOpenGL(
             window_,
             static_cast<SDL_GLContext>(gl_context_))) {
@@ -304,6 +320,7 @@ InputState SdlDisplayBackend::poll_input() {
     InputState input;
     input.window_width = window_width_;
     input.window_height = window_height_;
+    const SDL_WindowID main_window_id = SDL_GetWindowID(window_);
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -311,88 +328,115 @@ InputState SdlDisplayBackend::poll_input() {
             ImGui_ImplSDL3_ProcessEvent(&event);
         }
         switch (event.type) {
-            case SDL_EVENT_QUIT:
-            case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+        case SDL_EVENT_QUIT:
+            input.quit_requested = true;
+            break;
+        case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+            if (event.window.windowID == main_window_id) {
                 input.quit_requested = true;
+            }
+            break;
+        case SDL_EVENT_WINDOW_RESIZED:
+        case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+            if (event.window.windowID != main_window_id) {
                 break;
-            case SDL_EVENT_WINDOW_RESIZED:
-            case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-                if (!SDL_GetWindowSizeInPixels(window_, &window_width_, &window_height_)) {
-                    window_width_ = std::max(1, event.window.data1);
-                    window_height_ = std::max(1, event.window.data2);
-                }
-                window_width_ = std::max(1, window_width_);
-                window_height_ = std::max(1, window_height_);
-                input.window_resized = true;
-                input.window_width = window_width_;
-                input.window_height = window_height_;
+            }
+            if (!SDL_GetWindowSizeInPixels(window_, &window_width_, &window_height_)) {
+                window_width_ = std::max(1, event.window.data1);
+                window_height_ = std::max(1, event.window.data2);
+            }
+            window_width_ = std::max(1, window_width_);
+            window_height_ = std::max(1, window_height_);
+            input.window_resized = true;
+            input.window_width = window_width_;
+            input.window_height = window_height_;
+            break;
+        case SDL_EVENT_WINDOW_FOCUS_LOST:
+            if (event.window.windowID == main_window_id) {
+                left_mouse_down_ = false;
+                left_mouse_dragged_ = false;
+                right_mouse_down_ = false;
+            }
+            break;
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            if (event.button.windowID != main_window_id) {
                 break;
-            case SDL_EVENT_MOUSE_BUTTON_DOWN:
-                if (event.button.button == SDL_BUTTON_LEFT) {
-                    left_mouse_down_ = true;
-                    left_mouse_dragged_ = false;
-                    input.left_mouse_pressed = true;
-                } else if (event.button.button == SDL_BUTTON_RIGHT) {
-                    right_mouse_down_ = true;
-                }
+            }
+            if (event.button.button == SDL_BUTTON_LEFT) {
+                left_mouse_down_ = true;
+                left_mouse_dragged_ = false;
+                input.left_mouse_pressed = true;
+            } else if (event.button.button == SDL_BUTTON_RIGHT) {
+                right_mouse_down_ = true;
+            }
+            break;
+        case SDL_EVENT_MOUSE_BUTTON_UP:
+            if (event.button.windowID != main_window_id) {
                 break;
-            case SDL_EVENT_MOUSE_BUTTON_UP:
-                if (event.button.button == SDL_BUTTON_LEFT) {
-                    left_mouse_down_ = false;
-                    input.left_mouse_released = true;
-                    input.left_mouse_clicked = !left_mouse_dragged_;
-                    left_mouse_dragged_ = false;
-                } else if (event.button.button == SDL_BUTTON_RIGHT) {
-                    right_mouse_down_ = false;
-                }
+            }
+            if (event.button.button == SDL_BUTTON_LEFT) {
+                left_mouse_down_ = false;
+                input.left_mouse_released = true;
+                input.left_mouse_clicked = !left_mouse_dragged_;
+                left_mouse_dragged_ = false;
+            } else if (event.button.button == SDL_BUTTON_RIGHT) {
+                right_mouse_down_ = false;
+            }
+            break;
+        case SDL_EVENT_MOUSE_MOTION:
+            if (event.motion.windowID != main_window_id) {
                 break;
-            case SDL_EVENT_MOUSE_MOTION:
-                input.mouse_x = event.motion.x;
-                input.mouse_y = event.motion.y;
-                if (left_mouse_down_ &&
-                    (std::abs(event.motion.xrel) + std::abs(event.motion.yrel) > 0.5f)) {
-                    left_mouse_dragged_ = true;
-                }
-                if (left_mouse_down_ || right_mouse_down_ || relative_mouse_mode_) {
-                    input.mouse_delta_x += event.motion.xrel;
-                    input.mouse_delta_y += event.motion.yrel;
-                }
-                break;
-            case SDL_EVENT_MOUSE_WHEEL:
+            }
+            input.mouse_x = event.motion.x;
+            input.mouse_y = event.motion.y;
+            if (left_mouse_down_ &&
+                (std::abs(event.motion.xrel) + std::abs(event.motion.yrel) > 0.5f)) {
+                left_mouse_dragged_ = true;
+            }
+            if (left_mouse_down_ || right_mouse_down_ || relative_mouse_mode_) {
+                input.mouse_delta_x += event.motion.xrel;
+                input.mouse_delta_y += event.motion.yrel;
+            }
+            break;
+        case SDL_EVENT_MOUSE_WHEEL:
+            if (event.wheel.windowID == main_window_id) {
                 input.wheel_delta += event.wheel.y;
+            }
+            break;
+        case SDL_EVENT_DROP_FILE:
+            if (event.drop.data && event.drop.data[0] != '\0') {
+                input.dropped_paths.emplace_back(event.drop.data);
+            }
+            break;
+        case SDL_EVENT_KEY_DOWN:
+            if (event.key.windowID != main_window_id) {
                 break;
-            case SDL_EVENT_DROP_FILE:
-                if (event.drop.data && event.drop.data[0] != '\0') {
-                    input.dropped_paths.emplace_back(event.drop.data);
+            }
+            if (!event.key.repeat) {
+                if (event.key.scancode == SDL_SCANCODE_1) {
+                    input.select_raster = true;
+                } else if (event.key.scancode == SDL_SCANCODE_2) {
+                    input.select_ray = true;
+                } else if (event.key.scancode == SDL_SCANCODE_3) {
+                    input.select_path = true;
+                } else if (event.key.scancode == SDL_SCANCODE_4) {
+                    input.select_opengl = true;
+                } else if (event.key.scancode == SDL_SCANCODE_F5) {
+                    input.reload_shaders = true;
+                } else if (event.key.scancode == SDL_SCANCODE_R &&
+                           (event.key.mod & SDL_KMOD_CTRL) != 0) {
+                    input.reset_render = true;
+                } else if (event.key.scancode == SDL_SCANCODE_C) {
+                    input.toggle_camera_mode = true;
+                } else if (event.key.scancode == SDL_SCANCODE_TAB) {
+                    input.toggle_ui = true;
+                } else if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
+                    input.quit_requested = true;
                 }
-                break;
-            case SDL_EVENT_KEY_DOWN:
-                if (!event.key.repeat) {
-                    if (event.key.scancode == SDL_SCANCODE_1) {
-                        input.select_raster = true;
-                    } else if (event.key.scancode == SDL_SCANCODE_2) {
-                        input.select_ray = true;
-                    } else if (event.key.scancode == SDL_SCANCODE_3) {
-                        input.select_path = true;
-                    } else if (event.key.scancode == SDL_SCANCODE_4) {
-                        input.select_opengl = true;
-                    } else if (event.key.scancode == SDL_SCANCODE_F5) {
-                        input.reload_shaders = true;
-                    } else if (
-                        event.key.scancode == SDL_SCANCODE_R &&
-                        (event.key.mod & SDL_KMOD_CTRL) != 0) {
-                        input.reset_render = true;
-                    } else if (event.key.scancode == SDL_SCANCODE_C) {
-                        input.toggle_camera_mode = true;
-                    } else if (event.key.scancode == SDL_SCANCODE_TAB) {
-                        input.toggle_ui = true;
-                    } else if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
-                        input.quit_requested = true;
-                    }
-                }
-                break;
-            default:
-                break;
+            }
+            break;
+        default:
+            break;
         }
     }
 
@@ -400,9 +444,11 @@ InputState SdlDisplayBackend::poll_input() {
     input.right_mouse_down = right_mouse_down_;
     float current_mouse_x = 0.0f;
     float current_mouse_y = 0.0f;
-    SDL_GetMouseState(&current_mouse_x, &current_mouse_y);
-    input.mouse_x = current_mouse_x;
-    input.mouse_y = current_mouse_y;
+    if (SDL_GetMouseFocus() == window_) {
+        SDL_GetMouseState(&current_mouse_x, &current_mouse_y);
+        input.mouse_x = current_mouse_x;
+        input.mouse_y = current_mouse_y;
+    }
     if (SDL_GetKeyboardFocus() == window_) {
         const bool* keyboard = SDL_GetKeyboardState(nullptr);
         input.move_forward = keyboard[SDL_SCANCODE_W];
@@ -436,6 +482,10 @@ bool SdlDisplayBackend::wants_mouse_capture() const {
 
 bool SdlDisplayBackend::wants_keyboard_capture() const {
     return imgui_initialized_ && ImGui::GetIO().WantCaptureKeyboard;
+}
+
+bool SdlDisplayBackend::main_window_has_keyboard_focus() const {
+    return window_ && SDL_GetKeyboardFocus() == window_;
 }
 
 bool SdlDisplayBackend::set_relative_mouse_mode(bool enabled) {
@@ -627,6 +677,16 @@ void SdlDisplayBackend::present_texture(
 
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+#ifdef _WIN32
+    const ImGuiIO& io = ImGui::GetIO();
+    if ((io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0) {
+        SDL_Window* backup_window = SDL_GL_GetCurrentWindow();
+        SDL_GLContext backup_context = SDL_GL_GetCurrentContext();
+        ImGui::UpdatePlatformWindows();
+        ImGui::RenderPlatformWindowsDefault();
+        SDL_GL_MakeCurrent(backup_window, backup_context);
+    }
+#endif
     SDL_GL_SwapWindow(window_);
     ui_frame_started_ = false;
 }

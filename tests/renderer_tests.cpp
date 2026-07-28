@@ -3508,6 +3508,10 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     state.ui.path_accumulation_paused = true;
     state.ui.show_point_light_markers = false;
     state.ui.panel_visible = false;
+    state.ui.scene_panel_visible = false;
+    state.ui.inspector_panel_visible = true;
+    state.ui.rendering_panel_visible = false;
+    state.ui.camera_lighting_panel_visible = true;
     state.ui.display.exposure_ev = 1.5f;
     state.ui.display.tone_mapper = renderer::ToneMapper::Aces;
     state.ui.selected_objects = {imported};
@@ -3568,6 +3572,10 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     RENDER_CHECK(loaded.ui.path_accumulation_paused);
     RENDER_CHECK(!loaded.ui.show_point_light_markers);
     RENDER_CHECK(!loaded.ui.panel_visible);
+    RENDER_CHECK(!loaded.ui.scene_panel_visible);
+    RENDER_CHECK(loaded.ui.inspector_panel_visible);
+    RENDER_CHECK(!loaded.ui.rendering_panel_visible);
+    RENDER_CHECK(loaded.ui.camera_lighting_panel_visible);
     RENDER_CHECK(nearly_equal(loaded.ui.display.exposure_ev, 1.5f));
     RENDER_CHECK(loaded.ui.display.tone_mapper == renderer::ToneMapper::Aces);
     RENDER_CHECK(loaded.ui.selected_objects == std::vector<renderer::ObjectId>{imported});
@@ -3591,6 +3599,23 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     RENDER_CHECK(nearly_equal(
         loaded.camera.free_movement_speed,
         state.camera.free_movement_speed));
+
+    nlohmann::json legacy_json = saved_json;
+    auto& legacy_view = legacy_json["view"];
+    legacy_view.erase("scene_panel_visible");
+    legacy_view.erase("inspector_panel_visible");
+    legacy_view.erase("rendering_panel_visible");
+    legacy_view.erase("camera_lighting_panel_visible");
+    {
+        std::ofstream output(session_path);
+        output << legacy_json.dump(2) << '\n';
+    }
+    const renderer::ViewerSessionState legacy =
+        renderer::ViewerSessionStore::load(session_path);
+    RENDER_CHECK(legacy.ui.scene_panel_visible);
+    RENDER_CHECK(legacy.ui.inspector_panel_visible);
+    RENDER_CHECK(legacy.ui.rendering_panel_visible);
+    RENDER_CHECK(legacy.ui.camera_lighting_panel_visible);
 
     renderer::SceneDocument mixed = renderer::SceneDocument::from_scene(
         renderer::make_cornell_box_scene(),

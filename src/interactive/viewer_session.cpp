@@ -233,6 +233,10 @@ ViewerSessionState ViewerSessionStore::load(
     state.ui.show_point_light_markers =
         view.value("show_point_light_markers", true);
     state.ui.panel_visible = view.value("panel_visible", true);
+    state.ui.scene_panel_visible = view.value("scene_panel_visible", true);
+    state.ui.inspector_panel_visible = view.value("inspector_panel_visible", true);
+    state.ui.rendering_panel_visible = view.value("rendering_panel_visible", true);
+    state.ui.camera_lighting_panel_visible = view.value("camera_lighting_panel_visible", true);
     state.ui.active_object =
         view.value("active_object", kInvalidObjectId);
     state.ui.material_editor_object =
@@ -321,6 +325,13 @@ void ViewerSessionStore::save(
         {"path_accumulation_paused", state.ui.path_accumulation_paused},
         {"show_point_light_markers", state.ui.show_point_light_markers},
         {"panel_visible", state.ui.panel_visible},
+        {"scene_panel_visible", state.ui.scene_panel_visible},
+        {"inspector_panel_visible", state.ui.inspector_panel_visible},
+        {"rendering_panel_visible", state.ui.rendering_panel_visible},
+        {
+            "camera_lighting_panel_visible",
+            state.ui.camera_lighting_panel_visible,
+        },
         {"selected_objects", state.ui.selected_objects},
         {"active_object", state.ui.active_object},
         {"material_editor_object", state.ui.material_editor_object},

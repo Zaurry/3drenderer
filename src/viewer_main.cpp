@@ -355,6 +355,10 @@ struct ViewerSessionSignature {
     bool path_accumulation_paused = false;
     bool show_point_light_markers = true;
     bool panel_visible = true;
+    bool scene_panel_visible = true;
+    bool inspector_panel_visible = true;
+    bool rendering_panel_visible = true;
+    bool camera_lighting_panel_visible = true;
     std::vector<renderer::ObjectId> selected_objects;
     renderer::ObjectId active_object = renderer::kInvalidObjectId;
     renderer::ObjectId material_editor_object = renderer::kInvalidObjectId;
@@ -388,6 +392,10 @@ ViewerSessionSignature make_session_signature(
     signature.path_accumulation_paused = ui.path_accumulation_paused;
     signature.show_point_light_markers = ui.show_point_light_markers;
     signature.panel_visible = ui.panel_visible;
+    signature.scene_panel_visible = ui.scene_panel_visible;
+    signature.inspector_panel_visible = ui.inspector_panel_visible;
+    signature.rendering_panel_visible = ui.rendering_panel_visible;
+    signature.camera_lighting_panel_visible = ui.camera_lighting_panel_visible;
     signature.selected_objects = ui.selected_objects;
     signature.active_object = ui.active_object;
     signature.material_editor_object = ui.material_editor_object;
@@ -785,7 +793,8 @@ int main(int argc, char** argv) {
                 accumulated_samples(session.get()),
                 active_path_backend(session.get()),
                 interop_ui_state,
-                shader_ui_state);
+                shader_ui_state,
+                display.main_window_has_keyboard_focus());
 
             if (ui_actions.import_files_requested &&
                 !display.show_import_files_dialog()) {
