@@ -2564,6 +2564,140 @@ void test_cuda_pathtracer_alpha_texture_and_interactive_reset_when_available() {
     RENDER_CHECK(session.accumulated_samples() == 1);
 }
 
+renderer::Scene make_cuda_nee_test_scene(
+    bool triangle_light,
+    bool faces_receiver = true,
+    bool two_sided = false,
+    bool alpha_cutout = false,
+    bool blocked = false,
+    bool degenerate = false) {
+    renderer::Scene scene;
+    scene.environment = renderer::Color::Zero();
+
+    renderer::Material receiver;
+    receiver.base_color = renderer::Color(0.8f, 0.8f, 0.8f);
+    renderer::Material light;
+    light.type = renderer::MaterialType::Emissive;
+    light.emission = renderer::Color(10.0f, 8.0f, 6.0f);
+    light.two_sided = two_sided;
+    if (alpha_cutout) {
+        light.opacity_texture_id = 0;
+        light.alpha_cutoff = 0.5f;
+        scene.textures.emplace_back(
+            1,
+            1,
+            std::vector<renderer::Color>{renderer::Color::Zero()});
+    }
+    scene.materials = {receiver, light};
+    scene.triangles.emplace_back(
+        renderer::Vec3(-10.0f, -10.0f, -1.0f),
+        renderer::Vec3(10.0f, -10.0f, -1.0f),
+        renderer::Vec3(0.0f, 10.0f, -1.0f),
+        0);
+
+    if (triangle_light) {
+        const renderer::Vec3 a(-1.0f, 1.0f, 0.5f);
+        const renderer::Vec3 b(0.0f, 3.0f, 0.5f);
+        const renderer::Vec3 c = degenerate
+            ? renderer::Vec3(1.0f, 5.0f, 0.5f)
+            : renderer::Vec3(1.0f, 1.0f, 0.5f);
+        if (faces_receiver) {
+            scene.triangles.emplace_back(a, b, c, 1);
+        } else {
+            scene.triangles.emplace_back(a, c, b, 1);
+        }
+    } else {
+        scene.spheres.emplace_back(
+            renderer::Vec3(0.0f, 2.0f, 0.5f),
+            0.75f,
+            1);
+    }
+
+    if (blocked) {
+        scene.triangles.emplace_back(
+            renderer::Vec3(-2.0f, 0.25f, -0.25f),
+            renderer::Vec3(2.0f, 0.25f, -0.25f),
+            renderer::Vec3(2.0f, 2.0f, -0.25f),
+            0);
+        scene.triangles.emplace_back(
+            renderer::Vec3(-2.0f, 0.25f, -0.25f),
+            renderer::Vec3(2.0f, 2.0f, -0.25f),
+            renderer::Vec3(-2.0f, 2.0f, -0.25f),
+            0);
+    }
+    return scene;
+}
+
+renderer::Color render_cuda_nee_test_scene(
+    const renderer::Scene& scene,
+    int samples_per_pixel,
+    std::uint64_t seed_offset = 321) {
+    const renderer::Camera camera(
+        renderer::Vec3::Zero(),
+        -renderer::Vec3::UnitZ(),
+        renderer::Vec3::UnitY(),
+        20.0f,
+        1.0f);
+    renderer::RenderSettings settings;
+    settings.width = 1;
+    settings.height = 1;
+    settings.path.samples_per_pixel = samples_per_pixel;
+    settings.path.sample_seed_offset = seed_offset;
+    settings.path.backend = renderer::PathBackend::Cuda;
+    return renderer::PathTracerRenderer()
+        .render(scene, camera, settings)
+        .image.pixel(0, 0);
+}
+
+void test_cuda_pathtracer_emissive_nee_and_mis_when_available() {
+    if (!renderer::cuda_path_backend_available()) {
+        return;
+    }
+
+    const renderer::Scene triangle_scene =
+        make_cuda_nee_test_scene(true);
+    const renderer::Color triangle =
+        render_cuda_nee_test_scene(triangle_scene, 256);
+    const renderer::Color repeated =
+        render_cuda_nee_test_scene(triangle_scene, 256);
+    RENDER_CHECK(triangle.allFinite());
+    RENDER_CHECK(triangle.x() > 0.1f);
+    RENDER_CHECK((triangle - repeated).cwiseAbs().maxCoeff() < 1e-6f);
+
+    const renderer::Color blocked = render_cuda_nee_test_scene(
+        make_cuda_nee_test_scene(true, true, false, false, true),
+        256);
+    RENDER_CHECK(blocked.allFinite());
+    RENDER_CHECK(blocked.maxCoeff() < triangle.maxCoeff() * 0.05f);
+
+    const renderer::Color one_sided_back = render_cuda_nee_test_scene(
+        make_cuda_nee_test_scene(true, false, false),
+        256);
+    const renderer::Color two_sided_back = render_cuda_nee_test_scene(
+        make_cuda_nee_test_scene(true, false, true),
+        256);
+    RENDER_CHECK(one_sided_back.maxCoeff() < 1e-6f);
+    RENDER_CHECK(two_sided_back.x() > 0.1f);
+
+    const renderer::Color cutout = render_cuda_nee_test_scene(
+        make_cuda_nee_test_scene(true, true, false, true),
+        256);
+    RENDER_CHECK(cutout.allFinite());
+    RENDER_CHECK(cutout.maxCoeff() < 1e-6f);
+
+    const renderer::Color sphere = render_cuda_nee_test_scene(
+        make_cuda_nee_test_scene(false, true, true),
+        512);
+    RENDER_CHECK(sphere.allFinite());
+    RENDER_CHECK(sphere.x() > 0.05f);
+
+    const renderer::Color degenerate = render_cuda_nee_test_scene(
+        make_cuda_nee_test_scene(true, true, false, false, false, true),
+        64);
+    RENDER_CHECK(degenerate.allFinite());
+    RENDER_CHECK(degenerate.maxCoeff() < 1e-6f);
+}
+
 void test_cuda_pathtracer_lighting_contracts_when_available() {
     if (!renderer::cuda_path_backend_available()) {
         return;
@@ -3537,6 +3671,7 @@ int main() {
     test_path_backend_selection_contract();
     test_cuda_pathtracer_matches_cpu_statistics_when_available();
     test_cuda_pathtracer_alpha_texture_and_interactive_reset_when_available();
+    test_cuda_pathtracer_emissive_nee_and_mis_when_available();
     test_cuda_pathtracer_lighting_contracts_when_available();
     test_cuda_pathtracer_spheres_materials_and_bump_texture_when_available();
     test_scene_document_import_transform_hierarchy_history_and_roundtrip();

@@ -23,7 +23,7 @@
 namespace renderer {
 namespace {
 
-constexpr int kThreadsPerBlock = 64;
+constexpr int kThreadsPerBlock = 128;
 constexpr int kMaxPathBounces = 64;
 constexpr int kRussianRouletteStartBounce = 3;
 constexpr int kMaxTransparentLayers = 64;
@@ -109,6 +109,15 @@ struct DDirectionalLight {
     DVec3 radiance;
 };
 
+struct DEmissiveLight {
+    int primitive_kind;
+    int primitive_index;
+    int material_id;
+    float area;
+    float selection_pdf;
+    float cumulative_probability;
+};
+
 struct DCamera {
     DVec3 eye;
     DVec3 forward;
@@ -137,6 +146,10 @@ struct DScene {
     int point_light_count;
     const DDirectionalLight* directional_lights;
     int directional_light_count;
+    const DEmissiveLight* emissive_lights;
+    int emissive_light_count;
+    const int* sphere_light_indices;
+    const int* triangle_light_indices;
     DVec3 environment;
 };
 
@@ -171,6 +184,52 @@ struct DSurface {
 struct DPcgState {
     unsigned long long state;
     unsigned long long increment;
+};
+
+struct DPathState {
+    DRay ray;
+    DVec3 throughput;
+    float previous_bsdf_pdf;
+    int previous_was_delta;
+    int pixel_index;
+};
+
+struct DWavefrontHit {
+    DCompactHit hit;
+    int found;
+};
+
+struct DShadingRecord {
+    DVec3 position;
+    DVec3 geometric_normal;
+    DVec3 shading_normal;
+    DVec3 base_color;
+    DVec3 throughput;
+    int pixel_index;
+    int valid;
+};
+
+struct DShadowTask {
+    DRay ray;
+    DVec3 contribution;
+    float t_max;
+    int pixel_index;
+};
+
+struct DFrameParameters {
+    DScene scene;
+    DCamera camera;
+    DVec3* accumulation;
+    DVec3* sample_radiance;
+    DPcgState* random_states;
+    int width;
+    int height;
+    int completed_samples;
+    int batch_sample_count;
+    int* batch_sample_index;
+    int path_capacity;
+    int* error_code;
+    cudaSurfaceObject_t output_surface;
 };
 
 __host__ DVec3 to_device(const Vec3& value) {
@@ -239,6 +298,18 @@ __device__ float component(DVec3 value, int axis) {
 
 __device__ float max_component(DVec3 value) {
     return fmaxf(value.x, fmaxf(value.y, value.z));
+}
+
+__device__ float power_heuristic(float first_pdf, float second_pdf) {
+    if (!(first_pdf > 0.0f) || !isfinite(first_pdf)) {
+        return 0.0f;
+    }
+    if (!(second_pdf > 0.0f) || !isfinite(second_pdf)) {
+        return 1.0f;
+    }
+    const float first_squared = first_pdf * first_pdf;
+    const float second_squared = second_pdf * second_pdf;
+    return first_squared / (first_squared + second_squared);
 }
 
 __device__ DVec3 reflect_vector(DVec3 value, DVec3 normal) {
@@ -622,13 +693,12 @@ __device__ float material_opacity(const DScene& scene, const DMaterial& material
     return fminf(fmaxf(opacity, 0.0f), 1.0f);
 }
 
-__device__ bool intersect_scene(
+__device__ bool intersect_scene_compact(
     const DScene& scene,
     const DRay& ray,
     float t_min,
     float t_max,
-    DHit& hit,
-    bool reconstruct_shading) {
+    DCompactHit& hit) {
     float search_min = t_min;
     for (int layer = 0; layer < kMaxTransparentLayers; ++layer) {
         DCompactHit compact{};
@@ -638,16 +708,13 @@ __device__ bool intersect_scene(
         DHit candidate{};
         reconstruct_hit(scene, ray, compact, false, candidate);
         if (candidate.material_id < 0 || candidate.material_id >= scene.material_count) {
-            hit = candidate;
+            hit = compact;
             return true;
         }
         const DMaterial material = scene.materials[candidate.material_id];
         const bool visible_side = material.two_sided || candidate.front_face;
         if (visible_side && material_opacity(scene, material, candidate.uv) >= material.alpha_cutoff) {
-            if (reconstruct_shading) {
-                reconstruct_hit(scene, ray, compact, true, candidate);
-            }
-            hit = candidate;
+            hit = compact;
             return true;
         }
         const float advanced = nextafterf(candidate.t, t_max);
@@ -657,6 +724,15 @@ __device__ bool intersect_scene(
         search_min = advanced;
     }
     return false;
+}
+
+__device__ bool occluded_scene(
+    const DScene& scene,
+    const DRay& ray,
+    float t_min,
+    float t_max) {
+    DCompactHit compact{};
+    return intersect_scene_compact(scene, ray, t_min, t_max, compact);
 }
 
 __device__ DVec3 bumped_normal(
@@ -781,11 +857,15 @@ __device__ bool scatter(
     const DSurface& surface,
     DPcgState& rng,
     DVec3& attenuation,
-    DRay& scattered) {
+    DRay& scattered,
+    float& bsdf_pdf,
+    int& was_delta) {
     if (material.type == static_cast<int>(MaterialType::Diffuse)) {
         const DVec3 direction = tangent_to_world(cosine_weighted_hemisphere(rng), surface.shading_normal);
         attenuation = surface.base_color;
         scattered = DRay{offset_origin(hit.position, hit.geometric_normal, direction), direction};
+        bsdf_pdf = fmaxf(0.0f, dot(surface.shading_normal, direction)) / kPi;
+        was_delta = 0;
         return true;
     }
     if (material.type == static_cast<int>(MaterialType::Metal)) {
@@ -802,6 +882,8 @@ __device__ bool scatter(
         }
         attenuation = surface.base_color;
         scattered = DRay{offset_origin(hit.position, hit.geometric_normal, direction), direction};
+        bsdf_pdf = 0.0f;
+        was_delta = 1;
         return true;
     }
     if (material.type == static_cast<int>(MaterialType::Dielectric)) {
@@ -816,6 +898,8 @@ __device__ bool scatter(
             : refracted);
         attenuation = v3(1.0f, 1.0f, 1.0f);
         scattered = DRay{offset_origin(hit.position, hit.geometric_normal, direction), direction};
+        bsdf_pdf = 0.0f;
+        was_delta = 1;
         return true;
     }
     return false;
@@ -838,8 +922,7 @@ __device__ DVec3 direct_lighting(
             continue;
         }
         const DRay shadow{offset_origin(hit.position, hit.geometric_normal, light_direction), light_direction};
-        DHit blocker{};
-        if (!intersect_scene(scene, shadow, 0.0f, 1.0e30f, blocker, false)) {
+        if (!occluded_scene(scene, shadow, 0.0f, 1.0e30f)) {
             direct = add(direct, mul(product(surface.base_color, light.radiance), cosine * inverse_pi));
         }
     }
@@ -857,14 +940,11 @@ __device__ DVec3 direct_lighting(
             continue;
         }
         const DRay shadow{offset_origin(hit.position, hit.geometric_normal, light_direction), light_direction};
-        DHit blocker{};
-        if (!intersect_scene(
+        if (!occluded_scene(
                 scene,
                 shadow,
                 0.0f,
-                distance - 1.0e-7f,
-                blocker,
-                false)) {
+                distance - 1.0e-7f)) {
             direct = add(
                 direct,
                 mul(product(surface.base_color, divv(light.intensity, distance_squared)), cosine * inverse_pi));
@@ -873,52 +953,184 @@ __device__ DVec3 direct_lighting(
     return direct;
 }
 
-__device__ DVec3 trace_path(
-    const DScene& scene,
-    DRay ray,
-    DPcgState& rng) {
-    DVec3 radiance = v3(0.0f, 0.0f, 0.0f);
-    DVec3 throughput = v3(1.0f, 1.0f, 1.0f);
-    for (int bounce = 0; bounce < kMaxPathBounces; ++bounce) {
-        DHit hit{};
-        if (!intersect_scene(scene, ray, 0.0f, 1.0e30f, hit, true)) {
-            radiance = add(radiance, product(throughput, scene.environment));
-            break;
-        }
-        if (hit.material_id < 0 || hit.material_id >= scene.material_count) {
-            radiance = add(radiance, product(throughput, v3(1.0f, 0.0f, 1.0f)));
-            break;
-        }
-        const DMaterial material = scene.materials[hit.material_id];
-        const DSurface surface = evaluate_surface(scene, material, hit);
-        if (material.type == static_cast<int>(MaterialType::Emissive)) {
-            radiance = add(radiance, product(throughput, material.emission));
-            break;
-        }
-        DVec3 attenuation{};
-        DRay scattered{};
-        if (!scatter(ray, hit, material, surface, rng, attenuation, scattered)) {
-            radiance = add(radiance, product(throughput, material.emission));
-            break;
-        }
-        const DVec3 direct = material.type == static_cast<int>(MaterialType::Diffuse)
-            ? direct_lighting(scene, hit, surface)
-            : v3(0.0f, 0.0f, 0.0f);
-        radiance = add(radiance, product(throughput, add(material.emission, direct)));
-        throughput = product(throughput, attenuation);
-        if (!finite(throughput) || max_component(throughput) <= 0.0f) {
-            break;
-        }
-        if (bounce + 1 >= kRussianRouletteStartBounce) {
-            const float probability = fminf(fmaxf(max_component(throughput), 0.05f), 0.95f);
-            if (random_float(rng) >= probability) {
-                break;
-            }
-            throughput = divv(throughput, probability);
-        }
-        ray = scattered;
+__device__ int emissive_light_index(const DScene& scene, const DHit& hit) {
+    if (hit.primitive_kind == 0) {
+        return hit.primitive_index >= 0 &&
+                hit.primitive_index < scene.sphere_count &&
+                scene.sphere_light_indices != nullptr
+            ? scene.sphere_light_indices[hit.primitive_index]
+            : -1;
     }
-    return radiance;
+    return hit.primitive_kind == 1 &&
+            hit.primitive_index >= 0 &&
+            hit.primitive_index < scene.triangle_count &&
+            scene.triangle_light_indices != nullptr
+        ? scene.triangle_light_indices[hit.primitive_index]
+        : -1;
+}
+
+__device__ float emissive_light_pdf_for_hit(
+    const DScene& scene,
+    DVec3 previous_position,
+    const DHit& hit) {
+    const int light_index = emissive_light_index(scene, hit);
+    if (light_index < 0 || light_index >= scene.emissive_light_count) {
+        return 0.0f;
+    }
+    const DEmissiveLight light = scene.emissive_lights[light_index];
+    if (!(light.area > 0.0f) || !(light.selection_pdf > 0.0f)) {
+        return 0.0f;
+    }
+    const DVec3 to_previous = sub(previous_position, hit.position);
+    const float distance_squared = length_squared(to_previous);
+    if (!(distance_squared > 1.0e-12f)) {
+        return 0.0f;
+    }
+    const DVec3 direction_to_previous = divv(to_previous, sqrtf(distance_squared));
+    const float light_cosine = fmaxf(
+        0.0f,
+        dot(hit.geometric_normal, direction_to_previous));
+    if (!(light_cosine > 0.0f)) {
+        return 0.0f;
+    }
+    return light.selection_pdf * distance_squared / (light.area * light_cosine);
+}
+
+__device__ bool sample_emissive_shadow_task(
+    const DScene& scene,
+    const DHit& hit,
+    const DSurface& surface,
+    DVec3 throughput,
+    int pixel_index,
+    DPcgState& rng,
+    DShadowTask& task) {
+    if (scene.emissive_light_count <= 0 || scene.emissive_lights == nullptr) {
+        return false;
+    }
+
+    const float selection_sample = random_float(rng);
+    int low = 0;
+    int high = scene.emissive_light_count - 1;
+    while (low < high) {
+        const int middle = low + (high - low) / 2;
+        if (selection_sample <=
+            scene.emissive_lights[middle].cumulative_probability) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    const DEmissiveLight light = scene.emissive_lights[low];
+    if (light.material_id < 0 || light.material_id >= scene.material_count ||
+        !(light.area > 0.0f) || !(light.selection_pdf > 0.0f)) {
+        return false;
+    }
+
+    DVec3 light_position{};
+    DVec3 outward_normal{};
+    DVec2 light_uv{0.0f, 0.0f};
+    if (light.primitive_kind == 0) {
+        if (light.primitive_index < 0 ||
+            light.primitive_index >= scene.sphere_count) {
+            return false;
+        }
+        const DSphere sphere = scene.spheres[light.primitive_index];
+        const float z = 1.0f - 2.0f * random_float(rng);
+        const float radial = sqrtf(fmaxf(0.0f, 1.0f - z * z));
+        const float phi = 2.0f * kPi * random_float(rng);
+        outward_normal = v3(radial * cosf(phi), radial * sinf(phi), z);
+        light_position = add(sphere.center, mul(outward_normal, sphere.radius));
+    } else if (light.primitive_kind == 1) {
+        if (light.primitive_index < 0 ||
+            light.primitive_index >= scene.triangle_count) {
+            return false;
+        }
+        const DTriangle triangle = scene.triangles[light.primitive_index];
+        const float root = sqrtf(random_float(rng));
+        const float w0 = 1.0f - root;
+        const float w1 = root * (1.0f - random_float(rng));
+        const float w2 = 1.0f - w0 - w1;
+        light_position = add(
+            add(
+                mul(triangle.vertices[0].position, w0),
+                mul(triangle.vertices[1].position, w1)),
+            mul(triangle.vertices[2].position, w2));
+        outward_normal = normalize(cross(
+            sub(
+                triangle.vertices[1].position,
+                triangle.vertices[0].position),
+            sub(
+                triangle.vertices[2].position,
+                triangle.vertices[0].position)));
+        light_uv = DVec2{
+            triangle.vertices[0].uv.x * w0 +
+                triangle.vertices[1].uv.x * w1 +
+                triangle.vertices[2].uv.x * w2,
+            triangle.vertices[0].uv.y * w0 +
+                triangle.vertices[1].uv.y * w1 +
+                triangle.vertices[2].uv.y * w2};
+    } else {
+        return false;
+    }
+
+    const DMaterial light_material = scene.materials[light.material_id];
+    if (material_opacity(scene, light_material, light_uv) <
+        light_material.alpha_cutoff) {
+        return false;
+    }
+
+    const DVec3 to_light = sub(light_position, hit.position);
+    const float distance_squared = length_squared(to_light);
+    if (!(distance_squared > 1.0e-12f)) {
+        return false;
+    }
+    const float distance = sqrtf(distance_squared);
+    const DVec3 light_direction = divv(to_light, distance);
+    const float surface_cosine = fmaxf(
+        0.0f,
+        dot(surface.shading_normal, light_direction));
+    const float raw_light_cosine = dot(
+        outward_normal,
+        mul(light_direction, -1.0f));
+    const float light_cosine = light_material.two_sided
+        ? fabsf(raw_light_cosine)
+        : fmaxf(0.0f, raw_light_cosine);
+    if (!(surface_cosine > 0.0f) || !(light_cosine > 0.0f)) {
+        return false;
+    }
+
+    const float light_pdf =
+        light.selection_pdf * distance_squared / (light.area * light_cosine);
+    const float bsdf_pdf = surface_cosine / kPi;
+    if (!(light_pdf > 0.0f) || !isfinite(light_pdf)) {
+        return false;
+    }
+    const float mis_weight = power_heuristic(light_pdf, bsdf_pdf);
+    const DVec3 contribution = mul(
+        product(
+            product(throughput, surface.base_color),
+            light_material.emission),
+        surface_cosine * mis_weight / (kPi * light_pdf));
+    if (!finite(contribution) || max_component(contribution) <= 0.0f) {
+        return false;
+    }
+
+    const DVec3 shadow_origin = offset_origin(
+        hit.position,
+        hit.geometric_normal,
+        light_direction);
+    const DVec3 shadow_vector = sub(light_position, shadow_origin);
+    const float shadow_distance_squared = length_squared(shadow_vector);
+    if (!(shadow_distance_squared > 1.0e-12f)) {
+        return false;
+    }
+    const float shadow_distance = sqrtf(shadow_distance_squared);
+    task = DShadowTask{
+        DRay{shadow_origin, divv(shadow_vector, shadow_distance)},
+        contribution,
+        shadow_distance * (1.0f - 1.0e-5f),
+        pixel_index};
+    return task.t_max > 0.0f;
 }
 
 __global__ void initialize_frame_kernel(
@@ -926,7 +1138,8 @@ __global__ void initialize_frame_kernel(
     DPcgState* random_states,
     int width,
     int height,
-    unsigned long long seed_offset) {
+    unsigned long long seed_offset,
+    int* error_code) {
     const int index = blockIdx.x * blockDim.x + threadIdx.x;
     const int pixel_count = width * height;
     if (index >= pixel_count) {
@@ -936,49 +1149,417 @@ __global__ void initialize_frame_kernel(
     const int x = index % width;
     const int y = index / width;
     pcg_seed(random_states[index], pixel_seed(x, y, width, seed_offset));
+    if (index == 0) {
+        *error_code = 0;
+    }
 }
 
-__global__ void render_sample_kernel(
-    DScene scene,
-    DCamera camera,
-    DVec3* accumulation,
-    DVec3* resolved,
-    DPcgState* random_states,
-    int width,
-    int height,
-    int completed_samples,
-    cudaSurfaceObject_t output_surface) {
+__global__ void prepare_sample_kernel(
+    const DFrameParameters* parameters,
+    DPathState* primary_paths,
+    int* primary_count,
+    int* secondary_count,
+    int* bounce_index,
+    cudaGraphConditionalHandle wavefront_handle,
+    cudaGraphConditionalHandle emissive_handle) {
+    const DFrameParameters& frame = *parameters;
     const int index = blockIdx.x * blockDim.x + threadIdx.x;
-    const int pixel_count = width * height;
+    const int pixel_count = frame.width * frame.height;
     if (index >= pixel_count) {
         return;
     }
-    const int x = index % width;
-    const int y = index / width;
-    DPcgState rng = random_states[index];
-    const float u = (static_cast<float>(x) + random_float(rng)) / static_cast<float>(width);
+    const int x = index % frame.width;
+    const int y = index / frame.width;
+    DPcgState rng = frame.random_states[index];
+    const float u =
+        (static_cast<float>(x) + random_float(rng)) /
+        static_cast<float>(frame.width);
     const float v = 1.0f -
-        (static_cast<float>(y) + random_float(rng)) / static_cast<float>(height);
+        (static_cast<float>(y) + random_float(rng)) /
+            static_cast<float>(frame.height);
     const DVec3 direction = normalize(add(
         add(
-            camera.forward,
-            mul(camera.right, (u - 0.5f) * camera.viewport_width)),
-        mul(camera.up, (v - 0.5f) * camera.viewport_height)));
-    const DVec3 sample = trace_path(scene, DRay{camera.eye, direction}, rng);
-    const DVec3 sum = add(accumulation[index], sample);
-    accumulation[index] = sum;
-    const DVec3 color = divv(sum, static_cast<float>(completed_samples + 1));
-    if (resolved != nullptr) {
-        resolved[index] = color;
+            frame.camera.forward,
+            mul(
+                frame.camera.right,
+                (u - 0.5f) * frame.camera.viewport_width)),
+        mul(
+            frame.camera.up,
+            (v - 0.5f) * frame.camera.viewport_height)));
+    primary_paths[index] = DPathState{
+        DRay{frame.camera.eye, direction},
+        v3(1.0f, 1.0f, 1.0f),
+        0.0f,
+        1,
+        index};
+    frame.sample_radiance[index] = v3(0.0f, 0.0f, 0.0f);
+    frame.random_states[index] = rng;
+    if (index == 0) {
+        *primary_count = pixel_count;
+        *secondary_count = 0;
+        *bounce_index = 0;
+        if (wavefront_handle != 0) {
+            cudaGraphSetConditional(wavefront_handle, 1U);
+        }
+        if (emissive_handle != 0) {
+            cudaGraphSetConditional(
+                emissive_handle,
+                frame.scene.emissive_light_count > 0 ? 1U : 0U);
+        }
     }
-    if (output_surface != 0) {
+}
+
+__global__ void intersect_wavefront_kernel(
+    const DFrameParameters* parameters,
+    const DPathState* first_paths,
+    const DPathState* second_paths,
+    int* path_counts,
+    const int* bounce_index,
+    DWavefrontHit* hits) {
+    const DFrameParameters& frame = *parameters;
+    const int index = blockIdx.x * blockDim.x + threadIdx.x;
+    const int active_index = *bounce_index & 1;
+    const DPathState* active_paths =
+        active_index == 0 ? first_paths : second_paths;
+    int count = path_counts[active_index];
+    if (index == 0) {
+        path_counts[1 - active_index] = 0;
+    }
+    if (count < 0 || count > frame.path_capacity) {
+        atomicCAS(frame.error_code, 0, 3);
+        count = max(0, min(count, frame.path_capacity));
+    }
+    if (index >= count) {
+        return;
+    }
+    DCompactHit hit{};
+    const bool found = intersect_scene_compact(
+        frame.scene,
+        active_paths[index].ray,
+        0.0f,
+        1.0e30f,
+        hit);
+    hits[index] = DWavefrontHit{hit, found ? 1 : 0};
+}
+
+__global__ void shade_wavefront_kernel(
+    const DFrameParameters* parameters,
+    DPathState* first_paths,
+    DPathState* second_paths,
+    int* path_counts,
+    const int* bounce_index,
+    const DWavefrontHit* hits,
+    DShadingRecord* shading_records) {
+    const DFrameParameters& frame = *parameters;
+    const int index = blockIdx.x * blockDim.x + threadIdx.x;
+    const int bounce = *bounce_index;
+    const int active_index = bounce & 1;
+    const int next_index = 1 - active_index;
+    const DPathState* active_paths =
+        active_index == 0 ? first_paths : second_paths;
+    DPathState* next_paths =
+        active_index == 0
+        ? second_paths
+        : first_paths;
+    int count = path_counts[active_index];
+    if (count < 0 || count > frame.path_capacity) {
+        atomicCAS(frame.error_code, 0, 3);
+        count = max(0, min(count, frame.path_capacity));
+    }
+    if (index >= count) {
+        return;
+    }
+
+    const DPathState path = active_paths[index];
+    const DWavefrontHit wavefront_hit = hits[index];
+    shading_records[index].valid = 0;
+    if (!wavefront_hit.found) {
+        frame.sample_radiance[path.pixel_index] = add(
+            frame.sample_radiance[path.pixel_index],
+            product(path.throughput, frame.scene.environment));
+        return;
+    }
+
+    DHit hit{};
+    reconstruct_hit(
+        frame.scene,
+        path.ray,
+        wavefront_hit.hit,
+        true,
+        hit);
+    if (hit.material_id < 0 || hit.material_id >= frame.scene.material_count) {
+        frame.sample_radiance[path.pixel_index] = add(
+            frame.sample_radiance[path.pixel_index],
+            product(path.throughput, v3(1.0f, 0.0f, 1.0f)));
+        return;
+    }
+    const DMaterial material = frame.scene.materials[hit.material_id];
+    const DSurface surface = evaluate_surface(frame.scene, material, hit);
+
+    if (max_component(material.emission) > 0.0f) {
+        float emission_weight = 1.0f;
+        if (!path.previous_was_delta && path.previous_bsdf_pdf > 0.0f) {
+            const float light_pdf = emissive_light_pdf_for_hit(
+                frame.scene,
+                path.ray.origin,
+                hit);
+            emission_weight = power_heuristic(
+                path.previous_bsdf_pdf,
+                light_pdf);
+        }
+        frame.sample_radiance[path.pixel_index] = add(
+            frame.sample_radiance[path.pixel_index],
+            mul(
+                product(path.throughput, material.emission),
+                emission_weight));
+    }
+    if (material.type == static_cast<int>(MaterialType::Emissive)) {
+        return;
+    }
+
+    DPcgState rng = frame.random_states[path.pixel_index];
+    if (material.type == static_cast<int>(MaterialType::Diffuse)) {
+        shading_records[index] = DShadingRecord{
+            hit.position,
+            hit.geometric_normal,
+            surface.shading_normal,
+            surface.base_color,
+            path.throughput,
+            path.pixel_index,
+            1};
+    }
+
+    DVec3 attenuation{};
+    DRay scattered{};
+    float bsdf_pdf = 0.0f;
+    int was_delta = 1;
+    if (!scatter(
+            path.ray,
+            hit,
+            material,
+            surface,
+            rng,
+            attenuation,
+            scattered,
+            bsdf_pdf,
+            was_delta)) {
+        frame.random_states[path.pixel_index] = rng;
+        return;
+    }
+
+    DVec3 throughput = product(path.throughput, attenuation);
+    if (!finite(throughput) || max_component(throughput) <= 0.0f ||
+        bounce + 1 >= kMaxPathBounces) {
+        frame.random_states[path.pixel_index] = rng;
+        return;
+    }
+    if (bounce + 1 >= kRussianRouletteStartBounce) {
+        const float probability = fminf(
+            fmaxf(max_component(throughput), 0.05f),
+            0.95f);
+        if (random_float(rng) >= probability) {
+            frame.random_states[path.pixel_index] = rng;
+            return;
+        }
+        throughput = divv(throughput, probability);
+    }
+
+    const unsigned int active_mask = __activemask();
+    const int lane = static_cast<int>(threadIdx.x) & 31;
+    const int leader = __ffs(active_mask) - 1;
+    int output_base = 0;
+    if (lane == leader) {
+        output_base = atomicAdd(
+            path_counts + next_index,
+            __popc(active_mask));
+    }
+    output_base = __shfl_sync(
+        active_mask,
+        output_base,
+        leader);
+    const unsigned int lower_lanes =
+        lane == 0 ? 0U : ((1U << lane) - 1U);
+    const int output_index =
+        output_base + __popc(active_mask & lower_lanes);
+    if (output_index < frame.path_capacity) {
+        next_paths[output_index] = DPathState{
+            scattered,
+            throughput,
+            bsdf_pdf,
+            was_delta,
+            path.pixel_index};
+    } else {
+        atomicCAS(frame.error_code, 0, 1);
+    }
+    frame.random_states[path.pixel_index] = rng;
+}
+
+__global__ void sample_emissive_lights_kernel(
+    const DFrameParameters* parameters,
+    const DShadingRecord* shading_records,
+    DShadowTask* shadow_tasks,
+    const int* path_counts,
+    const int* bounce_index) {
+    const DFrameParameters& frame = *parameters;
+    const int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int count = path_counts[*bounce_index & 1];
+    count = max(0, min(count, frame.path_capacity));
+    if (index >= count) {
+        return;
+    }
+    shadow_tasks[index].t_max = 0.0f;
+    if (frame.scene.emissive_light_count <= 0) {
+        return;
+    }
+    const DShadingRecord record = shading_records[index];
+    if (!record.valid) {
+        return;
+    }
+    DHit hit{};
+    hit.position = record.position;
+    hit.geometric_normal = record.geometric_normal;
+    DSurface surface{};
+    surface.base_color = record.base_color;
+    surface.shading_normal = record.shading_normal;
+    DPcgState rng = frame.random_states[record.pixel_index];
+    DShadowTask shadow_task{};
+    if (sample_emissive_shadow_task(
+            frame.scene,
+            hit,
+            surface,
+            record.throughput,
+            record.pixel_index,
+            rng,
+            shadow_task)) {
+        shadow_tasks[index] = shadow_task;
+    }
+    frame.random_states[record.pixel_index] = rng;
+}
+
+__global__ void direct_visibility_kernel(
+    const DFrameParameters* parameters,
+    const DShadingRecord* shading_records,
+    const DShadowTask* shadow_tasks,
+    const int* path_counts,
+    const int* bounce_index) {
+    const DFrameParameters& frame = *parameters;
+    const int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int count = path_counts[*bounce_index & 1];
+    count = max(0, min(count, frame.path_capacity));
+    if (index >= count) {
+        return;
+    }
+    const DShadingRecord record = shading_records[index];
+    if (!record.valid) {
+        return;
+    }
+    DHit hit{};
+    hit.position = record.position;
+    hit.geometric_normal = record.geometric_normal;
+    DSurface surface{};
+    surface.base_color = record.base_color;
+    surface.shading_normal = record.shading_normal;
+    DVec3 contribution = product(
+        record.throughput,
+        direct_lighting(frame.scene, hit, surface));
+    if (frame.scene.emissive_light_count > 0) {
+        const DShadowTask task = shadow_tasks[index];
+        if (task.t_max > 0.0f) {
+            if (!occluded_scene(
+                    frame.scene,
+                    task.ray,
+                    0.0f,
+                    task.t_max)) {
+                contribution = add(contribution, task.contribution);
+            }
+        }
+    }
+    frame.sample_radiance[record.pixel_index] = add(
+        frame.sample_radiance[record.pixel_index],
+        contribution);
+}
+
+__global__ void advance_wavefront_kernel(
+    const DFrameParameters* parameters,
+    const int* path_counts,
+    int* bounce_index,
+    cudaGraphConditionalHandle conditional_handle) {
+    if (blockIdx.x != 0 || threadIdx.x != 0) {
+        return;
+    }
+    const DFrameParameters& frame = *parameters;
+    const int next_bounce = *bounce_index + 1;
+    *bounce_index = next_bounce;
+    int count = next_bounce < kMaxPathBounces
+        ? path_counts[next_bounce & 1]
+        : 0;
+    if (count < 0 || count > frame.path_capacity) {
+        atomicCAS(frame.error_code, 0, 3);
+        count = 0;
+    }
+    if (conditional_handle != 0) {
+        cudaGraphSetConditional(
+            conditional_handle,
+            count > 0 && next_bounce < kMaxPathBounces ? 1U : 0U);
+    }
+}
+
+__global__ void finalize_sample_kernel(
+    const DFrameParameters* parameters) {
+    const DFrameParameters& frame = *parameters;
+    const int index = blockIdx.x * blockDim.x + threadIdx.x;
+    const int pixel_count = frame.width * frame.height;
+    if (index >= pixel_count) {
+        return;
+    }
+    const DVec3 sum = add(
+        frame.accumulation[index],
+        frame.sample_radiance[index]);
+    frame.accumulation[index] = sum;
+    if (frame.output_surface != 0) {
+        const int completed_samples =
+            frame.completed_samples + *frame.batch_sample_index;
+        const DVec3 color = divv(
+            sum,
+            static_cast<float>(completed_samples + 1));
+        const int x = index % frame.width;
+        const int y = index / frame.width;
         surf2Dwrite(
             make_float4(color.x, color.y, color.z, 1.0f),
-            output_surface,
+            frame.output_surface,
             x * static_cast<int>(sizeof(float4)),
             y);
     }
-    random_states[index] = rng;
+}
+
+__global__ void prepare_sample_batch_kernel(int* batch_sample_index) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        *batch_sample_index = 0;
+    }
+}
+
+__global__ void advance_sample_batch_kernel(
+    const DFrameParameters* parameters,
+    cudaGraphConditionalHandle batch_handle) {
+    if (blockIdx.x != 0 || threadIdx.x != 0) {
+        return;
+    }
+    const DFrameParameters& frame = *parameters;
+    const int next_sample = *frame.batch_sample_index + 1;
+    *frame.batch_sample_index = next_sample;
+    if (batch_handle != 0) {
+        cudaGraphSetConditional(
+            batch_handle,
+            next_sample < frame.batch_sample_count ? 1U : 0U);
+    }
+}
+
+__global__ void update_frame_parameters_kernel(
+    DFrameParameters* destination,
+    DFrameParameters parameters) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        *destination = parameters;
+    }
 }
 
 __global__ void resolve_frame_kernel(
@@ -1342,6 +1923,12 @@ public:
                     statistics_);
         }
 
+        if (has_scene_change(changes, SceneChange::Geometry) ||
+            has_scene_change(changes, SceneChange::MaterialBindings) ||
+            has_scene_change(changes, SceneChange::Materials)) {
+            rebuild_emissive_lights(scene);
+        }
+
         if (has_scene_change(changes, SceneChange::Lighting)) {
             point_lights_host_.clear();
             point_lights_host_.reserve(scene.point_lights.size());
@@ -1390,6 +1977,10 @@ public:
         view_.point_light_count = static_cast<int>(point_lights_.size());
         view_.directional_lights = directional_lights_.get();
         view_.directional_light_count = static_cast<int>(directional_lights_.size());
+        view_.emissive_lights = emissive_lights_.get();
+        view_.emissive_light_count = static_cast<int>(emissive_lights_.size());
+        view_.sphere_light_indices = sphere_light_indices_.get();
+        view_.triangle_light_indices = triangle_light_indices_.get();
         view_.environment = to_device(scene.environment);
         upload_timer_.end(stream_);
     }
@@ -1399,6 +1990,156 @@ public:
     }
 
 private:
+    void rebuild_emissive_lights(const Scene& scene) {
+        emissive_lights_host_.clear();
+        const auto material_weight = [](const Material& material) {
+            if (!material.emission.allFinite() ||
+                (material.emission.array() < 0.0f).any()) {
+                return 0.0f;
+            }
+            const float energy =
+                material.emission.x() * 0.2126f +
+                material.emission.y() * 0.7152f +
+                material.emission.z() * 0.0722f;
+            if (!(energy > 0.0f) || !std::isfinite(energy)) {
+                return 0.0f;
+            }
+            if (material.opacity_texture_id < 0 &&
+                material.opacity < material.alpha_cutoff) {
+                return 0.0f;
+            }
+            return energy * (material.two_sided ? 2.0f : 1.0f);
+        };
+
+        std::vector<float> material_weights(scene.materials.size(), 0.0f);
+        bool has_emissive_material = false;
+        for (std::size_t index = 0; index < scene.materials.size(); ++index) {
+            material_weights[index] = material_weight(scene.materials[index]);
+            has_emissive_material =
+                has_emissive_material || material_weights[index] > 0.0f;
+        }
+        if (!has_emissive_material) {
+            sphere_light_indices_host_.clear();
+            triangle_light_indices_host_.clear();
+            statistics_.lighting_upload_bytes += emissive_lights_.upload(
+                emissive_lights_host_,
+                stream_,
+                statistics_);
+            statistics_.lighting_upload_bytes += sphere_light_indices_.upload(
+                sphere_light_indices_host_,
+                stream_,
+                statistics_);
+            statistics_.lighting_upload_bytes += triangle_light_indices_.upload(
+                triangle_light_indices_host_,
+                stream_,
+                statistics_);
+            return;
+        }
+
+        sphere_light_indices_host_.assign(scene.spheres.size(), -1);
+        triangle_light_indices_host_.assign(scene.triangles.size(), -1);
+        std::vector<float> weights;
+        weights.reserve(scene.spheres.size() + scene.triangles.size());
+
+        for (std::size_t index = 0; index < scene.spheres.size(); ++index) {
+            const Sphere& sphere = scene.spheres[index];
+            const int material_id = sphere.material_id();
+            if (material_id < 0 ||
+                static_cast<std::size_t>(material_id) >= scene.materials.size()) {
+                continue;
+            }
+            const float emission_weight = material_weights[material_id];
+            const float area =
+                4.0f * kPi * sphere.radius() * sphere.radius();
+            const float weight = emission_weight * area;
+            if (!(weight > 0.0f) || !std::isfinite(weight)) {
+                continue;
+            }
+            const int light_index =
+                static_cast<int>(emissive_lights_host_.size());
+            sphere_light_indices_host_[index] = light_index;
+            emissive_lights_host_.push_back(DEmissiveLight{
+                0,
+                static_cast<int>(index),
+                material_id,
+                area,
+                0.0f,
+                0.0f});
+            weights.push_back(weight);
+        }
+
+        for (std::size_t index = 0; index < scene.triangles.size(); ++index) {
+            const Triangle& triangle = scene.triangles[index];
+            const int material_id = triangle.material_id();
+            if (material_id < 0 ||
+                static_cast<std::size_t>(material_id) >= scene.materials.size()) {
+                continue;
+            }
+            const float emission_weight = material_weights[material_id];
+            const float area = 0.5f *
+                (triangle.b() - triangle.a())
+                    .cross(triangle.c() - triangle.a())
+                    .norm();
+            const float weight = emission_weight * area;
+            if (!(weight > 0.0f) || !std::isfinite(weight)) {
+                continue;
+            }
+            const int light_index =
+                static_cast<int>(emissive_lights_host_.size());
+            triangle_light_indices_host_[index] = light_index;
+            emissive_lights_host_.push_back(DEmissiveLight{
+                1,
+                static_cast<int>(index),
+                material_id,
+                area,
+                0.0f,
+                0.0f});
+            weights.push_back(weight);
+        }
+
+        float total_weight = 0.0f;
+        for (float weight : weights) {
+            total_weight += weight;
+        }
+        if (total_weight > 0.0f && std::isfinite(total_weight)) {
+            float cumulative = 0.0f;
+            for (std::size_t index = 0;
+                 index < emissive_lights_host_.size();
+                 ++index) {
+                const float probability = weights[index] / total_weight;
+                cumulative += probability;
+                emissive_lights_host_[index].selection_pdf = probability;
+                emissive_lights_host_[index].cumulative_probability =
+                    index + 1 == emissive_lights_host_.size()
+                    ? 1.0f
+                    : cumulative;
+            }
+        } else {
+            emissive_lights_host_.clear();
+            std::fill(
+                sphere_light_indices_host_.begin(),
+                sphere_light_indices_host_.end(),
+                -1);
+            std::fill(
+                triangle_light_indices_host_.begin(),
+                triangle_light_indices_host_.end(),
+                -1);
+        }
+
+        statistics_.lighting_upload_bytes += emissive_lights_.upload(
+            emissive_lights_host_,
+            stream_,
+            statistics_);
+        statistics_.lighting_upload_bytes += sphere_light_indices_.upload(
+            sphere_light_indices_host_,
+            stream_,
+            statistics_);
+        statistics_.lighting_upload_bytes += triangle_light_indices_.upload(
+            triangle_light_indices_host_,
+            stream_,
+            statistics_);
+    }
+
     cudaStream_t stream_ = nullptr;
     CudaPathStatistics& statistics_;
     CudaEventTimer upload_timer_;
@@ -1413,6 +2154,9 @@ private:
     DeviceBuffer<int> primitive_indices_;
     DeviceBuffer<DPointLight> point_lights_;
     DeviceBuffer<DDirectionalLight> directional_lights_;
+    DeviceBuffer<DEmissiveLight> emissive_lights_;
+    DeviceBuffer<int> sphere_light_indices_;
+    DeviceBuffer<int> triangle_light_indices_;
     std::vector<DMaterial> materials_host_;
     std::vector<DTexture> textures_host_;
     std::vector<DVec3> texels_host_;
@@ -1424,6 +2168,9 @@ private:
     std::vector<int> primitive_indices_host_;
     std::vector<DPointLight> point_lights_host_;
     std::vector<DDirectionalLight> directional_lights_host_;
+    std::vector<DEmissiveLight> emissive_lights_host_;
+    std::vector<int> sphere_light_indices_host_;
+    std::vector<int> triangle_light_indices_host_;
     DScene view_{};
 };
 
@@ -1439,6 +2186,9 @@ public:
     ~CudaFrameStorage() {
         if (stream_) {
             cudaStreamSynchronize(stream_);
+        }
+        destroy_graph();
+        if (stream_) {
             cudaStreamDestroy(stream_);
         }
     }
@@ -1461,13 +2211,21 @@ public:
         }
         accumulation_.resize(count, statistics_);
         random_states_.resize(count, statistics_);
+        ensure_wavefront_capacity(count);
+#if !defined(RENDERER_CUDA_SANITIZER_FALLBACK)
+        if (!graph_exec_ ||
+            count > static_cast<std::size_t>(graph_capacity_)) {
+            rebuild_graph(static_cast<int>(count));
+        }
+#endif
         const int block_count = static_cast<int>((count + kThreadsPerBlock - 1) / kThreadsPerBlock);
         initialize_frame_kernel<<<block_count, kThreadsPerBlock, 0, stream_>>>(
             accumulation_.get(),
             random_states_.get(),
             width,
             height,
-            seed_offset);
+            seed_offset,
+            error_code_);
         check_cuda(cudaGetLastError(), "initialize_frame_kernel launch");
         if (record_timing) {
             reset_timer_.end(stream_);
@@ -1479,6 +2237,18 @@ public:
         const DScene& scene,
         const Camera& camera,
         cudaSurfaceObject_t output_surface = 0) {
+        render_samples(scene, camera, 1, output_surface);
+    }
+
+    void render_samples(
+        const DScene& scene,
+        const Camera& camera,
+        int sample_count,
+        cudaSurfaceObject_t output_surface = 0) {
+        if (sample_count <= 0) {
+            throw std::invalid_argument(
+                "CUDA wavefront sample batch must be positive");
+        }
         const DCamera packed_camera{
             to_device(camera.eye()),
             to_device(camera.forward()),
@@ -1487,36 +2257,48 @@ public:
             camera.viewport_width(),
             camera.viewport_height()};
         const std::size_t count = accumulation_.size();
-        DVec3* resolved = nullptr;
-        if (output_surface == 0) {
-            resolved_.resize(count, statistics_);
-            resolved = resolved_.get();
-        }
+        check_completed_error();
+        const DFrameParameters parameters{
+            scene,
+            packed_camera,
+            accumulation_.get(),
+            sample_radiance_,
+            random_states_.get(),
+            width_,
+            height_,
+            samples_,
+            sample_count,
+            batch_sample_index_,
+            static_cast<int>(count),
+            error_code_,
+            output_surface};
+        update_frame_parameters_kernel<<<1, 1, 0, stream_>>>(
+            frame_parameters_,
+            parameters);
+        check_cuda(
+            cudaGetLastError(),
+            "update_frame_parameters_kernel launch");
         trace_timer_.update(statistics_.trace_milliseconds);
         const bool record_timing = !trace_timer_.pending();
         if (record_timing) {
             trace_timer_.begin(stream_);
         }
-        const int block_count = static_cast<int>((count + kThreadsPerBlock - 1) / kThreadsPerBlock);
-        render_sample_kernel<<<block_count, kThreadsPerBlock, 0, stream_>>>(
-            scene,
-            packed_camera,
-            accumulation_.get(),
-            resolved,
-            random_states_.get(),
-            width_,
-            height_,
-            samples_,
-            output_surface);
-        check_cuda(cudaGetLastError(), "render_sample_kernel launch");
+#if defined(RENDERER_CUDA_SANITIZER_FALLBACK)
+        launch_sanitizer_fixed_topology(sample_count);
+#else
+        check_cuda(
+            cudaGraphLaunch(graph_exec_, stream_),
+            "cudaGraphLaunch wavefront path");
+#endif
         if (record_timing) {
             trace_timer_.end(stream_);
         }
-        ++samples_;
+        samples_ += sample_count;
     }
 
     void synchronize_and_check_errors() {
         check_cuda(cudaStreamSynchronize(stream_), "path rendering stream synchronize");
+        throw_if_wavefront_error();
         update_timings();
     }
 
@@ -1560,16 +2342,527 @@ public:
     void update_timings() {
         reset_timer_.update(statistics_.reset_milliseconds);
         trace_timer_.update(statistics_.trace_milliseconds);
+        check_completed_error();
     }
 
 private:
+#if defined(RENDERER_CUDA_SANITIZER_FALLBACK)
+    void launch_sanitizer_fixed_topology(int sample_count) {
+        const int capacity = static_cast<int>(accumulation_.size());
+        const int block_count =
+            (capacity + kThreadsPerBlock - 1) / kThreadsPerBlock;
+        prepare_sample_batch_kernel<<<1, 1, 0, stream_>>>(
+            batch_sample_index_);
+        for (int sample = 0; sample < sample_count; ++sample) {
+            prepare_sample_kernel<<<
+                block_count,
+                kThreadsPerBlock,
+                0,
+                stream_>>>(
+                frame_parameters_,
+                path_queues_[0],
+                path_counts_,
+                path_counts_ + 1,
+                bounce_index_,
+                0,
+                0);
+            for (int bounce = 0;
+                 bounce < kMaxPathBounces;
+                 ++bounce) {
+                intersect_wavefront_kernel<<<
+                    block_count,
+                    kThreadsPerBlock,
+                    0,
+                    stream_>>>(
+                    frame_parameters_,
+                    path_queues_[0],
+                    path_queues_[1],
+                    path_counts_,
+                    bounce_index_,
+                    hits_);
+                shade_wavefront_kernel<<<
+                    block_count,
+                    kThreadsPerBlock,
+                    0,
+                    stream_>>>(
+                    frame_parameters_,
+                    path_queues_[0],
+                    path_queues_[1],
+                    path_counts_,
+                    bounce_index_,
+                    hits_,
+                    shading_records_);
+                sample_emissive_lights_kernel<<<
+                    block_count,
+                    kThreadsPerBlock,
+                    0,
+                    stream_>>>(
+                    frame_parameters_,
+                    shading_records_,
+                    shadow_tasks_,
+                    path_counts_,
+                    bounce_index_);
+                direct_visibility_kernel<<<
+                    block_count,
+                    kThreadsPerBlock,
+                    0,
+                    stream_>>>(
+                    frame_parameters_,
+                    shading_records_,
+                    shadow_tasks_,
+                    path_counts_,
+                    bounce_index_);
+                advance_wavefront_kernel<<<1, 1, 0, stream_>>>(
+                    frame_parameters_,
+                    path_counts_,
+                    bounce_index_,
+                    0);
+            }
+            finalize_sample_kernel<<<
+                block_count,
+                kThreadsPerBlock,
+                0,
+                stream_>>>(frame_parameters_);
+            advance_sample_batch_kernel<<<1, 1, 0, stream_>>>(
+                frame_parameters_,
+                0);
+        }
+        check_cuda(
+            cudaGetLastError(),
+            "CUDA sanitizer fixed-topology launch");
+    }
+#endif
+
+    void ensure_wavefront_capacity(std::size_t count) {
+        if (count <= wavefront_capacity_pixels_) {
+            return;
+        }
+        check_cuda(
+            cudaStreamSynchronize(stream_),
+            "wavefront arena resize synchronize");
+        destroy_graph();
+
+        struct ArenaLayout {
+            std::size_t sample_radiance = 0;
+            std::size_t first_paths = 0;
+            std::size_t second_paths = 0;
+            std::size_t hits = 0;
+            std::size_t shading_records = 0;
+            std::size_t shadow_tasks = 0;
+            std::size_t path_counts = 0;
+            std::size_t bounce_index = 0;
+            std::size_t batch_sample_index = 0;
+            std::size_t error_code = 0;
+            std::size_t frame_parameters = 0;
+            std::size_t total_bytes = 0;
+        } layout;
+
+        std::size_t offset = 0;
+        const auto reserve_region = [&offset](
+                                        std::size_t& region_offset,
+                                        std::size_t alignment,
+                                        std::size_t element_size,
+                                        std::size_t element_count) {
+            const std::size_t aligned =
+                (offset + alignment - 1) & ~(alignment - 1);
+            if (element_count > (SIZE_MAX - aligned) / element_size) {
+                throw std::overflow_error("CUDA wavefront arena is too large");
+            }
+            region_offset = aligned;
+            offset = aligned + element_size * element_count;
+        };
+        reserve_region(
+            layout.sample_radiance, alignof(DVec3), sizeof(DVec3), count);
+        reserve_region(
+            layout.first_paths, alignof(DPathState), sizeof(DPathState), count);
+        reserve_region(
+            layout.second_paths, alignof(DPathState), sizeof(DPathState), count);
+        reserve_region(
+            layout.hits, alignof(DWavefrontHit), sizeof(DWavefrontHit), count);
+        reserve_region(
+            layout.shading_records,
+            alignof(DShadingRecord),
+            sizeof(DShadingRecord),
+            count);
+        reserve_region(
+            layout.shadow_tasks,
+            alignof(DShadowTask),
+            sizeof(DShadowTask),
+            count);
+        reserve_region(layout.path_counts, alignof(int), sizeof(int), 2);
+        reserve_region(layout.bounce_index, alignof(int), sizeof(int), 1);
+        reserve_region(
+            layout.batch_sample_index, alignof(int), sizeof(int), 1);
+        reserve_region(layout.error_code, alignof(int), sizeof(int), 1);
+        reserve_region(
+            layout.frame_parameters,
+            alignof(DFrameParameters),
+            sizeof(DFrameParameters),
+            1);
+        layout.total_bytes = offset;
+
+        wavefront_arena_.resize(layout.total_bytes, statistics_);
+        unsigned char* const base = wavefront_arena_.get();
+        sample_radiance_ =
+            reinterpret_cast<DVec3*>(base + layout.sample_radiance);
+        path_queues_[0] =
+            reinterpret_cast<DPathState*>(base + layout.first_paths);
+        path_queues_[1] =
+            reinterpret_cast<DPathState*>(base + layout.second_paths);
+        hits_ = reinterpret_cast<DWavefrontHit*>(base + layout.hits);
+        shading_records_ =
+            reinterpret_cast<DShadingRecord*>(base + layout.shading_records);
+        shadow_tasks_ =
+            reinterpret_cast<DShadowTask*>(base + layout.shadow_tasks);
+        path_counts_ = reinterpret_cast<int*>(base + layout.path_counts);
+        bounce_index_ = reinterpret_cast<int*>(base + layout.bounce_index);
+        batch_sample_index_ =
+            reinterpret_cast<int*>(base + layout.batch_sample_index);
+        error_code_ = reinterpret_cast<int*>(base + layout.error_code);
+        frame_parameters_ =
+            reinterpret_cast<DFrameParameters*>(base + layout.frame_parameters);
+        wavefront_capacity_pixels_ = count;
+    }
+
+    void rebuild_graph(int capacity) {
+        if (capacity <= 0) {
+            throw std::invalid_argument(
+                "CUDA wavefront graph capacity must be positive");
+        }
+        check_cuda(
+            cudaStreamSynchronize(stream_),
+            "wavefront graph rebuild synchronize");
+        destroy_graph();
+        const int block_count =
+            (capacity + kThreadsPerBlock - 1) / kThreadsPerBlock;
+        check_cuda(
+            cudaGraphCreate(&graph_, 0),
+            "cudaGraphCreate wavefront graph");
+        check_cuda(
+            cudaGraphConditionalHandleCreate(
+                &batch_conditional_handle_,
+                graph_,
+                1U,
+                cudaGraphCondAssignDefault),
+            "cudaGraphConditionalHandleCreate sample batch");
+        check_cuda(
+            cudaGraphConditionalHandleCreate(
+                &wavefront_conditional_handle_,
+                graph_,
+                0U,
+                0),
+            "cudaGraphConditionalHandleCreate wavefront loop");
+        check_cuda(
+            cudaGraphConditionalHandleCreate(
+                &emissive_conditional_handle_,
+                graph_,
+                0U,
+                0),
+            "cudaGraphConditionalHandleCreate emissive sampling");
+
+        DFrameParameters* frame_parameters = frame_parameters_;
+        DPathState* first_paths = path_queues_[0];
+        DPathState* second_paths = path_queues_[1];
+        int* path_counts = path_counts_;
+        int* primary_count = path_counts;
+        int* secondary_count = path_counts + 1;
+        int* bounce_index = bounce_index_;
+        int* batch_sample_index = batch_sample_index_;
+        DWavefrontHit* hits = hits_;
+        DShadingRecord* shading_records = shading_records_;
+        DShadowTask* shadow_tasks = shadow_tasks_;
+
+        void* prepare_batch_arguments[] = {&batch_sample_index};
+        cudaGraphNode_t prepare_batch_node = add_kernel_node(
+            graph_,
+            nullptr,
+            reinterpret_cast<void*>(prepare_sample_batch_kernel),
+            dim3(1),
+            dim3(1),
+            prepare_batch_arguments);
+
+        cudaGraphNodeParams batch_conditional_parameters{};
+        batch_conditional_parameters.type = cudaGraphNodeTypeConditional;
+        batch_conditional_parameters.conditional.handle =
+            batch_conditional_handle_;
+        batch_conditional_parameters.conditional.type =
+            cudaGraphCondTypeWhile;
+        batch_conditional_parameters.conditional.size = 1;
+        cudaGraphNode_t batch_conditional_node = nullptr;
+        check_cuda(
+            cudaGraphAddNode(
+                &batch_conditional_node,
+                graph_,
+                &prepare_batch_node,
+                nullptr,
+                1,
+                &batch_conditional_parameters),
+            "cudaGraphAddNode sample batch while");
+        cudaGraph_t sample_body =
+            batch_conditional_parameters.conditional.phGraph_out[0];
+
+        cudaGraphConditionalHandle wavefront_handle =
+            wavefront_conditional_handle_;
+        cudaGraphConditionalHandle emissive_handle =
+            emissive_conditional_handle_;
+        void* prepare_arguments[] = {
+            &frame_parameters,
+            &first_paths,
+            &primary_count,
+            &secondary_count,
+            &bounce_index,
+            &wavefront_handle,
+            &emissive_handle};
+        cudaGraphNode_t prepare_node = add_kernel_node(
+            sample_body,
+            nullptr,
+            reinterpret_cast<void*>(prepare_sample_kernel),
+            dim3(block_count),
+            dim3(kThreadsPerBlock),
+            prepare_arguments);
+
+        cudaGraphNodeParams conditional_parameters{};
+        conditional_parameters.type = cudaGraphNodeTypeConditional;
+        conditional_parameters.conditional.handle =
+            wavefront_conditional_handle_;
+        conditional_parameters.conditional.type = cudaGraphCondTypeWhile;
+        conditional_parameters.conditional.size = 1;
+        cudaGraphNode_t conditional_node = nullptr;
+        check_cuda(
+            cudaGraphAddNode(
+                &conditional_node,
+                sample_body,
+                &prepare_node,
+                nullptr,
+                1,
+                &conditional_parameters),
+            "cudaGraphAddNode wavefront while");
+        cudaGraph_t body = conditional_parameters.conditional.phGraph_out[0];
+
+        void* intersect_arguments[] = {
+            &frame_parameters,
+            &first_paths,
+            &second_paths,
+            &path_counts,
+            &bounce_index,
+            &hits};
+        cudaGraphNode_t body_tail = add_kernel_node(
+            body,
+            nullptr,
+            reinterpret_cast<void*>(intersect_wavefront_kernel),
+            dim3(block_count),
+            dim3(kThreadsPerBlock),
+            intersect_arguments);
+
+        void* shade_arguments[] = {
+            &frame_parameters,
+            &first_paths,
+            &second_paths,
+            &path_counts,
+            &bounce_index,
+            &hits,
+            &shading_records};
+        body_tail = add_kernel_node(
+            body,
+            body_tail,
+            reinterpret_cast<void*>(shade_wavefront_kernel),
+            dim3(block_count),
+            dim3(kThreadsPerBlock),
+            shade_arguments);
+
+        cudaGraphNodeParams emissive_conditional_parameters{};
+        emissive_conditional_parameters.type =
+            cudaGraphNodeTypeConditional;
+        emissive_conditional_parameters.conditional.handle =
+            emissive_conditional_handle_;
+        emissive_conditional_parameters.conditional.type =
+            cudaGraphCondTypeIf;
+        emissive_conditional_parameters.conditional.size = 1;
+        cudaGraphNode_t emissive_conditional_node = nullptr;
+        check_cuda(
+            cudaGraphAddNode(
+                &emissive_conditional_node,
+                body,
+                &body_tail,
+                nullptr,
+                1,
+                &emissive_conditional_parameters),
+            "cudaGraphAddNode emissive sampling if");
+        cudaGraph_t emissive_body =
+            emissive_conditional_parameters.conditional.phGraph_out[0];
+
+        void* emissive_arguments[] = {
+            &frame_parameters,
+            &shading_records,
+            &shadow_tasks,
+            &path_counts,
+            &bounce_index};
+        add_kernel_node(
+            emissive_body,
+            nullptr,
+            reinterpret_cast<void*>(sample_emissive_lights_kernel),
+            dim3(block_count),
+            dim3(kThreadsPerBlock),
+            emissive_arguments);
+        body_tail = emissive_conditional_node;
+
+        void* direct_arguments[] = {
+            &frame_parameters,
+            &shading_records,
+            &shadow_tasks,
+            &path_counts,
+            &bounce_index};
+        body_tail = add_kernel_node(
+            body,
+            body_tail,
+            reinterpret_cast<void*>(direct_visibility_kernel),
+            dim3(block_count),
+            dim3(kThreadsPerBlock),
+            direct_arguments);
+
+        cudaGraphConditionalHandle conditional_handle =
+            wavefront_conditional_handle_;
+        void* advance_arguments[] = {
+            &frame_parameters,
+            &path_counts,
+            &bounce_index,
+            &conditional_handle};
+        add_kernel_node(
+            body,
+            body_tail,
+            reinterpret_cast<void*>(advance_wavefront_kernel),
+            dim3(1),
+            dim3(1),
+            advance_arguments);
+
+        void* finalize_arguments[] = {&frame_parameters};
+        cudaGraphNode_t finalize_node = add_kernel_node(
+            sample_body,
+            conditional_node,
+            reinterpret_cast<void*>(finalize_sample_kernel),
+            dim3(block_count),
+            dim3(kThreadsPerBlock),
+            finalize_arguments);
+
+        cudaGraphConditionalHandle batch_handle =
+            batch_conditional_handle_;
+        void* advance_batch_arguments[] = {
+            &frame_parameters,
+            &batch_handle};
+        add_kernel_node(
+            sample_body,
+            finalize_node,
+            reinterpret_cast<void*>(advance_sample_batch_kernel),
+            dim3(1),
+            dim3(1),
+            advance_batch_arguments);
+        check_cuda(
+            cudaGraphInstantiate(
+                &graph_exec_,
+                graph_,
+                nullptr,
+                nullptr,
+                0),
+            "cudaGraphInstantiate wavefront graph");
+        graph_capacity_ = capacity;
+    }
+
+    cudaGraphNode_t add_kernel_node(
+        cudaGraph_t graph,
+        cudaGraphNode_t dependency,
+        void* function,
+        dim3 grid,
+        dim3 block,
+        void** arguments) {
+        cudaKernelNodeParams parameters{};
+        parameters.func = function;
+        parameters.gridDim = grid;
+        parameters.blockDim = block;
+        parameters.kernelParams = arguments;
+        cudaGraphNode_t node = nullptr;
+        const cudaGraphNode_t* dependencies =
+            dependency != nullptr ? &dependency : nullptr;
+        check_cuda(
+            cudaGraphAddKernelNode(
+                &node,
+                graph,
+                dependencies,
+                dependency != nullptr ? 1 : 0,
+                &parameters),
+            "cudaGraphAddKernelNode wavefront graph");
+        return node;
+    }
+
+    void destroy_graph() noexcept {
+        if (graph_exec_) {
+            cudaGraphExecDestroy(graph_exec_);
+            graph_exec_ = nullptr;
+        }
+        if (graph_) {
+            cudaGraphDestroy(graph_);
+            graph_ = nullptr;
+        }
+        batch_conditional_handle_ = 0;
+        wavefront_conditional_handle_ = 0;
+        emissive_conditional_handle_ = 0;
+        graph_capacity_ = 0;
+    }
+
+    void check_completed_error() {
+        if (!stream_) {
+            return;
+        }
+        const cudaError_t query = cudaStreamQuery(stream_);
+        if (query == cudaErrorNotReady) {
+            return;
+        }
+        check_cuda(query, "CUDA wavefront stream query");
+        throw_if_wavefront_error();
+    }
+
+    void throw_if_wavefront_error() {
+        int error = 0;
+        check_cuda(
+            cudaMemcpy(
+                &error,
+                error_code_,
+                sizeof(error),
+                cudaMemcpyDeviceToHost),
+            "download CUDA wavefront error");
+        if (error == 0) {
+            return;
+        }
+        if (error == 1) {
+            throw std::runtime_error("CUDA wavefront path queue overflow");
+        }
+        throw std::runtime_error("CUDA wavefront queue count is invalid");
+    }
+
     CudaPathStatistics& statistics_;
     cudaStream_t stream_ = nullptr;
+    cudaGraph_t graph_ = nullptr;
+    cudaGraphExec_t graph_exec_ = nullptr;
+    cudaGraphConditionalHandle batch_conditional_handle_ = 0;
+    cudaGraphConditionalHandle wavefront_conditional_handle_ = 0;
+    cudaGraphConditionalHandle emissive_conditional_handle_ = 0;
+    int graph_capacity_ = 0;
     CudaEventTimer reset_timer_;
     CudaEventTimer trace_timer_;
     DeviceBuffer<DVec3> accumulation_;
     DeviceBuffer<DVec3> resolved_;
     DeviceBuffer<DPcgState> random_states_;
+    DeviceBuffer<unsigned char> wavefront_arena_;
+    std::size_t wavefront_capacity_pixels_ = 0;
+    DVec3* sample_radiance_ = nullptr;
+    DPathState* path_queues_[2]{nullptr, nullptr};
+    DWavefrontHit* hits_ = nullptr;
+    DShadingRecord* shading_records_ = nullptr;
+    DShadowTask* shadow_tasks_ = nullptr;
+    int* path_counts_ = nullptr;
+    int* bounce_index_ = nullptr;
+    int* batch_sample_index_ = nullptr;
+    int* error_code_ = nullptr;
+    DFrameParameters* frame_parameters_ = nullptr;
     PinnedHostBuffer<DVec3> pinned_pixels_;
     int width_ = 0;
     int height_ = 0;
@@ -1614,9 +2907,7 @@ RenderResult render_cuda_path(
     CudaSceneStorage device_scene(scene, frame.stream(), statistics);
     frame.reset(settings.width, settings.height, settings.path.sample_seed_offset);
     const int sample_count = std::max(1, settings.path.samples_per_pixel);
-    for (int sample = 0; sample < sample_count; ++sample) {
-        frame.render_sample(device_scene.view(), camera);
-    }
+    frame.render_samples(device_scene.view(), camera, sample_count);
     Image image(settings.width, settings.height);
     image.set_pixels(frame.download_pixels(false));
     return RenderResult{std::move(image), timer.elapsed_seconds(), ExecutionBackend::Cuda};

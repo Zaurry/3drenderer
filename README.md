@@ -136,16 +136,23 @@ CUDA 后端使用：
 - 持久 non-blocking stream。
 - 按容量增长并复用的 device buffer。
 - 几何、材质绑定、材质、纹理、灯光与 BVH 的独立缓冲。
+- 三角形/球体 emissive primitive 的面积功率 CDF 与 primitive-to-light 映射。
 - 同尺寸 reset 的原地初始化 kernel。
 - Host 侧打包数组容量复用与异步上传。
 - Host 构建阶段的 BVH 最大深度验证。
-- 紧凑的 `t / primitive id / barycentric` 遍历候选。
+- CUDA Graph 驱动的 primary、intersection、shade/scatter、emissive sampling、
+  direct visibility、accumulate/resolve Wavefront 阶段。
+- 双缓冲 active/next path queue、warp 聚合入队和紧凑的
+  `t / primitive id / barycentric` hit record。
 - 最终可见命中确定后再重建完整法线与着色数据。
 - 只有最终材质实际使用 bump texture 时才计算 tangent/bitangent。
+- Diffuse bounce 对 emissive 三角形/球体执行一次 NEE，并用 β=2 power
+  heuristic 与 cosine-weighted BSDF 样本做 MIS。
 
 Performance 面板显示 GPU trace/reset/upload 时间、各类累计上传字节、分配代次、framebuffer 下载次数及 interop/fallback 状态。
 
-CUDA Path 不依赖 OptiX 或 RT Core，也没有引入 Wavefront、MIS、NEE、降噪或新的着色算法。
+CUDA Path 不依赖 OptiX 或 RT Core。这里的“降噪”来自 NEE/MIS 降低 Monte
+Carlo 方差；没有引入 OptiX/OIDN 等后处理降噪器。CPU Path 的采样与输出算法保持不变。
 
 ## CLI
 

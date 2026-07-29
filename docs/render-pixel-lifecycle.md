@@ -66,14 +66,24 @@ SceneChangeSet
   -> incremental async upload
   -> persistent CUDA stream
   -> initialize_frame_kernel (仅 reset)
-  -> render_sample_kernel
+  -> reusable conditional CUDA Graph
+  -> primary ray queue
+  -> compact intersection
+  -> shade / scatter
+  -> emissive-light sampling (有面积光时)
+  -> direct-light visibility
+  -> active / next queue swap
+  -> accumulate / resolve
   -> accumulation buffer
   -> GL surface 或 delayed resolve
 ```
 
 ### 命中数据流
 
-BVH 遍历阶段只维护紧凑候选：
+每条路径保留 ray、throughput、pixel/RNG 索引、上次 BSDF PDF 与 delta
+标记。active/next 队列双缓冲，存活路径以 warp 聚合原子操作紧凑入队。
+
+BVH 遍历与 intersection queue 只维护紧凑候选：
 
 ```text
 t + primitive kind/id + barycentric u/v
@@ -83,12 +93,24 @@ t + primitive kind/id + barycentric u/v
 
 阴影射线只要求可见性，因此不会重建不需要的完整着色数据。
 
+### Emissive NEE / MIS
+
+几何、材质绑定或材质变更时，CUDA scene upload 会重建有效 emissive
+三角形/球体的 CDF。权重为 `面积 × emission luminance × 发光面数`；
+三角形均匀采样面积，球体均匀采样表面积。
+
+每个 diffuse bounce 最多生成一个 emissive shadow task。面积 PDF 转为立体角
+PDF 后，与 cosine-weighted diffuse PDF 使用 β=2 power heuristic。BSDF
+路径命中 emissive primitive 时使用互补 MIS 权重；主射线或 delta 路径命中
+权重为 1。显式点光/方向光仍逐灯确定性求和并发送 alpha-aware 阴影射线，
+不参与 MIS。
+
 ### 直接 texture 输出
 
 CUDA/OpenGL interop 活跃时：
 
 ```text
-render_sample_kernel
+accumulate / resolve stage
   -> accumulation
   -> cudaSurfaceObject
   -> GL_RGBA32F texture
