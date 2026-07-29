@@ -1,5 +1,7 @@
 # Eigen Float Migration: Visual Regression and Benchmark Results
 
+> **历史结果（已过期）：** 本文仅保留旧版本结果。CPU 软件光栅化与 Whitted 光追已于 2026-07-29 删除，不再是当前可用入口。
+
 ## Status and provenance
 
 Task 10 passes the performance gate after the scoped BVH traversal-stack fix.

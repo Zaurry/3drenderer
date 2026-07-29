@@ -36,33 +36,15 @@ Vec3 parse_vec3(const nlohmann::json& value, const char* field) {
 }
 
 const char* render_mode_name(InteractiveRenderMode mode) {
-    switch (mode) {
-        case InteractiveRenderMode::Raster:
-            return "raster";
-        case InteractiveRenderMode::Ray:
-            return "ray";
-        case InteractiveRenderMode::Path:
-            return "path";
-        case InteractiveRenderMode::OpenGl:
-            return "opengl";
-    }
-    return "raster";
+    return render_mode_descriptor(mode).cli_name;
 }
 
 InteractiveRenderMode parse_render_mode(const std::string& value) {
-    if (value == "raster") {
-        return InteractiveRenderMode::Raster;
+    try {
+        return parse_interactive_render_mode(value);
+    } catch (const std::invalid_argument&) {
+        throw std::runtime_error("unknown viewer render mode: " + value);
     }
-    if (value == "ray") {
-        return InteractiveRenderMode::Ray;
-    }
-    if (value == "path") {
-        return InteractiveRenderMode::Path;
-    }
-    if (value == "opengl") {
-        return InteractiveRenderMode::OpenGl;
-    }
-    throw std::runtime_error("unknown viewer render mode: " + value);
 }
 
 const char* camera_mode_name(ViewerCameraMode mode) {
@@ -272,15 +254,13 @@ ViewerSessionState ViewerSessionStore::load(
         parse_tone_mapper(display.at("tone_mapper").get<std::string>());
 
     const auto& render = root.at("render");
-    state.render_settings.max_depth =
-        std::clamp(render.at("max_depth").get<int>(), 1, 32);
-    state.render_settings.tile_size =
+    state.render_settings.path.tile_size =
         std::clamp(render.at("tile_size").get<int>(), 4, 64);
-    state.render_settings.thread_count =
+    state.render_settings.path.thread_count =
         std::clamp(render.at("thread_count").get<int>(), 0, 4096);
-    state.render_settings.path_backend =
+    state.render_settings.path.backend =
         parse_stored_path_backend(render.at("path_backend").get<std::string>());
-    state.render_settings.samples_per_pixel = 1;
+    state.render_settings.path.samples_per_pixel = 1;
 
     const auto& camera = root.at("camera");
     state.camera.eye = parse_vec3(camera.at("eye"), "camera.eye");
@@ -344,10 +324,9 @@ void ViewerSessionStore::save(
         {"tone_mapper", tone_mapper_name(state.ui.display.tone_mapper)},
     };
     root["render"] = {
-        {"max_depth", state.render_settings.max_depth},
-        {"tile_size", state.render_settings.tile_size},
-        {"thread_count", state.render_settings.thread_count},
-        {"path_backend", path_backend_name(state.render_settings.path_backend)},
+        {"tile_size", state.render_settings.path.tile_size},
+        {"thread_count", state.render_settings.path.thread_count},
+        {"path_backend", path_backend_name(state.render_settings.path.backend)},
     };
     root["camera"] = {
         {"eye", vec3_json(state.camera.eye)},

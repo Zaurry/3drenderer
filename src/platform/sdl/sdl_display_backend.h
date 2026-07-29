@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/framebuffer.h"
+#include "render/interactive/render_frame_output.h"
 
 #include <filesystem>
 #include <memory>
@@ -52,10 +53,7 @@ struct InputState {
     bool move_up = false;
     bool move_down = false;
 
-    bool select_raster = false;
-    bool select_ray = false;
-    bool select_path = false;
-    bool select_opengl = false;
+    int render_mode_hotkey = 0;
     bool reload_shaders = false;
     bool reset_render = false;
     bool toggle_ui = false;
@@ -88,6 +86,9 @@ public:
     bool show_open_scene_dialog(const std::string& default_location = {});
     bool show_save_scene_dialog(const std::string& default_location = {});
     void present(const Framebuffer& framebuffer, const DisplaySettings& display_settings);
+    void present(
+        const RenderFrameOutput& output,
+        const DisplaySettings& display_settings);
     void present_texture(
         unsigned int linear_texture,
         int texture_width,

@@ -23,8 +23,12 @@ public:
     CudaOpenGlInteropTexture& operator=(const CudaOpenGlInteropTexture&) = delete;
 
     bool initialize();
-    bool begin_frame(int width, int height, CudaSurfaceHandle& surface);
-    bool end_frame();
+    bool begin_frame(
+        int width,
+        int height,
+        CudaStreamHandle stream,
+        CudaSurfaceHandle& surface);
+    bool end_frame(CudaStreamHandle stream);
     void cancel_frame() noexcept;
     void disable(std::string reason) noexcept;
     void release_texture() noexcept;

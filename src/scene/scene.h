@@ -21,7 +21,7 @@ struct Scene {
 };
 
 Scene make_gradient_sphere_scene();
-Scene make_raster_triangle_scene();
+Scene make_triangle_scene();
 Scene make_mirror_spheres_scene();
 Scene make_cornell_box_scene();
 

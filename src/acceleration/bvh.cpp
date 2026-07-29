@@ -21,15 +21,25 @@ bool BvhNode::is_leaf() const {
 
 void Bvh::build(const std::vector<Triangle>& triangles) {
     triangles_ = triangles;
-    primitive_indices_.resize(triangles_.size());
+    build_from(triangles_);
+}
+
+void Bvh::build_layout(const std::vector<Triangle>& triangles) {
+    triangles_.clear();
+    build_from(triangles);
+}
+
+void Bvh::build_from(const std::vector<Triangle>& triangles) {
+    primitive_indices_.resize(triangles.size());
     std::iota(primitive_indices_.begin(), primitive_indices_.end(), 0);
     nodes_.clear();
+    maximum_depth_ = 0;
 
-    if (triangles_.empty()) {
+    if (triangles.empty()) {
         return;
     }
 
-    build_recursive(0, static_cast<int>(triangles_.size()));
+    build_recursive(triangles, 0, static_cast<int>(triangles.size()), 1);
 }
 
 bool Bvh::intersect(const Ray& ray, float t_min, float t_max, HitRecord& hit) const {
@@ -85,14 +95,23 @@ const std::vector<BvhNode>& Bvh::nodes() const {
     return nodes_;
 }
 
-int Bvh::build_recursive(int first, int count) {
+int Bvh::maximum_depth() const {
+    return maximum_depth_;
+}
+
+int Bvh::build_recursive(
+    const std::vector<Triangle>& triangles,
+    int first,
+    int count,
+    int depth) {
+    maximum_depth_ = std::max(maximum_depth_, depth);
     const int node_index = static_cast<int>(nodes_.size());
     nodes_.push_back(BvhNode());
 
     Bounds3 bounds;
     Bounds3 centroid_bounds;
     for (int i = 0; i < count; ++i) {
-        const Triangle& triangle = triangles_[primitive_indices_[first + i]];
+        const Triangle& triangle = triangles[primitive_indices_[first + i]];
         bounds.expand(triangle.bounds());
         centroid_bounds.expand(triangle.centroid());
     }
@@ -113,12 +132,15 @@ int Bvh::build_recursive(int first, int count) {
         begin + first,
         begin + mid,
         begin + first + count,
-        [this, axis](int lhs, int rhs) {
-            return triangles_[lhs].centroid()[axis] < triangles_[rhs].centroid()[axis];
+        [&triangles, axis](int lhs, int rhs) {
+            return triangles[lhs].centroid()[axis] <
+                triangles[rhs].centroid()[axis];
         });
 
-    const int left = build_recursive(first, mid - first);
-    const int right = build_recursive(mid, first + count - mid);
+    const int left =
+        build_recursive(triangles, first, mid - first, depth + 1);
+    const int right =
+        build_recursive(triangles, mid, first + count - mid, depth + 1);
     nodes_[node_index].left = left;
     nodes_[node_index].right = right;
     return node_index;

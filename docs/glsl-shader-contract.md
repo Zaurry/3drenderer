@@ -91,8 +91,9 @@ layout(location = 0) out vec4 out_linear_color;
 ```
 
 Do not apply exposure, tone mapping, gamma, or sRGB encoding in the scene shader. The viewer's
-internal compositor applies the shared Display controls after OpenGL, CPU raster, ray tracing, or
-path tracing has produced its linear framebuffer.
+internal compositor applies the shared Display controls after OpenGL or Path has produced linear
+HDR output. CPU Path uses a host framebuffer; CUDA Path uses a direct GL texture when interop is
+active and a host fallback otherwise.
 
 ## Launch examples
 

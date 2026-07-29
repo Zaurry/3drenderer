@@ -18,18 +18,12 @@
 #include "render/display_settings.h"
 #include "render/renderer.h"
 #include "render/render_settings.h"
-#include "render/depth_buffer.h"
 #include "render/framebuffer.h"
 #include "render/interactive/interactive_render_session.h"
 #include "render/interactive/path_interactive_session.h"
-#include "render/interactive/raster_interactive_session.h"
-#include "render/interactive/ray_interactive_session.h"
 #include "render/pathtracer/pathtracer_renderer.h"
 #include "render/pathtracer/cuda_pathtracer.h"
 #include "render/pathtracer/path_backend.h"
-#include "render/rasterizer/raster_geometry.h"
-#include "render/rasterizer/rasterizer_renderer.h"
-#include "render/raytracer/raytracer_renderer.h"
 #include "render/scene_intersector.h"
 #include "sampling/sampler.h"
 #include "scene/camera.h"
@@ -79,16 +73,6 @@ static_assert(std::is_same_v<decltype(std::declval<renderer::HitRecord>().t), fl
 static_assert(std::is_same_v<decltype(std::declval<renderer::Material>().roughness), float>);
 static_assert(std::is_same_v<decltype(std::declval<renderer::Material>().opacity), float>);
 static_assert(std::is_same_v<decltype(std::declval<renderer::SurfaceMaterialSample>().opacity), float>);
-static_assert(std::is_same_v<
-    decltype(renderer::perspective_correct_weights(
-        renderer::Vec3::Ones(), renderer::Vec3::Ones())),
-    renderer::Vec3>);
-static_assert(std::is_same_v<decltype(std::declval<renderer::RasterVertex>().view), renderer::Vec3>);
-static_assert(std::is_same_v<
-    decltype(&renderer::clip_triangle_to_near_plane),
-    std::vector<renderer::RasterVertex> (*)(
-        const std::array<renderer::RasterVertex, 3>&,
-        float)>);
 static_assert(std::is_same_v<
     decltype(&renderer::Bvh::intersect),
     bool (renderer::Bvh::*)(
@@ -509,7 +493,7 @@ void test_viewer_ui_actions_classify_path_resets() {
     actions.shader_auto_reload_changed = true;
     RENDER_CHECK(!actions.resets_path_accumulation());
 
-    actions.lighting_changed = true;
+    actions.scene_changes = renderer::SceneChange::Lighting;
     RENDER_CHECK(actions.resets_path_accumulation());
     actions = renderer::ViewerUiActions{};
     actions.camera_parameters_changed = true;
@@ -645,13 +629,13 @@ void test_frame_rate_counter_reports_window_average() {
 
 void test_viewer_title_format_includes_fps_and_path_samples() {
     renderer::FrameRateSnapshot warming_up;
-    const std::string raster_warming_title = renderer::format_viewer_title(
-        renderer::InteractiveRenderMode::Raster,
+    const std::string opengl_warming_title = renderer::format_viewer_title(
+        renderer::InteractiveRenderMode::OpenGl,
         warming_up,
         0);
-    RENDER_CHECK(raster_warming_title.find("raster") != std::string::npos);
-    RENDER_CHECK(raster_warming_title.find("FPS --") != std::string::npos);
-    RENDER_CHECK(raster_warming_title.find("spp") == std::string::npos);
+    RENDER_CHECK(opengl_warming_title.find("opengl") != std::string::npos);
+    RENDER_CHECK(opengl_warming_title.find("FPS --") != std::string::npos);
+    RENDER_CHECK(opengl_warming_title.find("spp") == std::string::npos);
 
     renderer::FrameRateSnapshot snapshot;
     snapshot.valid = true;
@@ -674,6 +658,33 @@ void test_viewer_title_format_includes_fps_and_path_samples() {
         99);
     RENDER_CHECK(opengl_title.find("opengl") != std::string::npos);
     RENDER_CHECK(opengl_title.find("spp") == std::string::npos);
+}
+
+void test_interactive_mode_catalog_contains_only_opengl_and_path() {
+    const auto& modes = renderer::interactive_render_modes();
+    RENDER_CHECK(modes.size() == 2);
+    RENDER_CHECK(modes[0].mode == renderer::InteractiveRenderMode::OpenGl);
+    RENDER_CHECK(modes[0].hotkey == 1);
+    RENDER_CHECK(modes[1].mode == renderer::InteractiveRenderMode::Path);
+    RENDER_CHECK(modes[1].hotkey == 2);
+    RENDER_CHECK(
+        renderer::interactive_render_mode_from_hotkey(1) ==
+        renderer::InteractiveRenderMode::OpenGl);
+    RENDER_CHECK(
+        renderer::interactive_render_mode_from_hotkey(2) ==
+        renderer::InteractiveRenderMode::Path);
+    RENDER_CHECK(
+        renderer::ViewerUiState{}.mode ==
+        renderer::InteractiveRenderMode::OpenGl);
+    for (const char* removed_mode : {"raster", "ray"}) {
+        bool rejected = false;
+        try {
+            (void)renderer::parse_interactive_render_mode(removed_mode);
+        } catch (const std::invalid_argument&) {
+            rejected = true;
+        }
+        RENDER_CHECK(rejected);
+    }
 }
 
 void test_framebuffer_clear_set_and_rgba8_conversion() {
@@ -699,23 +710,6 @@ void test_framebuffer_clear_set_and_rgba8_conversion() {
     RENDER_CHECK(nearly_equal(rgba32f[4], 1.0f));
     RENDER_CHECK(nearly_equal(rgba32f[5], 0.25f));
     RENDER_CHECK(nearly_equal(rgba32f[7], 1.0f));
-}
-
-void test_depth_buffer_clear_resize_and_access() {
-    renderer::DepthBuffer depth(2, 2);
-    depth.clear(42.0f);
-    depth.set(1, 0, 0.5f);
-
-    RENDER_CHECK(depth.width() == 2);
-    RENDER_CHECK(depth.height() == 2);
-    RENDER_CHECK(nearly_equal(depth.get(0, 0), 42.0f));
-    RENDER_CHECK(nearly_equal(depth.get(1, 0), 0.5f));
-
-    depth.resize(1, 1);
-    depth.clear(7.0f);
-    RENDER_CHECK(depth.width() == 1);
-    RENDER_CHECK(depth.height() == 1);
-    RENDER_CHECK(nearly_equal(depth.get(0, 0), 7.0f));
 }
 
 void test_sphere_intersection() {
@@ -1318,8 +1312,8 @@ void check_triangle_hit_material_in_range(const renderer::Scene& scene, const re
     RENDER_CHECK(material_id_in_range(scene, hit.material_id));
 }
 
-void test_raster_triangle_scene_contains_triangle_and_light() {
-    renderer::Scene scene = renderer::make_raster_triangle_scene();
+void test_triangle_scene_contains_triangle_and_light() {
+    renderer::Scene scene = renderer::make_triangle_scene();
     RENDER_CHECK(!scene.materials.empty());
     RENDER_CHECK(!scene.triangles.empty());
     RENDER_CHECK(!scene.point_lights.empty() || !scene.directional_lights.empty());
@@ -1347,9 +1341,9 @@ void test_builtin_scene_probe_material_ids_are_in_range() {
         gradient_scene,
         renderer::Ray(renderer::Vec3(0, 0, 0), renderer::Vec3(0, 0, -1)));
 
-    renderer::Scene raster_scene = renderer::make_raster_triangle_scene();
+    renderer::Scene triangle_scene = renderer::make_triangle_scene();
     check_triangle_hit_material_in_range(
-        raster_scene,
+        triangle_scene,
         renderer::Ray(renderer::Vec3(0, 0, 0), renderer::Vec3(0, 0, -1)));
 
     renderer::Scene mirror_scene = renderer::make_mirror_spheres_scene();
@@ -1492,10 +1486,11 @@ void test_render_settings_defaults_are_useful() {
     renderer::RenderSettings settings;
     RENDER_CHECK(settings.width == 512);
     RENDER_CHECK(settings.height == 512);
-    RENDER_CHECK(settings.samples_per_pixel == 1);
-    RENDER_CHECK(settings.max_depth == 5);
-    RENDER_CHECK(settings.sample_seed_offset == 0);
-    RENDER_CHECK(settings.path_backend == renderer::PathBackend::Auto);
+    RENDER_CHECK(settings.path.samples_per_pixel == 1);
+    RENDER_CHECK(settings.path.tile_size == 16);
+    RENDER_CHECK(settings.path.thread_count == 0);
+    RENDER_CHECK(settings.path.sample_seed_offset == 0);
+    RENDER_CHECK(settings.path.backend == renderer::PathBackend::Auto);
 }
 
 bool image_colors_are_finite(const renderer::Image& image) {
@@ -1528,207 +1523,6 @@ renderer::Triangle make_test_triangle_at_z(float depth, int material_id) {
         material_id);
 }
 
-renderer::Color render_one_ray_pixel(
-    const renderer::Scene& scene,
-    const renderer::Camera& camera,
-    int max_depth) {
-    renderer::RenderSettings settings;
-    settings.width = 1;
-    settings.height = 1;
-    settings.max_depth = max_depth;
-    return renderer::RayTracerRenderer().render(scene, camera, settings).image.pixel(0, 0);
-}
-
-void test_raytracer_renders_visible_sphere() {
-    renderer::Scene scene = renderer::make_gradient_sphere_scene();
-    renderer::Camera camera(
-        renderer::Vec3(0, 0, 2),
-        renderer::Vec3(0, 0, -1),
-        renderer::Vec3(0, 1, 0),
-        45.0f,
-        1.0f);
-
-    renderer::RenderSettings settings;
-    settings.width = 32;
-    settings.height = 32;
-    settings.max_depth = 3;
-
-    renderer::RayTracerRenderer renderer_instance;
-    renderer::RenderResult result = renderer_instance.render(scene, camera, settings);
-    RENDER_CHECK(image_colors_are_finite(result.image));
-    renderer::Color center = result.image.pixel(16, 16);
-    RENDER_CHECK(center.x() > 0.05f || center.y() > 0.05f || center.z() > 0.05f);
-}
-
-void test_raytracer_renders_triangle_scene_with_direct_light() {
-    renderer::Scene scene = renderer::make_raster_triangle_scene();
-    renderer::Camera camera(
-        renderer::Vec3(0, 0, 2),
-        renderer::Vec3(0, 0, -1),
-        renderer::Vec3(0, 1, 0),
-        45.0f,
-        1.0f);
-
-    renderer::RenderSettings settings;
-    settings.width = 32;
-    settings.height = 32;
-    settings.max_depth = 2;
-
-    renderer::RayTracerRenderer renderer_instance;
-    renderer::RenderResult result = renderer_instance.render(scene, camera, settings);
-    RENDER_CHECK(image_colors_are_finite(result.image));
-    renderer::Color center = result.image.pixel(16, 16);
-    RENDER_CHECK(center.y() > 0.1f);
-    RENDER_CHECK(center.z() > 0.1f);
-}
-
-void test_raytracer_reflection_adds_recursive_environment_radiance() {
-    renderer::Scene scene;
-    scene.environment = renderer::Color(0.5f, 0.25f, 0.125f);
-    renderer::Material mirror;
-    mirror.type = renderer::MaterialType::Metal;
-    mirror.base_color = renderer::Color::Ones();
-    scene.materials.push_back(mirror);
-    scene.triangles.push_back(make_test_triangle_at_z(-1.0f, 0));
-
-    const renderer::Camera camera(
-        renderer::Vec3::Zero(),
-        -renderer::Vec3::UnitZ(),
-        renderer::Vec3::UnitY(),
-        20.0f,
-        1.0f);
-    const renderer::Color without_recursive_bounce = render_one_ray_pixel(scene, camera, 1);
-    const renderer::Color with_recursive_bounce = render_one_ray_pixel(scene, camera, 2);
-
-    RENDER_CHECK(without_recursive_bounce.allFinite());
-    RENDER_CHECK(with_recursive_bounce.allFinite());
-    RENDER_CHECK(with_recursive_bounce.x() > without_recursive_bounce.x() + 0.35f);
-    RENDER_CHECK(with_recursive_bounce.y() > without_recursive_bounce.y() + 0.15f);
-}
-
-void test_raytracer_dielectric_weights_reflection_and_refraction() {
-    renderer::Scene scene;
-    scene.environment = renderer::Color(1.0f, 0.0f, 0.0f);
-    renderer::Material glass;
-    glass.type = renderer::MaterialType::Dielectric;
-    glass.base_color = renderer::Color::Zero();
-    glass.ior = 1.5f;
-    renderer::Material transmitted_light;
-    transmitted_light.type = renderer::MaterialType::Emissive;
-    transmitted_light.base_color = renderer::Color::Zero();
-    transmitted_light.emission = renderer::Color(0.0f, 2.0f, 0.0f);
-    scene.materials.push_back(glass);
-    scene.materials.push_back(transmitted_light);
-    scene.triangles.push_back(make_test_triangle_at_z(-1.0f, 0));
-    scene.triangles.push_back(make_test_triangle_at_z(-2.0f, 1));
-
-    const renderer::Camera camera(
-        renderer::Vec3::Zero(),
-        -renderer::Vec3::UnitZ(),
-        renderer::Vec3::UnitY(),
-        20.0f,
-        1.0f);
-    const renderer::Color color = render_one_ray_pixel(scene, camera, 2);
-
-    RENDER_CHECK(color.allFinite());
-    RENDER_CHECK(color.x() > 0.02f && color.x() < 0.08f);
-    RENDER_CHECK(color.y() > 1.8f);
-    RENDER_CHECK(color.z() < 1e-6f);
-}
-
-void test_raytracer_total_internal_reflection_uses_full_reflected_radiance() {
-    renderer::Scene scene;
-    renderer::Material glass;
-    glass.type = renderer::MaterialType::Dielectric;
-    glass.base_color = renderer::Color::Zero();
-    glass.ior = 1.5f;
-    renderer::Material reflected_light;
-    reflected_light.type = renderer::MaterialType::Emissive;
-    reflected_light.base_color = renderer::Color::Zero();
-    reflected_light.emission = renderer::Color(0.0f, 0.0f, 2.0f);
-    scene.materials.push_back(glass);
-    scene.materials.push_back(reflected_light);
-    scene.triangles.emplace_back(
-        renderer::Vec3(-2.0f, -2.0f, -1.0f),
-        renderer::Vec3(2.0f, -2.0f, -1.0f),
-        renderer::Vec3(0.0f, 2.0f, -1.0f),
-        0);
-    scene.triangles.emplace_back(
-        renderer::Vec3(-4.0f, -4.0f, -2.0f),
-        renderer::Vec3(4.0f, -4.0f, -2.0f),
-        renderer::Vec3(0.0f, 4.0f, -2.0f),
-        1);
-
-    const renderer::Vec3 eye(0.0f, 0.0f, -1.25f);
-    const renderer::Vec3 incident(0.8f, 0.0f, 0.6f);
-    const renderer::Camera camera(
-        eye,
-        eye + incident,
-        renderer::Vec3::UnitY(),
-        20.0f,
-        1.0f);
-    const renderer::Color color = render_one_ray_pixel(scene, camera, 2);
-
-    RENDER_CHECK(color.allFinite());
-    RENDER_CHECK(color.x() < 1e-6f);
-    RENDER_CHECK(color.y() < 1e-6f);
-    RENDER_CHECK(color.z() > 1.9f);
-}
-
-void test_raytracer_point_light_shadow_reduces_direct_radiance() {
-    renderer::Scene visible;
-    renderer::Material diffuse;
-    diffuse.base_color = renderer::Color::Ones();
-    visible.materials.push_back(diffuse);
-    visible.triangles.push_back(make_test_triangle_at_z(-1.0f, 0));
-    visible.point_lights.push_back(renderer::PointLight{
-        renderer::Vec3(0.0f, 2.0f, 0.0f),
-        renderer::Color(8.0f, 8.0f, 8.0f)});
-    renderer::Scene blocked = visible;
-    blocked.spheres.emplace_back(renderer::Vec3(0.0f, 1.0f, -0.5f), 0.3f, 0);
-
-    const renderer::Camera camera(
-        renderer::Vec3::Zero(),
-        -renderer::Vec3::UnitZ(),
-        renderer::Vec3::UnitY(),
-        20.0f,
-        1.0f);
-    const renderer::Color visible_color = render_one_ray_pixel(visible, camera, 1);
-    const renderer::Color blocked_color = render_one_ray_pixel(blocked, camera, 1);
-
-    RENDER_CHECK(visible_color.allFinite());
-    RENDER_CHECK(blocked_color.allFinite());
-    RENDER_CHECK(visible_color.x() > blocked_color.x() + 0.6f);
-}
-
-void test_raytracer_transparent_cutout_reveals_opaque_surface() {
-    renderer::Scene scene;
-    renderer::Material cutout;
-    cutout.opacity = 0.0f;
-    cutout.alpha_cutoff = 0.5f;
-    renderer::Material opaque_light;
-    opaque_light.type = renderer::MaterialType::Emissive;
-    opaque_light.base_color = renderer::Color::Zero();
-    opaque_light.emission = renderer::Color(0.0f, 1.5f, 1.0f);
-    scene.materials.push_back(cutout);
-    scene.materials.push_back(opaque_light);
-    scene.triangles.push_back(make_test_triangle_at_z(-1.0f, 0));
-    scene.triangles.push_back(make_test_triangle_at_z(-2.0f, 1));
-
-    const renderer::Camera camera(
-        renderer::Vec3::Zero(),
-        -renderer::Vec3::UnitZ(),
-        renderer::Vec3::UnitY(),
-        20.0f,
-        1.0f);
-    const renderer::Color color = render_one_ray_pixel(scene, camera, 1);
-
-    RENDER_CHECK(color.allFinite());
-    RENDER_CHECK(color.x() < 1e-6f);
-    RENDER_CHECK(color.y() > 1.4f);
-    RENDER_CHECK(color.z() > 0.9f);
-}
-
 void test_pathtracer_renders_emissive_scene() {
     renderer::Scene scene = renderer::make_cornell_box_scene();
     renderer::Camera camera(
@@ -1741,10 +1535,9 @@ void test_pathtracer_renders_emissive_scene() {
     renderer::RenderSettings settings;
     settings.width = 16;
     settings.height = 16;
-    settings.samples_per_pixel = 2;
-    settings.max_depth = 3;
-    settings.thread_count = 1;
-    settings.path_backend = renderer::PathBackend::Cpu;
+    settings.path.samples_per_pixel = 2;
+    settings.path.thread_count = 1;
+    settings.path.backend = renderer::PathBackend::Cpu;
 
     renderer::PathTracerRenderer renderer_instance;
     renderer::RenderResult result = renderer_instance.render(scene, camera, settings);
@@ -1787,10 +1580,9 @@ renderer::Color render_one_path_pixel(
     renderer::RenderSettings settings;
     settings.width = 1;
     settings.height = 1;
-    settings.samples_per_pixel = 1;
-    settings.max_depth = 1;
-    settings.thread_count = 1;
-    settings.path_backend = backend;
+    settings.path.samples_per_pixel = 1;
+    settings.path.thread_count = 1;
+    settings.path.backend = backend;
     return renderer::PathTracerRenderer().render(scene, camera, settings).image.pixel(0, 0);
 }
 
@@ -1861,7 +1653,6 @@ renderer::Scene make_path_roulette_layer_scene() {
 
 renderer::Color render_roulette_layer_sample(
     const renderer::Scene& scene,
-    int max_depth,
     std::uint64_t seed_offset) {
     const renderer::Camera camera(
         renderer::Vec3::Zero(),
@@ -1872,11 +1663,10 @@ renderer::Color render_roulette_layer_sample(
     renderer::RenderSettings settings;
     settings.width = 1;
     settings.height = 1;
-    settings.samples_per_pixel = 1;
-    settings.max_depth = max_depth;
-    settings.thread_count = 1;
-    settings.sample_seed_offset = seed_offset;
-    settings.path_backend = renderer::PathBackend::Cpu;
+    settings.path.samples_per_pixel = 1;
+    settings.path.thread_count = 1;
+    settings.path.sample_seed_offset = seed_offset;
+    settings.path.backend = renderer::PathBackend::Cpu;
     return renderer::PathTracerRenderer().render(scene, camera, settings).image.pixel(0, 0);
 }
 
@@ -1890,7 +1680,6 @@ void test_pathtracer_russian_roulette_terminates_and_preserves_energy() {
     for (int sample = 0; sample < sample_count; ++sample) {
         const renderer::Color color = render_roulette_layer_sample(
             scene,
-            1,
             static_cast<std::uint64_t>(sample + 1));
         RENDER_CHECK(color.allFinite());
         accumulated += color;
@@ -1910,161 +1699,6 @@ void test_pathtracer_russian_roulette_terminates_and_preserves_energy() {
     RENDER_CHECK(saw_surviving_path);
     RENDER_CHECK(mean.x() > 0.9f);
     RENDER_CHECK(mean.x() < 1.1f);
-}
-
-void test_pathtracer_ignores_whitted_max_depth_setting() {
-    const renderer::Scene scene = make_path_roulette_layer_scene();
-    const renderer::Color shallow = render_roulette_layer_sample(scene, 1, 1234);
-    const renderer::Color deep = render_roulette_layer_sample(scene, 100, 1234);
-
-    RENDER_CHECK((shallow - deep).cwiseAbs().maxCoeff() < 1e-6f);
-}
-
-void test_rasterizer_draws_triangle() {
-    renderer::Scene scene = renderer::make_raster_triangle_scene();
-    renderer::Camera camera(
-        renderer::Vec3(0, 0, 2),
-        renderer::Vec3(0, 0, 0),
-        renderer::Vec3(0, 1, 0),
-        45.0f,
-        1.0f);
-
-    renderer::RenderSettings settings;
-    settings.width = 64;
-    settings.height = 64;
-
-    renderer::RasterizerRenderer renderer_instance;
-    renderer::RenderResult result = renderer_instance.render(scene, camera, settings);
-    RENDER_CHECK(image_colors_are_finite(result.image));
-
-    int lit_pixels = 0;
-    for (int y = 0; y < result.image.height(); ++y) {
-        for (int x = 0; x < result.image.width(); ++x) {
-            renderer::Color c = result.image.pixel(x, y);
-            if (c.x() + c.y() + c.z() > 0.05f) {
-                ++lit_pixels;
-            }
-        }
-    }
-    RENDER_CHECK(lit_pixels > 20);
-}
-
-int count_lit_pixels(const renderer::Image& image) {
-    int lit_pixels = 0;
-    for (int y = 0; y < image.height(); ++y) {
-        for (int x = 0; x < image.width(); ++x) {
-            const renderer::Color color = image.pixel(x, y);
-            if (color.squaredNorm() > 1e-8f) {
-                ++lit_pixels;
-            }
-        }
-    }
-    return lit_pixels;
-}
-
-void test_perspective_correct_weights_favor_near_vertex() {
-    const renderer::Vec3 corrected = renderer::perspective_correct_weights(
-        renderer::Vec3(1.0f / 3.0f, 1.0f / 3.0f, 1.0f / 3.0f),
-        renderer::Vec3(1.0f, 2.0f, 4.0f));
-    RENDER_CHECK(corrected.x() > corrected.y());
-    RENDER_CHECK(corrected.y() > corrected.z());
-    RENDER_CHECK(nearly_equal(corrected.x() + corrected.y() + corrected.z(), 1.0f, 1e-6f));
-}
-
-void test_near_plane_clipping_keeps_visible_triangle_portion() {
-    const std::array<renderer::RasterVertex, 3> vertices{
-        renderer::RasterVertex{renderer::Vec3(-1.0f, -1.0f, 1.0f)},
-        renderer::RasterVertex{renderer::Vec3(1.0f, -1.0f, 1.0f)},
-        renderer::RasterVertex{renderer::Vec3(0.0f, 1.0f, -0.1f)}};
-    const std::vector<renderer::RasterVertex> clipped =
-        renderer::clip_triangle_to_near_plane(vertices, 1e-4f);
-    RENDER_CHECK(clipped.size() == 4);
-    for (const renderer::RasterVertex& vertex : clipped) {
-        RENDER_CHECK(vertex.view.z() >= 1e-4f);
-    }
-}
-
-renderer::RenderResult render_test_raster_triangle(
-    bool two_sided,
-    float opacity,
-    bool reverse_winding,
-    bool crosses_near_plane) {
-    renderer::Scene scene;
-    scene.environment = renderer::Color::Zero();
-    renderer::Material material;
-    material.type = renderer::MaterialType::Emissive;
-    material.emission = renderer::Color(1.0f, 1.0f, 1.0f);
-    material.two_sided = two_sided;
-    material.opacity = opacity;
-    scene.materials.push_back(material);
-
-    const renderer::Vec3 a(-1.0f, -1.0f, -1.0f);
-    const renderer::Vec3 b(1.0f, -1.0f, -1.0f);
-    const renderer::Vec3 c(0.0f, 1.0f, crosses_near_plane ? 0.1f : -1.0f);
-    if (reverse_winding) {
-        scene.triangles.emplace_back(a, c, b, 0);
-    } else {
-        scene.triangles.emplace_back(a, b, c, 0);
-    }
-
-    const renderer::Camera camera(
-        renderer::Vec3(0.0f, 0.0f, 0.0f),
-        renderer::Vec3(0.0f, 0.0f, -1.0f),
-        renderer::Vec3(0.0f, 1.0f, 0.0f),
-        45.0f,
-        1.0f);
-    renderer::RenderSettings settings;
-    settings.width = 32;
-    settings.height = 32;
-    return renderer::RasterizerRenderer().render(scene, camera, settings);
-}
-
-void test_rasterizer_clips_triangles_crossing_near_plane() {
-    const renderer::RenderResult result = render_test_raster_triangle(true, 1.0f, false, true);
-    RENDER_CHECK(count_lit_pixels(result.image) > 0);
-}
-
-void test_rasterizer_applies_alpha_cutout_before_depth_write() {
-    renderer::Scene scene;
-    renderer::Material cutout;
-    cutout.type = renderer::MaterialType::Emissive;
-    cutout.emission = renderer::Color(1.0f, 0.0f, 0.0f);
-    cutout.opacity = 0.0f;
-    cutout.alpha_cutoff = 0.5f;
-    renderer::Material opaque;
-    opaque.type = renderer::MaterialType::Emissive;
-    opaque.emission = renderer::Color(0.0f, 1.0f, 0.0f);
-    scene.materials.push_back(cutout);
-    scene.materials.push_back(opaque);
-    scene.triangles.push_back(make_test_triangle_at_z(-1.0f, 0));
-    scene.triangles.push_back(make_test_triangle_at_z(-2.0f, 1));
-
-    const renderer::Camera camera(
-        renderer::Vec3::Zero(),
-        -renderer::Vec3::UnitZ(),
-        renderer::Vec3::UnitY(),
-        45.0f,
-        1.0f);
-    renderer::RenderSettings settings;
-    settings.width = 32;
-    settings.height = 32;
-    const renderer::RenderResult result =
-        renderer::RasterizerRenderer().render(scene, camera, settings);
-
-    RENDER_CHECK(image_colors_are_finite(result.image));
-    RENDER_CHECK(count_lit_pixels(result.image) > 0);
-    const renderer::Color center = result.image.pixel(16, 16);
-    RENDER_CHECK(center.x() < 1e-6f);
-    RENDER_CHECK(center.y() > 0.9f);
-}
-
-void test_rasterizer_respects_single_and_two_sided_materials() {
-    const renderer::RenderResult single_sided =
-        render_test_raster_triangle(false, 1.0f, true, false);
-    const renderer::RenderResult two_sided =
-        render_test_raster_triangle(true, 1.0f, true, false);
-    RENDER_CHECK(count_lit_pixels(single_sided.image) == 0);
-    RENDER_CHECK(count_lit_pixels(two_sided.image) > 0);
 }
 
 int count_lit_pixels(const renderer::Framebuffer& framebuffer) {
@@ -2282,49 +1916,14 @@ renderer::Scene make_emissive_silhouette_scene() {
     return scene;
 }
 
-void test_interactive_sessions_render_visible_pixels() {
-    renderer::RenderSettings settings;
-    settings.width = 32;
-    settings.height = 32;
-    settings.max_depth = 2;
-    renderer::Framebuffer framebuffer(32, 32);
-    renderer::InteractiveFrameState frame_state;
-
-    renderer::RasterInteractiveSession raster;
-    renderer::Scene raster_scene = renderer::make_raster_triangle_scene();
-    renderer::Camera raster_camera(
-        renderer::Vec3(0, 0, 2),
-        renderer::Vec3(0, 0, 0),
-        renderer::Vec3(0, 1, 0),
-        45.0f,
-        1.0f);
-    raster.reset(raster_scene, settings);
-    raster.render_next_frame(raster_scene, raster_camera, settings, frame_state, framebuffer);
-    RENDER_CHECK(framebuffer_colors_are_finite(framebuffer));
-    RENDER_CHECK(count_lit_pixels(framebuffer) > 0);
-
-    renderer::RayInteractiveSession ray;
-    renderer::Scene ray_scene = renderer::make_raster_triangle_scene();
-    renderer::Camera ray_camera(
-        renderer::Vec3(0, 0, 2),
-        renderer::Vec3(0, 0, -1),
-        renderer::Vec3(0, 1, 0),
-        45.0f,
-        1.0f);
-    ray.reset(ray_scene, settings);
-    ray.render_next_frame(ray_scene, ray_camera, settings, frame_state, framebuffer);
-    RENDER_CHECK(framebuffer_colors_are_finite(framebuffer));
-    RENDER_CHECK(count_lit_pixels(framebuffer) > 0);
-}
-
 renderer::Image render_direct_path_sample(
     const renderer::Scene& scene,
     const renderer::Camera& camera,
     const renderer::RenderSettings& settings,
     std::uint64_t sample_seed_offset) {
     renderer::RenderSettings direct_settings = settings;
-    direct_settings.samples_per_pixel = 1;
-    direct_settings.sample_seed_offset = sample_seed_offset;
+    direct_settings.path.samples_per_pixel = 1;
+    direct_settings.path.sample_seed_offset = sample_seed_offset;
     return renderer::PathTracerRenderer().render(scene, camera, direct_settings).image;
 }
 
@@ -2339,11 +1938,10 @@ void test_path_interactive_session_matches_direct_samples_and_resets() {
     renderer::RenderSettings settings;
     settings.width = 32;
     settings.height = 32;
-    settings.samples_per_pixel = 1;
-    settings.max_depth = 1;
-    settings.thread_count = 1;
-    settings.sample_seed_offset = 70;
-    settings.path_backend = renderer::PathBackend::Cpu;
+    settings.path.samples_per_pixel = 1;
+    settings.path.thread_count = 1;
+    settings.path.sample_seed_offset = 70;
+    settings.path.backend = renderer::PathBackend::Cpu;
     renderer::Framebuffer framebuffer(settings.width, settings.height);
     renderer::InteractiveFrameState frame_state;
     constexpr float accumulation_tolerance = 1e-6f;
@@ -2353,12 +1951,12 @@ void test_path_interactive_session_matches_direct_samples_and_resets() {
         scene,
         camera,
         settings,
-        settings.sample_seed_offset + 1);
+        settings.path.sample_seed_offset + 1);
     const renderer::Image second_sample = render_direct_path_sample(
         scene,
         camera,
         settings,
-        settings.sample_seed_offset + 2);
+        settings.path.sample_seed_offset + 2);
 
     renderer::PathInteractiveSession path;
     path.reset(scene, settings);
@@ -2387,7 +1985,7 @@ void test_path_interactive_session_matches_direct_samples_and_resets() {
         scene,
         changed_camera,
         settings,
-        settings.sample_seed_offset + 1);
+        settings.path.sample_seed_offset + 1);
     const renderer::Framebuffer accumulated_before_reset = framebuffer;
     frame_state.camera_changed = true;
     path.render_next_frame(scene, changed_camera, settings, frame_state, framebuffer);
@@ -2400,7 +1998,7 @@ void test_path_interactive_session_matches_direct_samples_and_resets() {
     RENDER_CHECK(path.accumulated_samples() == 1);
 
     frame_state = renderer::InteractiveFrameState{};
-    frame_state.lighting_changed = true;
+    frame_state.scene_changes = renderer::SceneChange::Lighting;
     path.render_next_frame(scene, changed_camera, settings, frame_state, framebuffer);
     RENDER_CHECK(path.accumulated_samples() == 1);
 }
@@ -2803,12 +2401,12 @@ void test_cuda_pathtracer_matches_cpu_statistics_when_available() {
     renderer::RenderSettings settings;
     settings.width = 48;
     settings.height = 48;
-    settings.samples_per_pixel = 16;
-    settings.sample_seed_offset = 91;
+    settings.path.samples_per_pixel = 16;
+    settings.path.sample_seed_offset = 91;
 
-    settings.path_backend = renderer::PathBackend::Cpu;
+    settings.path.backend = renderer::PathBackend::Cpu;
     const renderer::RenderResult cpu = renderer::PathTracerRenderer().render(scene, camera, settings);
-    settings.path_backend = renderer::PathBackend::Cuda;
+    settings.path.backend = renderer::PathBackend::Cuda;
     const renderer::RenderResult cuda = renderer::PathTracerRenderer().render(scene, camera, settings);
 
     RENDER_CHECK(cpu.backend == renderer::ExecutionBackend::Cpu);
@@ -2853,8 +2451,8 @@ void test_cuda_pathtracer_alpha_texture_and_interactive_reset_when_available() {
     renderer::RenderSettings settings;
     settings.width = 16;
     settings.height = 16;
-    settings.samples_per_pixel = 1;
-    settings.path_backend = renderer::PathBackend::Cuda;
+    settings.path.samples_per_pixel = 1;
+    settings.path.backend = renderer::PathBackend::Cuda;
 
     const renderer::RenderResult result = renderer::PathTracerRenderer().render(scene, camera, settings);
     RENDER_CHECK(image_colors_are_finite(result.image));
@@ -2869,9 +2467,34 @@ void test_cuda_pathtracer_alpha_texture_and_interactive_reset_when_available() {
     RENDER_CHECK(session.active_backend() == renderer::ExecutionBackend::Cuda);
     RENDER_CHECK(session.accumulated_samples() == 2);
     RENDER_CHECK(framebuffer_colors_are_finite(framebuffer));
+    const renderer::CudaPathStatistics before_camera_reset =
+        *session.cuda_statistics();
     frame_state.camera_changed = true;
     session.render_next_frame(scene, camera, settings, frame_state, framebuffer);
     RENDER_CHECK(session.accumulated_samples() == 1);
+    const renderer::CudaPathStatistics after_camera_reset =
+        *session.cuda_statistics();
+    RENDER_CHECK(
+        after_camera_reset.allocation_generation ==
+        before_camera_reset.allocation_generation);
+    RENDER_CHECK(
+        after_camera_reset.geometry_upload_bytes ==
+        before_camera_reset.geometry_upload_bytes);
+    RENDER_CHECK(
+        after_camera_reset.material_binding_upload_bytes ==
+        before_camera_reset.material_binding_upload_bytes);
+    RENDER_CHECK(
+        after_camera_reset.material_upload_bytes ==
+        before_camera_reset.material_upload_bytes);
+    RENDER_CHECK(
+        after_camera_reset.texture_upload_bytes ==
+        before_camera_reset.texture_upload_bytes);
+    RENDER_CHECK(
+        after_camera_reset.lighting_upload_bytes ==
+        before_camera_reset.lighting_upload_bytes);
+    RENDER_CHECK(
+        after_camera_reset.bvh_upload_bytes ==
+        before_camera_reset.bvh_upload_bytes);
 
     frame_state = renderer::InteractiveFrameState{};
     frame_state.reset_requested = true;
@@ -2879,15 +2502,51 @@ void test_cuda_pathtracer_alpha_texture_and_interactive_reset_when_available() {
     RENDER_CHECK(session.accumulated_samples() == 1);
 
     frame_state = renderer::InteractiveFrameState{};
-    frame_state.scene_changed = true;
+    frame_state.scene_changes = renderer::SceneChange::All;
     session.render_next_frame(scene, camera, settings, frame_state, framebuffer);
     RENDER_CHECK(session.accumulated_samples() == 1);
 
     scene.environment = renderer::Color(0.1f, 0.2f, 0.3f);
+    const renderer::CudaPathStatistics before_lighting =
+        *session.cuda_statistics();
     frame_state = renderer::InteractiveFrameState{};
-    frame_state.lighting_changed = true;
+    frame_state.scene_changes = renderer::SceneChange::Lighting;
     session.render_next_frame(scene, camera, settings, frame_state, framebuffer);
     RENDER_CHECK(session.accumulated_samples() == 1);
+    const renderer::CudaPathStatistics after_lighting =
+        *session.cuda_statistics();
+    RENDER_CHECK(
+        after_lighting.lighting_upload_bytes >
+        before_lighting.lighting_upload_bytes);
+    RENDER_CHECK(
+        after_lighting.geometry_upload_bytes ==
+        before_lighting.geometry_upload_bytes);
+    RENDER_CHECK(
+        after_lighting.texture_upload_bytes ==
+        before_lighting.texture_upload_bytes);
+    RENDER_CHECK(
+        after_lighting.bvh_upload_bytes ==
+        before_lighting.bvh_upload_bytes);
+
+    scene.materials[1].emission = renderer::Color(1.0f, 0.5f, 0.25f);
+    const renderer::CudaPathStatistics before_material =
+        *session.cuda_statistics();
+    frame_state = renderer::InteractiveFrameState{};
+    frame_state.scene_changes =
+        renderer::SceneChange::Materials |
+        renderer::SceneChange::MaterialBindings;
+    session.render_next_frame(scene, camera, settings, frame_state, framebuffer);
+    const renderer::CudaPathStatistics after_material =
+        *session.cuda_statistics();
+    RENDER_CHECK(
+        after_material.material_upload_bytes >
+        before_material.material_upload_bytes);
+    RENDER_CHECK(
+        after_material.material_binding_upload_bytes >
+        before_material.material_binding_upload_bytes);
+    RENDER_CHECK(
+        after_material.bvh_upload_bytes ==
+        before_material.bvh_upload_bytes);
 
     settings.width = 12;
     settings.height = 10;
@@ -2898,7 +2557,7 @@ void test_cuda_pathtracer_alpha_texture_and_interactive_reset_when_available() {
     RENDER_CHECK(framebuffer.width() == 12);
     RENDER_CHECK(framebuffer.height() == 10);
 
-    settings.path_backend = renderer::PathBackend::Cpu;
+    settings.path.backend = renderer::PathBackend::Cpu;
     frame_state = renderer::InteractiveFrameState{};
     session.render_next_frame(scene, camera, settings, frame_state, framebuffer);
     RENDER_CHECK(session.active_backend() == renderer::ExecutionBackend::Cpu);
@@ -2994,8 +2653,8 @@ void test_cuda_pathtracer_lighting_contracts_when_available() {
     renderer::RenderSettings settings;
     settings.width = 1;
     settings.height = 1;
-    settings.samples_per_pixel = 2048;
-    settings.path_backend = renderer::PathBackend::Cuda;
+    settings.path.samples_per_pixel = 2048;
+    settings.path.backend = renderer::PathBackend::Cuda;
     const renderer::Color roulette_mean =
         renderer::PathTracerRenderer().render(roulette_scene, camera, settings).image.pixel(0, 0);
     RENDER_CHECK(roulette_mean.allFinite());
@@ -3058,11 +2717,11 @@ void test_cuda_pathtracer_spheres_materials_and_bump_texture_when_available() {
     renderer::RenderSettings settings;
     settings.width = 40;
     settings.height = 40;
-    settings.samples_per_pixel = 32;
-    settings.sample_seed_offset = 123;
-    settings.path_backend = renderer::PathBackend::Cpu;
+    settings.path.samples_per_pixel = 32;
+    settings.path.sample_seed_offset = 123;
+    settings.path.backend = renderer::PathBackend::Cpu;
     const renderer::RenderResult cpu = renderer::PathTracerRenderer().render(scene, camera, settings);
-    settings.path_backend = renderer::PathBackend::Cuda;
+    settings.path.backend = renderer::PathBackend::Cuda;
     const renderer::RenderResult cuda = renderer::PathTracerRenderer().render(scene, camera, settings);
     RENDER_CHECK(image_colors_are_finite(cuda.image));
     const renderer::Color cpu_mean = image_mean(cpu.image);
@@ -3075,7 +2734,7 @@ void test_cuda_pathtracer_spheres_materials_and_bump_texture_when_available() {
     for (int cycle = 0; cycle < 3; ++cycle) {
         settings.width = 8;
         settings.height = 8;
-        settings.samples_per_pixel = 1;
+        settings.path.samples_per_pixel = 1;
         const renderer::RenderResult recreated =
             renderer::PathTracerRenderer().render(scene, camera, settings);
         RENDER_CHECK(image_colors_are_finite(recreated.image));
@@ -3520,10 +3179,9 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     state.ui.selected_material_slot = 0;
     state.ui.gizmo_operation = 2;
     state.ui.gizmo_local = true;
-    state.render_settings.max_depth = 9;
-    state.render_settings.tile_size = 32;
-    state.render_settings.thread_count = 3;
-    state.render_settings.path_backend = renderer::PathBackend::Cpu;
+    state.render_settings.path.tile_size = 32;
+    state.render_settings.path.thread_count = 3;
+    state.render_settings.path.backend = renderer::PathBackend::Cpu;
     state.camera.eye = renderer::Vec3(4.0f, 5.0f, 6.0f);
     state.camera.forward =
         renderer::Vec3(-1.0f, -0.5f, -2.0f).normalized();
@@ -3583,11 +3241,10 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     RENDER_CHECK(loaded.ui.material_editor_object == imported);
     RENDER_CHECK(loaded.ui.gizmo_operation == 2);
     RENDER_CHECK(loaded.ui.gizmo_local);
-    RENDER_CHECK(loaded.render_settings.max_depth == 9);
-    RENDER_CHECK(loaded.render_settings.tile_size == 32);
-    RENDER_CHECK(loaded.render_settings.thread_count == 3);
+    RENDER_CHECK(loaded.render_settings.path.tile_size == 32);
+    RENDER_CHECK(loaded.render_settings.path.thread_count == 3);
     RENDER_CHECK(
-        loaded.render_settings.path_backend == renderer::PathBackend::Cpu);
+        loaded.render_settings.path.backend == renderer::PathBackend::Cpu);
     RENDER_CHECK(loaded.camera.eye.isApprox(state.camera.eye));
     RENDER_CHECK(loaded.camera.forward.isApprox(state.camera.forward));
     RENDER_CHECK(nearly_equal(
@@ -3599,6 +3256,41 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     RENDER_CHECK(nearly_equal(
         loaded.camera.free_movement_speed,
         state.camera.free_movement_speed));
+
+    nlohmann::json ignored_legacy_field_json = saved_json;
+    ignored_legacy_field_json["render"]["max_depth"] = 99;
+    {
+        std::ofstream output(session_path);
+        output << ignored_legacy_field_json.dump(2) << '\n';
+    }
+    const renderer::ViewerSessionState ignored_legacy_field =
+        renderer::ViewerSessionStore::load(session_path);
+    RENDER_CHECK(
+        ignored_legacy_field.ui.mode ==
+        renderer::InteractiveRenderMode::Path);
+
+    for (const char* removed_mode : {"raster", "ray"}) {
+        nlohmann::json removed_mode_json = saved_json;
+        removed_mode_json["view"]["mode"] = removed_mode;
+        {
+            std::ofstream output(session_path);
+            output << removed_mode_json.dump(2) << '\n';
+        }
+        bool rejected = false;
+        try {
+            (void)renderer::ViewerSessionStore::load(session_path);
+        } catch (const std::runtime_error&) {
+            rejected = true;
+        }
+        RENDER_CHECK(rejected);
+    }
+
+    state.ui.mode = renderer::InteractiveRenderMode::OpenGl;
+    renderer::ViewerSessionStore::save(session_path, document, state);
+    RENDER_CHECK(
+        renderer::ViewerSessionStore::load(session_path).ui.mode ==
+        renderer::InteractiveRenderMode::OpenGl);
+    state.ui.mode = renderer::InteractiveRenderMode::Path;
 
     nlohmann::json legacy_json = saved_json;
     auto& legacy_view = legacy_json["view"];
@@ -3674,6 +3366,90 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     std::filesystem::remove_all(directory);
 }
 
+void test_viewer_session_omits_and_skips_unreferenced_assets() {
+    const std::filesystem::path directory =
+        "test_viewer_session_unreferenced_assets";
+    const std::filesystem::path live_obj = directory / "live.obj";
+    const std::filesystem::path orphan_obj = directory / "orphan.obj";
+    const std::filesystem::path session_path =
+        directory / "last-session.json";
+    std::filesystem::remove_all(directory);
+    std::filesystem::create_directories(directory);
+    const auto write_triangle = [](const std::filesystem::path& path) {
+        std::ofstream obj(path);
+        obj << "v -1 -1 0\n";
+        obj << "v 1 -1 0\n";
+        obj << "v 0 1 0\n";
+        obj << "f 1 2 3\n";
+    };
+    write_triangle(live_obj);
+    write_triangle(orphan_obj);
+
+    renderer::SceneDocument document;
+    const renderer::ObjectId live_id =
+        document.import_path(live_obj, 64, 64).front();
+    const renderer::ObjectId orphan_id =
+        document.import_path(orphan_obj, 64, 64).front();
+    RENDER_CHECK(document.assets().size() == 2);
+    RENDER_CHECK(document.erase_subtree(orphan_id));
+    RENDER_CHECK(document.find(orphan_id) == nullptr);
+    RENDER_CHECK(document.assets().size() == 2);
+
+    RENDER_CHECK(document.undo());
+    RENDER_CHECK(document.find(orphan_id) != nullptr);
+    RENDER_CHECK(document.redo());
+    RENDER_CHECK(document.find(orphan_id) == nullptr);
+
+    const nlohmann::json snapshot = document.session_snapshot();
+    RENDER_CHECK(snapshot.at("assets").size() == 1);
+    RENDER_CHECK(
+        snapshot.at("assets").at(0).at("source").at("path")
+            .get<std::string>().find("orphan.obj") ==
+        std::string::npos);
+
+    renderer::ViewerSessionState state;
+    state.window_width = 640;
+    state.window_height = 480;
+    renderer::ViewerSessionStore::save(
+        session_path,
+        document,
+        state);
+
+    nlohmann::json legacy_dirty_session;
+    {
+        std::ifstream input(session_path);
+        input >> legacy_dirty_session;
+    }
+    auto& saved_assets =
+        legacy_dirty_session["document"]["snapshot"]["assets"];
+    RENDER_CHECK(saved_assets.size() == 1);
+    saved_assets.push_back({
+        {"id", 999},
+        {"source", {
+            {"kind", "obj"},
+            {"path", std::filesystem::absolute(orphan_obj).generic_string()},
+        }},
+    });
+    {
+        std::ofstream output(session_path);
+        output << legacy_dirty_session.dump(2) << '\n';
+    }
+
+    const renderer::ViewerSessionState restored =
+        renderer::ViewerSessionStore::load(session_path);
+    RENDER_CHECK(restored.document.assets().size() == 1);
+    RENDER_CHECK(restored.document.find(live_id) != nullptr);
+    const bool saw_orphan_warning = std::any_of(
+        restored.document.warnings().begin(),
+        restored.document.warnings().end(),
+        [](const std::string& warning) {
+            return warning.find("orphan.obj") != std::string::npos;
+        });
+    RENDER_CHECK(!saw_orphan_warning);
+
+    std::filesystem::remove_all(directory);
+}
+
 int main() {
     RENDER_CHECK(1 + 1 == 2);
     test_vec3_arithmetic();
@@ -3691,6 +3467,7 @@ int main() {
     test_camera_mode_switch_preserves_pose();
     test_frame_rate_counter_reports_window_average();
     test_viewer_title_format_includes_fps_and_path_samples();
+    test_interactive_mode_catalog_contains_only_opengl_and_path();
     test_ray_and_bounds_intersection();
     test_bounds_intersection_counts_corner_touch_as_hit();
     test_image_invalid_dimensions_throw_invalid_argument();
@@ -3701,7 +3478,6 @@ int main() {
     test_display_settings_apply_exposure_and_tone_mapping();
     test_viewer_ui_actions_classify_path_resets();
     test_framebuffer_clear_set_and_rgba8_conversion();
-    test_depth_buffer_clear_resize_and_access();
     test_sphere_intersection();
     test_sphere_rejects_zero_direction_ray();
     test_sphere_invalid_radius_throws();
@@ -3731,7 +3507,7 @@ int main() {
     test_offset_ray_origin_uses_float_roundoff_budget_across_scales();
     test_checker_texture_is_deterministic_for_positive_and_negative_coordinates();
     test_builtin_scene_contains_renderable_geometry();
-    test_raster_triangle_scene_contains_triangle_and_light();
+    test_triangle_scene_contains_triangle_and_light();
     test_mirror_spheres_scene_contains_metal_sphere_and_point_light();
     test_cornell_box_scene_contains_walls_and_expected_materials();
     test_builtin_scene_probe_material_ids_are_in_range();
@@ -3742,26 +3518,11 @@ int main() {
     test_refract_returns_unit_direction();
     test_refract_rejects_total_internal_reflection();
     test_render_settings_defaults_are_useful();
-    test_raytracer_renders_visible_sphere();
-    test_raytracer_renders_triangle_scene_with_direct_light();
-    test_raytracer_reflection_adds_recursive_environment_radiance();
-    test_raytracer_dielectric_weights_reflection_and_refraction();
-    test_raytracer_total_internal_reflection_uses_full_reflected_radiance();
-    test_raytracer_point_light_shadow_reduces_direct_radiance();
-    test_raytracer_transparent_cutout_reveals_opaque_surface();
     test_pathtracer_renders_emissive_scene();
     test_pathtracer_receives_directional_light();
     test_pathtracer_point_light_uses_inverse_square_falloff();
     test_pathtracer_direct_light_respects_shadow_blockers();
     test_pathtracer_russian_roulette_terminates_and_preserves_energy();
-    test_pathtracer_ignores_whitted_max_depth_setting();
-    test_rasterizer_draws_triangle();
-    test_perspective_correct_weights_favor_near_vertex();
-    test_near_plane_clipping_keeps_visible_triangle_portion();
-    test_rasterizer_clips_triangles_crossing_near_plane();
-    test_rasterizer_applies_alpha_cutout_before_depth_write();
-    test_rasterizer_respects_single_and_two_sided_materials();
-    test_interactive_sessions_render_visible_pixels();
     test_path_interactive_session_matches_direct_samples_and_resets();
     test_obj_loader_reads_single_triangle();
     test_scene_asset_loader_preserves_obj_vertex_normals();
@@ -3781,6 +3542,7 @@ int main() {
     test_scene_document_import_transform_hierarchy_history_and_roundtrip();
     test_scene_document_material_overrides_are_per_object_and_roundtrip();
     test_viewer_session_roundtrip_and_partial_asset_recovery();
+    test_viewer_session_omits_and_skips_unreferenced_assets();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;
 }

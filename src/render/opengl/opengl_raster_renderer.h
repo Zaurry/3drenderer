@@ -19,6 +19,7 @@ public:
     OpenGlRasterRenderer& operator=(const OpenGlRasterRenderer&) = delete;
 
     void reset(const Scene& scene);
+    void sync_scene(const Scene& scene, SceneChangeSet changes);
     void render(
         const Scene& scene,
         const Camera& camera,

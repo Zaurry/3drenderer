@@ -89,7 +89,11 @@ public:
         return true;
     }
 
-    bool begin_frame(int width, int height, CudaSurfaceHandle& output_surface) {
+    bool begin_frame(
+        int width,
+        int height,
+        CudaStreamHandle stream_handle,
+        CudaSurfaceHandle& output_surface) {
         output_surface = 0;
         if (state_ != CudaOpenGlInteropState::Ready &&
             state_ != CudaOpenGlInteropState::Active) {
@@ -102,11 +106,13 @@ public:
             return false;
         }
 
-        cudaError_t result = cudaGraphicsMapResources(1, &resource_, nullptr);
+        cudaStream_t stream = reinterpret_cast<cudaStream_t>(stream_handle);
+        cudaError_t result = cudaGraphicsMapResources(1, &resource_, stream);
         if (result != cudaSuccess) {
             return fail(cuda_error_message("cudaGraphicsMapResources failed", result));
         }
         mapped_ = true;
+        mapped_stream_ = stream;
 
         cudaArray_t mapped_array = nullptr;
         result = cudaGraphicsSubResourceGetMappedArray(&mapped_array, resource_, 0, 0);
@@ -127,16 +133,18 @@ public:
         return true;
     }
 
-    bool end_frame() {
+    bool end_frame(CudaStreamHandle stream_handle) {
         if (!mapped_ || surface_ == 0) {
             return fail("CUDA/OpenGL frame was not mapped");
         }
 
         cudaError_t destroy_result = cudaDestroySurfaceObject(surface_);
         surface_ = 0;
-        cudaError_t unmap_result = cudaGraphicsUnmapResources(1, &resource_, nullptr);
+        cudaStream_t stream = reinterpret_cast<cudaStream_t>(stream_handle);
+        cudaError_t unmap_result = cudaGraphicsUnmapResources(1, &resource_, stream);
         if (unmap_result == cudaSuccess) {
             mapped_ = false;
+            mapped_stream_ = nullptr;
         }
         if (destroy_result != cudaSuccess) {
             return fail(cuda_error_message("cudaDestroySurfaceObject failed", destroy_result));
@@ -150,14 +158,18 @@ public:
     }
 
     void cancel_frame() noexcept {
+        if (mapped_stream_) {
+            cudaStreamSynchronize(mapped_stream_);
+        }
         if (surface_ != 0) {
             cudaDestroySurfaceObject(surface_);
             surface_ = 0;
         }
         if (mapped_ && resource_) {
-            cudaGraphicsUnmapResources(1, &resource_, nullptr);
+            cudaGraphicsUnmapResources(1, &resource_, mapped_stream_);
             mapped_ = false;
         }
+        mapped_stream_ = nullptr;
     }
 
     void disable(std::string reason) noexcept {
@@ -200,6 +212,7 @@ private:
     cudaGraphicsResource_t resource_ = nullptr;
     cudaSurfaceObject_t surface_ = 0;
     bool mapped_ = false;
+    cudaStream_t mapped_stream_ = nullptr;
     int width_ = 0;
     int height_ = 0;
 
@@ -288,12 +301,13 @@ bool CudaOpenGlInteropTexture::initialize() {
 bool CudaOpenGlInteropTexture::begin_frame(
     int width,
     int height,
+    CudaStreamHandle stream,
     CudaSurfaceHandle& surface) {
-    return impl_->begin_frame(width, height, surface);
+    return impl_->begin_frame(width, height, stream, surface);
 }
 
-bool CudaOpenGlInteropTexture::end_frame() {
-    return impl_->end_frame();
+bool CudaOpenGlInteropTexture::end_frame(CudaStreamHandle stream) {
+    return impl_->end_frame(stream);
 }
 
 void CudaOpenGlInteropTexture::cancel_frame() noexcept {

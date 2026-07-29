@@ -23,7 +23,7 @@
 namespace renderer {
 namespace {
 
-constexpr int kThreadsPerBlock = 256;
+constexpr int kThreadsPerBlock = 64;
 constexpr int kMaxPathBounces = 64;
 constexpr int kRussianRouletteStartBounce = 3;
 constexpr int kMaxTransparentLayers = 64;
@@ -62,13 +62,11 @@ struct DVertex {
 
 struct DTriangle {
     DVertex vertices[3];
-    int material_id;
 };
 
 struct DSphere {
     DVec3 center;
     float radius;
-    int material_id;
 };
 
 struct DMaterial {
@@ -127,8 +125,10 @@ struct DScene {
     int texture_count;
     const DVec3* texels;
     const DSphere* spheres;
+    const int* sphere_material_ids;
     int sphere_count;
     const DTriangle* triangles;
+    const int* triangle_material_ids;
     int triangle_count;
     const DBvhNode* bvh_nodes;
     int bvh_node_count;
@@ -146,11 +146,20 @@ struct DHit {
     DVec2 uv;
     DVec3 geometric_normal;
     DVec3 shading_normal;
-    DVec3 tangent;
-    DVec3 bitangent;
-    int has_valid_uv_basis;
     int material_id;
     int front_face;
+    int primitive_kind;
+    int primitive_index;
+    float barycentric_u;
+    float barycentric_v;
+};
+
+struct DCompactHit {
+    float t;
+    float u;
+    float v;
+    int primitive_kind;
+    int primitive_index;
 };
 
 struct DSurface {
@@ -249,14 +258,6 @@ __device__ bool refract_vector(
     }
     refracted = sub(perpendicular, mul(normal, sqrtf(k)));
     return true;
-}
-
-__device__ void make_basis(DVec3 normal, DVec3& tangent, DVec3& bitangent) {
-    const DVec3 helper = fabsf(normal.x) > 0.9f
-        ? v3(0.0f, 1.0f, 0.0f)
-        : v3(1.0f, 0.0f, 0.0f);
-    tangent = normalize(cross(helper, normal));
-    bitangent = normalize(cross(normal, tangent));
 }
 
 __device__ void set_normals(
@@ -372,12 +373,12 @@ __device__ bool intersect_bounds(
     return true;
 }
 
-__device__ bool intersect_sphere(
+__device__ bool intersect_sphere_geometry(
     const DSphere& sphere,
     const DRay& ray,
     float t_min,
     float t_max,
-    DHit& hit) {
+    float& hit_t) {
     if (!finite(ray.origin) || !finite(ray.direction)) {
         return false;
     }
@@ -400,23 +401,18 @@ __device__ bool intersect_sphere(
             return false;
         }
     }
-    hit.t = root;
-    hit.position = add(ray.origin, mul(ray.direction, root));
-    const DVec3 outward = divv(sub(hit.position, sphere.center), sphere.radius);
-    set_normals(hit, ray, outward, outward);
-    make_basis(hit.shading_normal, hit.tangent, hit.bitangent);
-    hit.has_valid_uv_basis = 0;
-    hit.uv = DVec2{0.0f, 0.0f};
-    hit.material_id = sphere.material_id;
+    hit_t = root;
     return true;
 }
 
-__device__ bool intersect_triangle(
+__device__ bool intersect_triangle_geometry(
     const DTriangle& triangle,
     const DRay& ray,
     float t_min,
     float t_max,
-    DHit& hit) {
+    float& hit_t,
+    float& hit_u,
+    float& hit_v) {
     const DVec3 a = triangle.vertices[0].position;
     const DVec3 edge1 = sub(triangle.vertices[1].position, a);
     const DVec3 edge2 = sub(triangle.vertices[2].position, a);
@@ -441,57 +437,9 @@ __device__ bool intersect_triangle(
         return false;
     }
 
-    const float w = 1.0f - u - v;
-    const DVec3 geometric = normalize(cross(edge1, edge2));
-    DVec3 shading = geometric;
-    if (triangle.vertices[0].has_normal &&
-        triangle.vertices[1].has_normal &&
-        triangle.vertices[2].has_normal) {
-        shading = add(
-            add(mul(triangle.vertices[0].normal, w), mul(triangle.vertices[1].normal, u)),
-            mul(triangle.vertices[2].normal, v));
-        if (!usable(shading)) {
-            shading = geometric;
-        } else {
-            shading = normalize(shading);
-            if (dot(shading, geometric) < 0.0f) {
-                shading = mul(shading, -1.0f);
-            }
-        }
-    }
-
-    hit.t = t;
-    hit.position = add(ray.origin, mul(ray.direction, t));
-    hit.uv = DVec2{
-        triangle.vertices[0].uv.x * w + triangle.vertices[1].uv.x * u + triangle.vertices[2].uv.x * v,
-        triangle.vertices[0].uv.y * w + triangle.vertices[1].uv.y * u + triangle.vertices[2].uv.y * v};
-    set_normals(hit, ray, geometric, shading);
-
-    const float du1 = triangle.vertices[1].uv.x - triangle.vertices[0].uv.x;
-    const float dv1 = triangle.vertices[1].uv.y - triangle.vertices[0].uv.y;
-    const float du2 = triangle.vertices[2].uv.x - triangle.vertices[0].uv.x;
-    const float dv2 = triangle.vertices[2].uv.y - triangle.vertices[0].uv.y;
-    const float uv_determinant = du1 * dv2 - dv1 * du2;
-    hit.has_valid_uv_basis = isfinite(uv_determinant) && fabsf(uv_determinant) > 1.0e-12f;
-    if (!hit.has_valid_uv_basis) {
-        make_basis(hit.shading_normal, hit.tangent, hit.bitangent);
-    } else {
-        const float uv_inverse = 1.0f / uv_determinant;
-        const DVec3 raw_tangent = mul(sub(mul(edge1, dv2), mul(edge2, dv1)), uv_inverse);
-        const DVec3 raw_bitangent = mul(sub(mul(edge2, du1), mul(edge1, du2)), uv_inverse);
-        hit.tangent = sub(raw_tangent, mul(hit.shading_normal, dot(raw_tangent, hit.shading_normal)));
-        if (!usable(hit.tangent)) {
-            make_basis(hit.shading_normal, hit.tangent, hit.bitangent);
-            hit.has_valid_uv_basis = 0;
-        } else {
-            hit.tangent = normalize(hit.tangent);
-            hit.bitangent = normalize(cross(hit.shading_normal, hit.tangent));
-            if (usable(raw_bitangent) && dot(hit.bitangent, raw_bitangent) < 0.0f) {
-                hit.bitangent = mul(hit.bitangent, -1.0f);
-            }
-        }
-    }
-    hit.material_id = triangle.material_id;
+    hit_t = t;
+    hit_u = u;
+    hit_v = v;
     return true;
 }
 
@@ -500,16 +448,16 @@ __device__ bool nearest_hit(
     const DRay& ray,
     float t_min,
     float t_max,
-    DHit& hit,
-    int* error_code) {
+    DCompactHit& hit) {
     bool found = false;
     float closest = t_max;
     for (int sphere_index = 0; sphere_index < scene.sphere_count; ++sphere_index) {
-        DHit candidate{};
-        if (intersect_sphere(scene.spheres[sphere_index], ray, t_min, closest, candidate)) {
+        float candidate_t = 0.0f;
+        if (intersect_sphere_geometry(
+                scene.spheres[sphere_index], ray, t_min, closest, candidate_t)) {
             found = true;
-            closest = candidate.t;
-            hit = candidate;
+            closest = candidate_t;
+            hit = DCompactHit{candidate_t, 0.0f, 0.0f, 0, sphere_index};
         }
     }
 
@@ -528,32 +476,101 @@ __device__ bool nearest_hit(
         if (node.count > 0) {
             for (int offset = 0; offset < node.count; ++offset) {
                 const int primitive_index = scene.primitive_indices[node.first + offset];
-                DHit candidate{};
-                if (intersect_triangle(
-                        scene.triangles[primitive_index], ray, t_min, closest, candidate)) {
+                float candidate_t = 0.0f;
+                float candidate_u = 0.0f;
+                float candidate_v = 0.0f;
+                if (intersect_triangle_geometry(
+                        scene.triangles[primitive_index],
+                        ray,
+                        t_min,
+                        closest,
+                        candidate_t,
+                        candidate_u,
+                        candidate_v)) {
                     found = true;
-                    closest = candidate.t;
-                    hit = candidate;
+                    closest = candidate_t;
+                    hit = DCompactHit{
+                        candidate_t,
+                        candidate_u,
+                        candidate_v,
+                        1,
+                        primitive_index};
                 }
             }
             continue;
         }
         if (node.left >= 0) {
             if (stack_size >= kBvhStackCapacity) {
-                atomicCAS(error_code, 0, 1);
                 return found;
             }
             stack[stack_size++] = node.left;
         }
         if (node.right >= 0) {
             if (stack_size >= kBvhStackCapacity) {
-                atomicCAS(error_code, 0, 1);
                 return found;
             }
             stack[stack_size++] = node.right;
         }
     }
     return found;
+}
+
+__device__ void reconstruct_hit(
+    const DScene& scene,
+    const DRay& ray,
+    const DCompactHit& compact,
+    bool reconstruct_shading,
+    DHit& hit) {
+    hit.t = compact.t;
+    hit.position = add(ray.origin, mul(ray.direction, compact.t));
+    hit.primitive_kind = compact.primitive_kind;
+    hit.primitive_index = compact.primitive_index;
+    hit.barycentric_u = compact.u;
+    hit.barycentric_v = compact.v;
+    if (compact.primitive_kind == 0) {
+        const DSphere& sphere = scene.spheres[compact.primitive_index];
+        const DVec3 outward = divv(sub(hit.position, sphere.center), sphere.radius);
+        set_normals(hit, ray, outward, outward);
+        hit.uv = DVec2{0.0f, 0.0f};
+        hit.material_id = scene.sphere_material_ids[compact.primitive_index];
+        return;
+    }
+
+    const DTriangle& triangle = scene.triangles[compact.primitive_index];
+    const float w = 1.0f - compact.u - compact.v;
+    const DVec3 edge1 =
+        sub(triangle.vertices[1].position, triangle.vertices[0].position);
+    const DVec3 edge2 =
+        sub(triangle.vertices[2].position, triangle.vertices[0].position);
+    const DVec3 geometric = normalize(cross(edge1, edge2));
+    DVec3 shading = geometric;
+    if (reconstruct_shading &&
+        triangle.vertices[0].has_normal &&
+        triangle.vertices[1].has_normal &&
+        triangle.vertices[2].has_normal) {
+        shading = add(
+            add(
+                mul(triangle.vertices[0].normal, w),
+                mul(triangle.vertices[1].normal, compact.u)),
+            mul(triangle.vertices[2].normal, compact.v));
+        if (!usable(shading)) {
+            shading = geometric;
+        } else {
+            shading = normalize(shading);
+            if (dot(shading, geometric) < 0.0f) {
+                shading = mul(shading, -1.0f);
+            }
+        }
+    }
+    hit.uv = DVec2{
+        triangle.vertices[0].uv.x * w +
+            triangle.vertices[1].uv.x * compact.u +
+            triangle.vertices[2].uv.x * compact.v,
+        triangle.vertices[0].uv.y * w +
+            triangle.vertices[1].uv.y * compact.u +
+            triangle.vertices[2].uv.y * compact.v};
+    set_normals(hit, ray, geometric, shading);
+    hit.material_id = scene.triangle_material_ids[compact.primitive_index];
 }
 
 __device__ int wrap_index(int value, int size) {
@@ -611,13 +628,15 @@ __device__ bool intersect_scene(
     float t_min,
     float t_max,
     DHit& hit,
-    int* error_code) {
+    bool reconstruct_shading) {
     float search_min = t_min;
     for (int layer = 0; layer < kMaxTransparentLayers; ++layer) {
-        DHit candidate{};
-        if (!nearest_hit(scene, ray, search_min, t_max, candidate, error_code)) {
+        DCompactHit compact{};
+        if (!nearest_hit(scene, ray, search_min, t_max, compact)) {
             return false;
         }
+        DHit candidate{};
+        reconstruct_hit(scene, ray, compact, false, candidate);
         if (candidate.material_id < 0 || candidate.material_id >= scene.material_count) {
             hit = candidate;
             return true;
@@ -625,6 +644,9 @@ __device__ bool intersect_scene(
         const DMaterial material = scene.materials[candidate.material_id];
         const bool visible_side = material.two_sided || candidate.front_face;
         if (visible_side && material_opacity(scene, material, candidate.uv) >= material.alpha_cutoff) {
+            if (reconstruct_shading) {
+                reconstruct_hit(scene, ray, compact, true, candidate);
+            }
             hit = candidate;
             return true;
         }
@@ -642,13 +664,43 @@ __device__ DVec3 bumped_normal(
     const DMaterial& material,
     const DHit& hit) {
     if (material.bump_texture_id < 0 || material.bump_texture_id >= scene.texture_count ||
-        !hit.has_valid_uv_basis || !usable(hit.shading_normal) ||
-        !usable(hit.tangent) || !usable(hit.bitangent)) {
+        hit.primitive_kind != 1 || !usable(hit.shading_normal)) {
         return hit.shading_normal;
     }
     const DTexture texture = scene.textures[material.bump_texture_id];
     if (texture.width <= 0 || texture.height <= 0) {
         return hit.shading_normal;
+    }
+    const DTriangle& triangle = scene.triangles[hit.primitive_index];
+    const DVec3 edge1 =
+        sub(triangle.vertices[1].position, triangle.vertices[0].position);
+    const DVec3 edge2 =
+        sub(triangle.vertices[2].position, triangle.vertices[0].position);
+    const float du1 = triangle.vertices[1].uv.x - triangle.vertices[0].uv.x;
+    const float dv1 = triangle.vertices[1].uv.y - triangle.vertices[0].uv.y;
+    const float du2 = triangle.vertices[2].uv.x - triangle.vertices[0].uv.x;
+    const float dv2 = triangle.vertices[2].uv.y - triangle.vertices[0].uv.y;
+    const float uv_determinant = du1 * dv2 - dv1 * du2;
+    if (!isfinite(uv_determinant) || fabsf(uv_determinant) <= 1.0e-12f) {
+        return hit.shading_normal;
+    }
+    const float uv_inverse = 1.0f / uv_determinant;
+    const DVec3 raw_tangent =
+        mul(sub(mul(edge1, dv2), mul(edge2, dv1)), uv_inverse);
+    const DVec3 raw_bitangent =
+        mul(sub(mul(edge2, du1), mul(edge1, du2)), uv_inverse);
+    DVec3 tangent =
+        sub(raw_tangent, mul(hit.shading_normal, dot(raw_tangent, hit.shading_normal)));
+    if (!usable(tangent)) {
+        return hit.shading_normal;
+    }
+    tangent = normalize(tangent);
+    DVec3 bitangent = normalize(cross(hit.shading_normal, tangent));
+    if (!usable(bitangent)) {
+        return hit.shading_normal;
+    }
+    if (usable(raw_bitangent) && dot(bitangent, raw_bitangent) < 0.0f) {
+        bitangent = mul(bitangent, -1.0f);
     }
     const float du = 1.0f / static_cast<float>(texture.width);
     const float dv = 1.0f / static_cast<float>(texture.height);
@@ -656,7 +708,9 @@ __device__ DVec3 bumped_normal(
     const float right = sample_scalar(scene, material.bump_texture_id, DVec2{hit.uv.x + du, hit.uv.y});
     const float down = sample_scalar(scene, material.bump_texture_id, DVec2{hit.uv.x, hit.uv.y - dv});
     const float up = sample_scalar(scene, material.bump_texture_id, DVec2{hit.uv.x, hit.uv.y + dv});
-    const DVec3 gradient = add(mul(hit.tangent, (right - left) * 0.5f), mul(hit.bitangent, (up - down) * 0.5f));
+    const DVec3 gradient = add(
+        mul(tangent, (right - left) * 0.5f),
+        mul(bitangent, (up - down) * 0.5f));
     const DVec3 candidate = sub(hit.shading_normal, mul(gradient, material.bump_scale));
     if (!usable(candidate)) {
         return hit.shading_normal;
@@ -770,8 +824,7 @@ __device__ bool scatter(
 __device__ DVec3 direct_lighting(
     const DScene& scene,
     const DHit& hit,
-    const DSurface& surface,
-    int* error_code) {
+    const DSurface& surface) {
     DVec3 direct = v3(0.0f, 0.0f, 0.0f);
     constexpr float inverse_pi = 0.31830988618379067154f;
     for (int index = 0; index < scene.directional_light_count; ++index) {
@@ -786,7 +839,7 @@ __device__ DVec3 direct_lighting(
         }
         const DRay shadow{offset_origin(hit.position, hit.geometric_normal, light_direction), light_direction};
         DHit blocker{};
-        if (!intersect_scene(scene, shadow, 0.0f, 1.0e30f, blocker, error_code)) {
+        if (!intersect_scene(scene, shadow, 0.0f, 1.0e30f, blocker, false)) {
             direct = add(direct, mul(product(surface.base_color, light.radiance), cosine * inverse_pi));
         }
     }
@@ -805,7 +858,13 @@ __device__ DVec3 direct_lighting(
         }
         const DRay shadow{offset_origin(hit.position, hit.geometric_normal, light_direction), light_direction};
         DHit blocker{};
-        if (!intersect_scene(scene, shadow, 0.0f, distance - 1.0e-7f, blocker, error_code)) {
+        if (!intersect_scene(
+                scene,
+                shadow,
+                0.0f,
+                distance - 1.0e-7f,
+                blocker,
+                false)) {
             direct = add(
                 direct,
                 mul(product(surface.base_color, divv(light.intensity, distance_squared)), cosine * inverse_pi));
@@ -817,13 +876,12 @@ __device__ DVec3 direct_lighting(
 __device__ DVec3 trace_path(
     const DScene& scene,
     DRay ray,
-    DPcgState& rng,
-    int* error_code) {
+    DPcgState& rng) {
     DVec3 radiance = v3(0.0f, 0.0f, 0.0f);
     DVec3 throughput = v3(1.0f, 1.0f, 1.0f);
     for (int bounce = 0; bounce < kMaxPathBounces; ++bounce) {
         DHit hit{};
-        if (!intersect_scene(scene, ray, 0.0f, 1.0e30f, hit, error_code)) {
+        if (!intersect_scene(scene, ray, 0.0f, 1.0e30f, hit, true)) {
             radiance = add(radiance, product(throughput, scene.environment));
             break;
         }
@@ -844,7 +902,7 @@ __device__ DVec3 trace_path(
             break;
         }
         const DVec3 direct = material.type == static_cast<int>(MaterialType::Diffuse)
-            ? direct_lighting(scene, hit, surface, error_code)
+            ? direct_lighting(scene, hit, surface)
             : v3(0.0f, 0.0f, 0.0f);
         radiance = add(radiance, product(throughput, add(material.emission, direct)));
         throughput = product(throughput, attenuation);
@@ -865,37 +923,30 @@ __device__ DVec3 trace_path(
 
 __global__ void initialize_frame_kernel(
     DVec3* accumulation,
-    DVec3* display,
     DPcgState* random_states,
     int width,
     int height,
-    unsigned long long seed_offset,
-    int* error_code) {
+    unsigned long long seed_offset) {
     const int index = blockIdx.x * blockDim.x + threadIdx.x;
     const int pixel_count = width * height;
     if (index >= pixel_count) {
         return;
     }
     accumulation[index] = v3(0.0f, 0.0f, 0.0f);
-    display[index] = v3(0.0f, 0.0f, 0.0f);
     const int x = index % width;
     const int y = index / width;
     pcg_seed(random_states[index], pixel_seed(x, y, width, seed_offset));
-    if (index == 0) {
-        *error_code = 0;
-    }
 }
 
 __global__ void render_sample_kernel(
     DScene scene,
     DCamera camera,
     DVec3* accumulation,
-    DVec3* display,
+    DVec3* resolved,
     DPcgState* random_states,
     int width,
     int height,
     int completed_samples,
-    int* error_code,
     cudaSurfaceObject_t output_surface) {
     const int index = blockIdx.x * blockDim.x + threadIdx.x;
     const int pixel_count = width * height;
@@ -913,11 +964,13 @@ __global__ void render_sample_kernel(
             camera.forward,
             mul(camera.right, (u - 0.5f) * camera.viewport_width)),
         mul(camera.up, (v - 0.5f) * camera.viewport_height)));
-    const DVec3 sample = trace_path(scene, DRay{camera.eye, direction}, rng, error_code);
+    const DVec3 sample = trace_path(scene, DRay{camera.eye, direction}, rng);
     const DVec3 sum = add(accumulation[index], sample);
     accumulation[index] = sum;
     const DVec3 color = divv(sum, static_cast<float>(completed_samples + 1));
-    display[index] = color;
+    if (resolved != nullptr) {
+        resolved[index] = color;
+    }
     if (output_surface != 0) {
         surf2Dwrite(
             make_float4(color.x, color.y, color.z, 1.0f),
@@ -926,6 +979,20 @@ __global__ void render_sample_kernel(
             y);
     }
     random_states[index] = rng;
+}
+
+__global__ void resolve_frame_kernel(
+    const DVec3* accumulation,
+    DVec3* resolved,
+    int pixel_count,
+    int sample_count) {
+    const int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index >= pixel_count) {
+        return;
+    }
+    resolved[index] = sample_count > 0
+        ? divv(accumulation[index], static_cast<float>(sample_count))
+        : v3(0.0f, 0.0f, 0.0f);
 }
 
 template <typename T>
@@ -941,33 +1008,101 @@ public:
     DeviceBuffer(const DeviceBuffer&) = delete;
     DeviceBuffer& operator=(const DeviceBuffer&) = delete;
 
-    void allocate(std::size_t count) {
+    void resize(std::size_t count, CudaPathStatistics& statistics) {
+        count_ = count;
+        if (count <= capacity_) {
+            return;
+        }
+        std::size_t new_capacity = std::max(count, capacity_ + capacity_ / 2);
+        new_capacity = std::max<std::size_t>(new_capacity, 1);
+        T* replacement = nullptr;
+        check_cuda(
+            cudaMalloc(
+                reinterpret_cast<void**>(&replacement),
+                new_capacity * sizeof(T)),
+            "cudaMalloc");
         if (data_) {
             check_cuda(cudaFree(data_), "cudaFree");
-            data_ = nullptr;
         }
-        count_ = count;
-        if (count_ > 0) {
-            check_cuda(cudaMalloc(reinterpret_cast<void**>(&data_), count_ * sizeof(T)), "cudaMalloc");
-        }
+        data_ = replacement;
+        capacity_ = new_capacity;
+        ++statistics.allocation_generation;
     }
 
-    void upload(const std::vector<T>& values) {
-        allocate(values.size());
+    std::uint64_t upload(
+        const std::vector<T>& values,
+        cudaStream_t stream,
+        CudaPathStatistics& statistics) {
+        resize(values.size(), statistics);
         if (!values.empty()) {
             check_cuda(
-                cudaMemcpy(data_, values.data(), values.size() * sizeof(T), cudaMemcpyHostToDevice),
-                "cudaMemcpy host to device");
+                cudaMemcpyAsync(
+                    data_,
+                    values.data(),
+                    values.size() * sizeof(T),
+                    cudaMemcpyHostToDevice,
+                    stream),
+                "cudaMemcpyAsync host to device");
+        }
+        return static_cast<std::uint64_t>(values.size() * sizeof(T));
+    }
+
+    void download(T* values, cudaStream_t stream) const {
+        if (count_ > 0) {
+            check_cuda(
+                cudaMemcpyAsync(
+                    values,
+                    data_,
+                    count_ * sizeof(T),
+                    cudaMemcpyDeviceToHost,
+                    stream),
+                "cudaMemcpyAsync device to host");
         }
     }
 
-    void download(std::vector<T>& values) const {
-        values.resize(count_);
-        if (count_ > 0) {
-            check_cuda(
-                cudaMemcpy(values.data(), data_, count_ * sizeof(T), cudaMemcpyDeviceToHost),
-                "cudaMemcpy device to host");
+    T* get() const { return data_; }
+    std::size_t size() const { return count_; }
+    std::size_t capacity() const { return capacity_; }
+
+private:
+    T* data_ = nullptr;
+    std::size_t count_ = 0;
+    std::size_t capacity_ = 0;
+};
+
+template <typename T>
+class PinnedHostBuffer {
+public:
+    ~PinnedHostBuffer() {
+        if (data_) {
+            cudaFreeHost(data_);
         }
+    }
+
+    PinnedHostBuffer(const PinnedHostBuffer&) = delete;
+    PinnedHostBuffer& operator=(const PinnedHostBuffer&) = delete;
+    PinnedHostBuffer() = default;
+
+    void resize(std::size_t count, CudaPathStatistics& statistics) {
+        count_ = count;
+        if (count <= capacity_) {
+            return;
+        }
+        std::size_t new_capacity = std::max(count, capacity_ + capacity_ / 2);
+        new_capacity = std::max<std::size_t>(new_capacity, 1);
+        T* replacement = nullptr;
+        check_cuda(
+            cudaHostAlloc(
+                reinterpret_cast<void**>(&replacement),
+                new_capacity * sizeof(T),
+                cudaHostAllocDefault),
+            "cudaHostAlloc");
+        if (data_) {
+            check_cuda(cudaFreeHost(data_), "cudaFreeHost");
+        }
+        data_ = replacement;
+        capacity_ = new_capacity;
+        ++statistics.allocation_generation;
     }
 
     T* get() const { return data_; }
@@ -976,15 +1111,100 @@ public:
 private:
     T* data_ = nullptr;
     std::size_t count_ = 0;
+    std::size_t capacity_ = 0;
+};
+
+class CudaEventTimer {
+public:
+    CudaEventTimer() = default;
+
+    ~CudaEventTimer() {
+        if (stop_) {
+            cudaEventDestroy(stop_);
+        }
+        if (start_) {
+            cudaEventDestroy(start_);
+        }
+    }
+
+    CudaEventTimer(const CudaEventTimer&) = delete;
+    CudaEventTimer& operator=(const CudaEventTimer&) = delete;
+
+    void begin(cudaStream_t stream) {
+        ensure_created();
+        check_cuda(cudaEventRecord(start_, stream), "cudaEventRecord start");
+        pending_ = true;
+    }
+
+    void end(cudaStream_t stream) {
+        check_cuda(cudaEventRecord(stop_, stream), "cudaEventRecord stop");
+    }
+
+    bool update(float& milliseconds) {
+        if (!pending_) {
+            return false;
+        }
+        const cudaError_t query = cudaEventQuery(stop_);
+        if (query == cudaErrorNotReady) {
+            return false;
+        }
+        check_cuda(query, "cudaEventQuery");
+        check_cuda(
+            cudaEventElapsedTime(&milliseconds, start_, stop_),
+            "cudaEventElapsedTime");
+        pending_ = false;
+        return true;
+    }
+
+    bool pending() const {
+        return pending_;
+    }
+
+    void finish(float& milliseconds) {
+        if (!pending_) {
+            return;
+        }
+        check_cuda(cudaEventSynchronize(stop_), "cudaEventSynchronize");
+        check_cuda(
+            cudaEventElapsedTime(&milliseconds, start_, stop_),
+            "cudaEventElapsedTime");
+        pending_ = false;
+    }
+
+private:
+    cudaEvent_t start_ = nullptr;
+    cudaEvent_t stop_ = nullptr;
+    bool pending_ = false;
+
+    void ensure_created() {
+        if (start_) {
+            return;
+        }
+        check_cuda(cudaEventCreate(&start_), "cudaEventCreate start");
+        check_cuda(cudaEventCreate(&stop_), "cudaEventCreate stop");
+    }
 };
 
 class CudaSceneStorage {
 public:
-    explicit CudaSceneStorage(const Scene& scene) {
-        std::vector<DMaterial> materials;
-        materials.reserve(scene.materials.size());
-        for (const Material& material : scene.materials) {
-            materials.push_back(DMaterial{
+    CudaSceneStorage(
+        const Scene& scene,
+        cudaStream_t stream,
+        CudaPathStatistics& statistics)
+        : stream_(stream), statistics_(statistics) {
+        sync(scene, SceneChange::All);
+    }
+
+    DScene view() const { return view_; }
+
+    void sync(const Scene& scene, SceneChangeSet changes) {
+        upload_timer_.finish(statistics_.upload_milliseconds);
+        upload_timer_.begin(stream_);
+        if (has_scene_change(changes, SceneChange::Materials)) {
+            materials_host_.clear();
+            materials_host_.reserve(scene.materials.size());
+            for (const Material& material : scene.materials) {
+                materials_host_.push_back(DMaterial{
                 static_cast<int>(material.type),
                 to_device(material.base_color),
                 to_device(material.emission),
@@ -997,116 +1217,232 @@ public:
                 material.diffuse_texture_id,
                 material.opacity_texture_id,
                 material.bump_texture_id});
-        }
-        materials_.upload(materials);
-
-        std::vector<DTexture> textures;
-        std::vector<DVec3> texels;
-        textures.reserve(scene.textures.size());
-        for (const ImageTexture& texture : scene.textures) {
-            const int first = static_cast<int>(texels.size());
-            textures.push_back(DTexture{texture.width(), texture.height(), first});
-            for (const Color& color : texture.pixels()) {
-                texels.push_back(to_device(color));
             }
+            statistics_.material_upload_bytes +=
+                materials_.upload(materials_host_, stream_, statistics_);
         }
-        textures_.upload(textures);
-        texels_.upload(texels);
 
-        std::vector<DSphere> spheres;
-        spheres.reserve(scene.spheres.size());
-        for (const Sphere& sphere : scene.spheres) {
-            spheres.push_back(DSphere{
-                to_device(sphere.center()),
-                sphere.radius(),
-                sphere.material_id()});
-        }
-        spheres_.upload(spheres);
-
-        std::vector<DTriangle> triangles;
-        triangles.reserve(scene.triangles.size());
-        for (const Triangle& triangle : scene.triangles) {
-            DTriangle packed{};
-            for (int vertex_index = 0; vertex_index < 3; ++vertex_index) {
-                const TriangleVertex& vertex = triangle.vertex(vertex_index);
-                packed.vertices[vertex_index] = DVertex{
-                    to_device(vertex.position),
-                    to_device(vertex.uv),
-                    to_device(vertex.normal),
-                    vertex.has_normal ? 1 : 0};
+        if (has_scene_change(changes, SceneChange::Textures)) {
+            textures_host_.clear();
+            texels_host_.clear();
+            textures_host_.reserve(scene.textures.size());
+            std::size_t texel_count = 0;
+            for (const ImageTexture& texture : scene.textures) {
+                texel_count += texture.pixels().size();
             }
-            packed.material_id = triangle.material_id();
-            triangles.push_back(packed);
+            texels_host_.reserve(texel_count);
+            for (const ImageTexture& texture : scene.textures) {
+                const int first = static_cast<int>(texels_host_.size());
+                textures_host_.push_back(
+                    DTexture{texture.width(), texture.height(), first});
+                for (const Color& color : texture.pixels()) {
+                    texels_host_.push_back(to_device(color));
+                }
+            }
+            statistics_.texture_upload_bytes +=
+                textures_.upload(textures_host_, stream_, statistics_);
+            statistics_.texture_upload_bytes +=
+                texels_.upload(texels_host_, stream_, statistics_);
         }
-        triangles_.upload(triangles);
 
-        Bvh bvh;
-        bvh.build(scene.triangles);
-        std::vector<DBvhNode> nodes;
-        nodes.reserve(bvh.nodes().size());
-        for (const BvhNode& node : bvh.nodes()) {
-            nodes.push_back(DBvhNode{
-                to_device(node.bounds.min),
-                to_device(node.bounds.max),
-                node.left,
-                node.right,
-                node.first,
-                node.count});
+        if (has_scene_change(changes, SceneChange::Geometry)) {
+            spheres_host_.clear();
+            spheres_host_.reserve(scene.spheres.size());
+            const bool pack_bindings =
+                has_scene_change(changes, SceneChange::MaterialBindings);
+            if (pack_bindings) {
+                sphere_material_ids_host_.clear();
+                sphere_material_ids_host_.reserve(scene.spheres.size());
+            }
+            for (const Sphere& sphere : scene.spheres) {
+                spheres_host_.push_back(
+                    DSphere{to_device(sphere.center()), sphere.radius()});
+                if (pack_bindings) {
+                    sphere_material_ids_host_.push_back(sphere.material_id());
+                }
+            }
+            statistics_.geometry_upload_bytes +=
+                spheres_.upload(spheres_host_, stream_, statistics_);
+
+            triangles_host_.clear();
+            triangles_host_.reserve(scene.triangles.size());
+            if (pack_bindings) {
+                triangle_material_ids_host_.clear();
+                triangle_material_ids_host_.reserve(scene.triangles.size());
+            }
+            for (const Triangle& triangle : scene.triangles) {
+                DTriangle packed{};
+                for (int vertex_index = 0; vertex_index < 3; ++vertex_index) {
+                    const TriangleVertex& vertex = triangle.vertex(vertex_index);
+                    packed.vertices[vertex_index] = DVertex{
+                        to_device(vertex.position),
+                        to_device(vertex.uv),
+                        to_device(vertex.normal),
+                        vertex.has_normal ? 1 : 0};
+                }
+                triangles_host_.push_back(packed);
+                if (pack_bindings) {
+                    triangle_material_ids_host_.push_back(
+                        triangle.material_id());
+                }
+            }
+            statistics_.geometry_upload_bytes +=
+                triangles_.upload(triangles_host_, stream_, statistics_);
+
+            Bvh bvh;
+            bvh.build_layout(scene.triangles);
+            if (bvh.maximum_depth() + 1 >= kBvhStackCapacity) {
+                throw std::runtime_error(
+                    "host BVH exceeds the CUDA traversal stack capacity");
+            }
+            bvh_nodes_host_.clear();
+            bvh_nodes_host_.reserve(bvh.nodes().size());
+            for (const BvhNode& node : bvh.nodes()) {
+                bvh_nodes_host_.push_back(DBvhNode{
+                    to_device(node.bounds.min),
+                    to_device(node.bounds.max),
+                    node.left,
+                    node.right,
+                    node.first,
+                    node.count});
+            }
+            statistics_.bvh_upload_bytes +=
+                bvh_nodes_.upload(bvh_nodes_host_, stream_, statistics_);
+            primitive_indices_host_ = bvh.primitive_indices();
+            statistics_.bvh_upload_bytes +=
+                primitive_indices_.upload(
+                    primitive_indices_host_,
+                    stream_,
+                    statistics_);
         }
-        bvh_nodes_.upload(nodes);
-        primitive_indices_.upload(bvh.primitive_indices());
 
-        view_ = DScene{
-            materials_.get(), static_cast<int>(materials_.size()),
-            textures_.get(), static_cast<int>(textures_.size()), texels_.get(),
-            spheres_.get(), static_cast<int>(spheres_.size()),
-            triangles_.get(), static_cast<int>(triangles_.size()),
-            bvh_nodes_.get(), static_cast<int>(bvh_nodes_.size()), primitive_indices_.get(),
-            nullptr, 0,
-            nullptr, 0,
-            to_device(scene.environment)};
-        update_lighting(scene);
-    }
-
-    DScene view() const { return view_; }
-
-    void update_lighting(const Scene& scene) {
-        std::vector<DPointLight> point_lights;
-        point_lights.reserve(scene.point_lights.size());
-        for (const PointLight& light : scene.point_lights) {
-            point_lights.push_back(DPointLight{to_device(light.position), to_device(light.intensity)});
+        if (has_scene_change(changes, SceneChange::MaterialBindings)) {
+            if (!has_scene_change(changes, SceneChange::Geometry)) {
+                sphere_material_ids_host_.clear();
+                sphere_material_ids_host_.reserve(scene.spheres.size());
+                for (const Sphere& sphere : scene.spheres) {
+                    sphere_material_ids_host_.push_back(sphere.material_id());
+                }
+                triangle_material_ids_host_.clear();
+                triangle_material_ids_host_.reserve(scene.triangles.size());
+                for (const Triangle& triangle : scene.triangles) {
+                    triangle_material_ids_host_.push_back(
+                        triangle.material_id());
+                }
+            }
+            statistics_.material_binding_upload_bytes +=
+                sphere_material_ids_.upload(
+                    sphere_material_ids_host_,
+                    stream_,
+                    statistics_);
+            statistics_.material_binding_upload_bytes +=
+                triangle_material_ids_.upload(
+                    triangle_material_ids_host_,
+                    stream_,
+                    statistics_);
         }
-        point_lights_.upload(point_lights);
 
-        std::vector<DDirectionalLight> directional_lights;
-        directional_lights.reserve(scene.directional_lights.size());
-        for (const DirectionalLight& light : scene.directional_lights) {
-            directional_lights.push_back(DDirectionalLight{to_device(light.direction), to_device(light.radiance)});
+        if (has_scene_change(changes, SceneChange::Lighting)) {
+            point_lights_host_.clear();
+            point_lights_host_.reserve(scene.point_lights.size());
+            for (const PointLight& light : scene.point_lights) {
+                point_lights_host_.push_back(
+                    DPointLight{
+                        to_device(light.position),
+                        to_device(light.intensity)});
+            }
+            directional_lights_host_.clear();
+            directional_lights_host_.reserve(scene.directional_lights.size());
+            for (const DirectionalLight& light : scene.directional_lights) {
+                directional_lights_host_.push_back(
+                    DDirectionalLight{
+                        to_device(light.direction),
+                        to_device(light.radiance)});
+            }
+            statistics_.lighting_upload_bytes +=
+                point_lights_.upload(
+                    point_lights_host_,
+                    stream_,
+                    statistics_);
+            statistics_.lighting_upload_bytes +=
+                directional_lights_.upload(
+                    directional_lights_host_,
+                    stream_,
+                    statistics_);
+            statistics_.lighting_upload_bytes += sizeof(DVec3);
         }
-        directional_lights_.upload(directional_lights);
 
+        view_.materials = materials_.get();
+        view_.material_count = static_cast<int>(materials_.size());
+        view_.textures = textures_.get();
+        view_.texture_count = static_cast<int>(textures_.size());
+        view_.texels = texels_.get();
+        view_.spheres = spheres_.get();
+        view_.sphere_material_ids = sphere_material_ids_.get();
+        view_.sphere_count = static_cast<int>(spheres_.size());
+        view_.triangles = triangles_.get();
+        view_.triangle_material_ids = triangle_material_ids_.get();
+        view_.triangle_count = static_cast<int>(triangles_.size());
+        view_.bvh_nodes = bvh_nodes_.get();
+        view_.bvh_node_count = static_cast<int>(bvh_nodes_.size());
+        view_.primitive_indices = primitive_indices_.get();
         view_.point_lights = point_lights_.get();
         view_.point_light_count = static_cast<int>(point_lights_.size());
         view_.directional_lights = directional_lights_.get();
         view_.directional_light_count = static_cast<int>(directional_lights_.size());
         view_.environment = to_device(scene.environment);
+        upload_timer_.end(stream_);
+    }
+
+    void update_timing() {
+        upload_timer_.update(statistics_.upload_milliseconds);
     }
 
 private:
+    cudaStream_t stream_ = nullptr;
+    CudaPathStatistics& statistics_;
+    CudaEventTimer upload_timer_;
     DeviceBuffer<DMaterial> materials_;
     DeviceBuffer<DTexture> textures_;
     DeviceBuffer<DVec3> texels_;
     DeviceBuffer<DSphere> spheres_;
+    DeviceBuffer<int> sphere_material_ids_;
     DeviceBuffer<DTriangle> triangles_;
+    DeviceBuffer<int> triangle_material_ids_;
     DeviceBuffer<DBvhNode> bvh_nodes_;
     DeviceBuffer<int> primitive_indices_;
     DeviceBuffer<DPointLight> point_lights_;
     DeviceBuffer<DDirectionalLight> directional_lights_;
+    std::vector<DMaterial> materials_host_;
+    std::vector<DTexture> textures_host_;
+    std::vector<DVec3> texels_host_;
+    std::vector<DSphere> spheres_host_;
+    std::vector<int> sphere_material_ids_host_;
+    std::vector<DTriangle> triangles_host_;
+    std::vector<int> triangle_material_ids_host_;
+    std::vector<DBvhNode> bvh_nodes_host_;
+    std::vector<int> primitive_indices_host_;
+    std::vector<DPointLight> point_lights_host_;
+    std::vector<DDirectionalLight> directional_lights_host_;
     DScene view_{};
 };
 
 class CudaFrameStorage {
 public:
+    explicit CudaFrameStorage(CudaPathStatistics& statistics)
+        : statistics_(statistics) {
+        check_cuda(
+            cudaStreamCreateWithFlags(&stream_, cudaStreamNonBlocking),
+            "cudaStreamCreateWithFlags");
+    }
+
+    ~CudaFrameStorage() {
+        if (stream_) {
+            cudaStreamSynchronize(stream_);
+            cudaStreamDestroy(stream_);
+        }
+    }
+
     void reset(int width, int height, std::uint64_t seed_offset) {
         if (width <= 0 || height <= 0) {
             throw std::invalid_argument("CUDA framebuffer dimensions must be positive");
@@ -1118,21 +1454,24 @@ public:
         }
         width_ = width;
         height_ = height;
-        accumulation_.allocate(count);
-        display_.allocate(count);
-        random_states_.allocate(count);
-        error_code_.allocate(1);
+        reset_timer_.update(statistics_.reset_milliseconds);
+        const bool record_timing = !reset_timer_.pending();
+        if (record_timing) {
+            reset_timer_.begin(stream_);
+        }
+        accumulation_.resize(count, statistics_);
+        random_states_.resize(count, statistics_);
         const int block_count = static_cast<int>((count + kThreadsPerBlock - 1) / kThreadsPerBlock);
-        initialize_frame_kernel<<<block_count, kThreadsPerBlock>>>(
+        initialize_frame_kernel<<<block_count, kThreadsPerBlock, 0, stream_>>>(
             accumulation_.get(),
-            display_.get(),
             random_states_.get(),
             width,
             height,
-            seed_offset,
-            error_code_.get());
+            seed_offset);
         check_cuda(cudaGetLastError(), "initialize_frame_kernel launch");
-        check_cuda(cudaDeviceSynchronize(), "initialize_frame_kernel synchronize");
+        if (record_timing) {
+            reset_timer_.end(stream_);
+        }
         samples_ = 0;
     }
 
@@ -1148,53 +1487,90 @@ public:
             camera.viewport_width(),
             camera.viewport_height()};
         const std::size_t count = accumulation_.size();
+        DVec3* resolved = nullptr;
+        if (output_surface == 0) {
+            resolved_.resize(count, statistics_);
+            resolved = resolved_.get();
+        }
+        trace_timer_.update(statistics_.trace_milliseconds);
+        const bool record_timing = !trace_timer_.pending();
+        if (record_timing) {
+            trace_timer_.begin(stream_);
+        }
         const int block_count = static_cast<int>((count + kThreadsPerBlock - 1) / kThreadsPerBlock);
-        render_sample_kernel<<<block_count, kThreadsPerBlock>>>(
+        render_sample_kernel<<<block_count, kThreadsPerBlock, 0, stream_>>>(
             scene,
             packed_camera,
             accumulation_.get(),
-            display_.get(),
+            resolved,
             random_states_.get(),
             width_,
             height_,
             samples_,
-            error_code_.get(),
             output_surface);
         check_cuda(cudaGetLastError(), "render_sample_kernel launch");
+        if (record_timing) {
+            trace_timer_.end(stream_);
+        }
         ++samples_;
     }
 
     void synchronize_and_check_errors() {
-        int error = 0;
-        check_cuda(
-            cudaMemcpy(&error, error_code_.get(), sizeof(error), cudaMemcpyDeviceToHost),
-            "path rendering synchronize and error check");
-        if (error != 0) {
-            throw std::runtime_error("CUDA BVH traversal stack overflow");
-        }
+        check_cuda(cudaStreamSynchronize(stream_), "path rendering stream synchronize");
+        update_timings();
     }
 
-    std::vector<Color> download_pixels() {
+    std::vector<Color> download_pixels(bool use_pinned_staging = true) {
+        const std::size_t count = accumulation_.size();
+        resolved_.resize(count, statistics_);
+        std::vector<DVec3> pageable_pixels;
+        DVec3* packed_pixels = nullptr;
+        if (use_pinned_staging) {
+            pinned_pixels_.resize(count, statistics_);
+            packed_pixels = pinned_pixels_.get();
+        } else {
+            pageable_pixels.resize(count);
+            packed_pixels = pageable_pixels.data();
+        }
+        const int block_count =
+            static_cast<int>((count + kThreadsPerBlock - 1) / kThreadsPerBlock);
+        resolve_frame_kernel<<<block_count, kThreadsPerBlock, 0, stream_>>>(
+            accumulation_.get(),
+            resolved_.get(),
+            static_cast<int>(count),
+            samples_);
+        check_cuda(cudaGetLastError(), "resolve_frame_kernel launch");
+        resolved_.download(packed_pixels, stream_);
+        ++statistics_.framebuffer_downloads;
         synchronize_and_check_errors();
-        std::vector<DVec3> packed;
-        display_.download(packed);
         std::vector<Color> pixels;
-        pixels.reserve(packed.size());
-        for (const DVec3 value : packed) {
+        pixels.reserve(count);
+        for (std::size_t index = 0; index < count; ++index) {
+            const DVec3 value = packed_pixels[index];
             pixels.emplace_back(value.x, value.y, value.z);
         }
         return pixels;
     }
 
+    cudaStream_t stream() const { return stream_; }
     int width() const { return width_; }
     int height() const { return height_; }
     int samples() const { return samples_; }
 
+    void update_timings() {
+        reset_timer_.update(statistics_.reset_milliseconds);
+        trace_timer_.update(statistics_.trace_milliseconds);
+    }
+
 private:
+    CudaPathStatistics& statistics_;
+    cudaStream_t stream_ = nullptr;
+    CudaEventTimer reset_timer_;
+    CudaEventTimer trace_timer_;
     DeviceBuffer<DVec3> accumulation_;
-    DeviceBuffer<DVec3> display_;
+    DeviceBuffer<DVec3> resolved_;
     DeviceBuffer<DPcgState> random_states_;
-    DeviceBuffer<int> error_code_;
+    PinnedHostBuffer<DVec3> pinned_pixels_;
     int width_ = 0;
     int height_ = 0;
     int samples_ = 0;
@@ -1233,23 +1609,34 @@ RenderResult render_cuda_path(
     const Camera& camera,
     const RenderSettings& settings) {
     Timer timer;
-    CudaSceneStorage device_scene(scene);
-    CudaFrameStorage frame;
-    frame.reset(settings.width, settings.height, settings.sample_seed_offset);
-    const int sample_count = std::max(1, settings.samples_per_pixel);
+    CudaPathStatistics statistics;
+    CudaFrameStorage frame(statistics);
+    CudaSceneStorage device_scene(scene, frame.stream(), statistics);
+    frame.reset(settings.width, settings.height, settings.path.sample_seed_offset);
+    const int sample_count = std::max(1, settings.path.samples_per_pixel);
     for (int sample = 0; sample < sample_count; ++sample) {
         frame.render_sample(device_scene.view(), camera);
     }
     Image image(settings.width, settings.height);
-    image.set_pixels(frame.download_pixels());
+    image.set_pixels(frame.download_pixels(false));
     return RenderResult{std::move(image), timer.elapsed_seconds(), ExecutionBackend::Cuda};
 }
 
 class CudaPathInteractiveRenderer::Impl {
 public:
+    Impl()
+        : frame_(statistics_) {}
+
     void reset(const Scene& scene, const RenderSettings& settings) {
-        scene_ = std::make_unique<CudaSceneStorage>(scene);
-        frame_.reset(settings.width, settings.height, settings.sample_seed_offset);
+        if (!scene_) {
+            scene_ = std::make_unique<CudaSceneStorage>(
+                scene,
+                frame_.stream(),
+                statistics_);
+        } else {
+            scene_->sync(scene, SceneChange::All);
+        }
+        frame_.reset(settings.width, settings.height, settings.path.sample_seed_offset);
     }
 
     void render_next_frame(
@@ -1268,29 +1655,29 @@ public:
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state,
         CudaSurfaceHandle surface) {
-        if (frame_state.scene_changed || !scene_) {
-            scene_ = std::make_unique<CudaSceneStorage>(scene);
-        } else if (frame_state.lighting_changed) {
-            scene_->update_lighting(scene);
+        if (!scene_) {
+            scene_ = std::make_unique<CudaSceneStorage>(
+                scene,
+                frame_.stream(),
+                statistics_);
+        } else if (frame_state.scene_changes != SceneChange::None) {
+            scene_->sync(scene, frame_state.scene_changes);
         }
         const bool reset_accumulation =
             frame_.width() != settings.width ||
             frame_.height() != settings.height ||
             frame_state.camera_changed ||
-            frame_state.scene_changed ||
-            frame_state.lighting_changed ||
+            frame_state.scene_changes != SceneChange::None ||
             frame_state.framebuffer_resized ||
             frame_state.reset_requested;
         if (reset_accumulation) {
-            frame_.reset(settings.width, settings.height, settings.sample_seed_offset);
+            frame_.reset(settings.width, settings.height, settings.path.sample_seed_offset);
         }
         frame_.render_sample(
             scene_->view(),
             camera,
             static_cast<cudaSurfaceObject_t>(surface));
-        if (surface != 0) {
-            frame_.synchronize_and_check_errors();
-        }
+        scene_->update_timing();
     }
 
     void download_current_frame(Framebuffer& target) {
@@ -1304,9 +1691,27 @@ public:
         return frame_.samples();
     }
 
+    CudaStreamHandle stream_handle() const {
+        return reinterpret_cast<CudaStreamHandle>(frame_.stream());
+    }
+
+    const CudaPathStatistics& statistics() {
+        frame_.update_timings();
+        if (scene_) {
+            scene_->update_timing();
+        }
+        return statistics_;
+    }
+
+    void set_presentation_state(bool interop_active, bool fallback_active) {
+        statistics_.interop_active = interop_active;
+        statistics_.fallback_active = fallback_active;
+    }
+
 private:
-    std::unique_ptr<CudaSceneStorage> scene_;
+    CudaPathStatistics statistics_;
     CudaFrameStorage frame_;
+    std::unique_ptr<CudaSceneStorage> scene_;
 };
 
 CudaPathInteractiveRenderer::CudaPathInteractiveRenderer()
@@ -1346,6 +1751,20 @@ void CudaPathInteractiveRenderer::download_current_frame(Framebuffer& target) {
 
 int CudaPathInteractiveRenderer::accumulated_samples() const {
     return impl_->accumulated_samples();
+}
+
+CudaStreamHandle CudaPathInteractiveRenderer::stream_handle() const {
+    return impl_->stream_handle();
+}
+
+const CudaPathStatistics& CudaPathInteractiveRenderer::statistics() const {
+    return impl_->statistics();
+}
+
+void CudaPathInteractiveRenderer::set_presentation_state(
+    bool interop_active,
+    bool fallback_active) {
+    impl_->set_presentation_state(interop_active, fallback_active);
 }
 
 }  // namespace renderer

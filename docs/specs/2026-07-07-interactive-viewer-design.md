@@ -1,5 +1,7 @@
 # SDL3 + Eigen 交互窗口设计
 
+> **历史文档（已过期）：** 本文描述旧架构。CPU 软件光栅化与 Whitted 光追已于 2026-07-29 删除；当前架构仅支持 OpenGL 与 Path。
+
 ## 背景
 
 当前项目是教学用 CPU 3D renderer，现有入口 `renderer.exe` 通过命令行创建场景、调用 `IRenderer::render(...)` 得到完整 `Image`，最后写出 PNG。这个流程适合离线验证，但不适合拖动相机或物体，因为它没有窗口、输入事件、持续帧循环、可复用 framebuffer 或逐帧显示层。

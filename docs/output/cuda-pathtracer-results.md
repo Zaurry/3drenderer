@@ -1,5 +1,7 @@
 # CUDA Path Tracer Upgrade Results
 
+> **历史结果（已过期）：** 本文记录首次 CUDA Path 上线时的状态；当前 CUDA 链路已于 2026-07-29 重构，CPU 软件光栅化与 Whitted 光追也已删除。
+
 ## Scope
 
 This upgrade adds an optional CUDA backend only to the Monte Carlo path tracer.

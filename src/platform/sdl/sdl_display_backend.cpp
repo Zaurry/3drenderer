@@ -414,13 +414,9 @@ InputState SdlDisplayBackend::poll_input() {
             }
             if (!event.key.repeat) {
                 if (event.key.scancode == SDL_SCANCODE_1) {
-                    input.select_raster = true;
+                    input.render_mode_hotkey = 1;
                 } else if (event.key.scancode == SDL_SCANCODE_2) {
-                    input.select_ray = true;
-                } else if (event.key.scancode == SDL_SCANCODE_3) {
-                    input.select_path = true;
-                } else if (event.key.scancode == SDL_SCANCODE_4) {
-                    input.select_opengl = true;
+                    input.render_mode_hotkey = 2;
                 } else if (event.key.scancode == SDL_SCANCODE_F5) {
                     input.reload_shaders = true;
                 } else if (event.key.scancode == SDL_SCANCODE_R &&
@@ -633,6 +629,27 @@ void SdlDisplayBackend::present(
         framebuffer.height(),
         true,
         display_settings);
+}
+
+void SdlDisplayBackend::present(
+    const RenderFrameOutput& output,
+    const DisplaySettings& display_settings) {
+    if (output.kind() == RenderFrameOutputKind::HostFramebuffer &&
+        output.framebuffer()) {
+        present(*output.framebuffer(), display_settings);
+        return;
+    }
+    if (output.kind() == RenderFrameOutputKind::OpenGlTexture) {
+        const RenderTextureView& texture = output.texture();
+        present_texture(
+            texture.texture,
+            texture.width,
+            texture.height,
+            texture.flip_y,
+            display_settings);
+        return;
+    }
+    throw std::runtime_error("render backend produced no presentable frame");
 }
 
 void SdlDisplayBackend::present_texture(

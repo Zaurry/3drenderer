@@ -1037,10 +1037,12 @@ const std::vector<std::string>& SceneDocument::warnings() const {
 nlohmann::json SceneDocument::serialize_document(
     const std::filesystem::path& base,
     bool session_snapshot) const {
+    std::unordered_set<AssetId> referenced_asset_ids;
     for (const SceneObject& object : state_.objects) {
         if (object.type != SceneObjectType::Mesh) {
             continue;
         }
+        referenced_asset_ids.insert(object.asset_id);
         const auto asset = find_asset(object.asset_id);
         if (asset && asset->source_path.empty() &&
             (!session_snapshot || asset->builtin_id.empty())) {
@@ -1055,6 +1057,9 @@ nlohmann::json SceneDocument::serialize_document(
     root["environment"] = vec3_json(state_.environment);
     root["assets"] = nlohmann::json::array();
     for (const auto& asset : assets_) {
+        if (!referenced_asset_ids.contains(asset->id)) {
+            continue;
+        }
         if (session_snapshot) {
             nlohmann::json source;
             if (!asset->source_path.empty()) {
@@ -1201,6 +1206,17 @@ SceneDocument SceneDocument::deserialize_document(
     document.state_.objects.clear();
     document.assets_.clear();
     document.state_.environment = parse_vec3(root.at("environment"), "environment");
+    std::unordered_set<AssetId> referenced_asset_ids;
+    for (const auto& object_json : root.at("objects")) {
+        if (object_json.at("type").get<std::string>() != "mesh") {
+            continue;
+        }
+        const AssetId stored_asset =
+            object_json.value("asset", kInvalidAssetId);
+        if (stored_asset != kInvalidAssetId) {
+            referenced_asset_ids.insert(stored_asset);
+        }
+    }
     std::unordered_map<AssetId, AssetId> asset_ids;
     std::unordered_set<AssetId> stored_asset_ids;
     for (const auto& asset_json : root.at("assets")) {
@@ -1208,6 +1224,9 @@ SceneDocument SceneDocument::deserialize_document(
         if (stored_id == kInvalidAssetId ||
             !stored_asset_ids.insert(stored_id).second) {
             throw std::runtime_error("scene asset ids must be unique and nonzero");
+        }
+        if (!referenced_asset_ids.contains(stored_id)) {
+            continue;
         }
         if (session_snapshot) {
             const auto& source = asset_json.at("source");

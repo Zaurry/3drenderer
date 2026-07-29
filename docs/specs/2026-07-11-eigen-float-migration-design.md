@@ -1,5 +1,7 @@
 # Eigen Float 全项目数学迁移设计
 
+> **历史文档（已过期）：** 本文描述旧架构。CPU 软件光栅化与 Whitted 光追已于 2026-07-29 删除；当前架构仅支持 OpenGL 与 Path。
+
 ## 背景
 
 项目目前同时存在两套数学实现：`src/core/math` 下自研的 `Vec2`、`Vec3`、`Vec4`、`Mat4` 使用 `double`，交互轨道相机局部使用 `Eigen::Vector3d`。渲染核心、场景、BVH、纹理、采样、三个渲染器、交互层和测试中约有 396 个 `double`、587 个 `Vec3` 使用点。

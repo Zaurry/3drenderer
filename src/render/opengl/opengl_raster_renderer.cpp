@@ -239,7 +239,24 @@ public:
     void reset(const Scene& scene) {
         upload_geometry(scene);
         upload_textures(scene);
+        upload_lights(scene);
         scene_radius_ = compute_scene_radius(scene);
+    }
+
+    void sync_scene(const Scene& scene, SceneChangeSet changes) {
+        if (has_scene_change(changes, SceneChange::Geometry) ||
+            has_scene_change(changes, SceneChange::MaterialBindings)) {
+            upload_geometry(scene);
+        }
+        if (has_scene_change(changes, SceneChange::Textures)) {
+            upload_textures(scene);
+        }
+        if (has_scene_change(changes, SceneChange::Lighting)) {
+            upload_lights(scene);
+        }
+        if (has_scene_change(changes, SceneChange::Geometry)) {
+            scene_radius_ = compute_scene_radius(scene);
+        }
     }
 
     void render(
@@ -265,7 +282,6 @@ public:
             return;
         }
 
-        upload_lights(scene);
         glUseProgram(shader_program_.id());
         const Mat4 view_projection = view_projection_matrix(
             camera,
@@ -674,6 +690,12 @@ OpenGlRasterRenderer::~OpenGlRasterRenderer() = default;
 
 void OpenGlRasterRenderer::reset(const Scene& scene) {
     impl_->reset(scene);
+}
+
+void OpenGlRasterRenderer::sync_scene(
+    const Scene& scene,
+    SceneChangeSet changes) {
+    impl_->sync_scene(scene, changes);
 }
 
 void OpenGlRasterRenderer::render(

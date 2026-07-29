@@ -1,16 +1,8 @@
 #pragma once
 
-#include "core/color.h"
-
 #include <cstdint>
 
 namespace renderer {
-
-enum class RenderMode {
-    Raster,
-    Ray,
-    Path
-};
 
 enum class PathBackend {
     Auto,
@@ -18,17 +10,18 @@ enum class PathBackend {
     Cuda
 };
 
-struct RenderSettings {
-    int width = 512;
-    int height = 512;
+struct PathRenderSettings {
     int samples_per_pixel = 1;
-    // Recursion limit for the Whitted ray tracer. Path tracing uses Russian roulette.
-    int max_depth = 5;
     int tile_size = 16;
     int thread_count = 0;
     std::uint64_t sample_seed_offset = 0;
-    PathBackend path_backend = PathBackend::Auto;
-    Color background = Color(0.02f, 0.03f, 0.05f);
+    PathBackend backend = PathBackend::Auto;
+};
+
+struct RenderSettings {
+    int width = 512;
+    int height = 512;
+    PathRenderSettings path;
 };
 
 }  // namespace renderer

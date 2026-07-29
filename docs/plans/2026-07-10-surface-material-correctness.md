@@ -1,5 +1,7 @@
 # Surface Material Correctness Implementation Plan
 
+> **历史文档（已过期）：** 本文记录当时的实现计划。CPU 软件光栅化与 Whitted 光追已于 2026-07-29 删除；当前架构仅支持 OpenGL 与 Path。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make OBJ/MTL surfaces shade consistently across raster, ray, and path modes by preserving smooth normals, sharing material evaluation, supporting alpha cutout and bump maps, and adding direct lights to the path tracer.

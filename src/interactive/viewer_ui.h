@@ -6,6 +6,7 @@
 #include "interactive/orbit_camera_controller.h"
 #include "render/display_settings.h"
 #include "render/interactive/interactive_render_session.h"
+#include "render/pathtracer/cuda_pathtracer.h"
 #include "render/renderer.h"
 #include "scene/scene.h"
 #include "scene/scene_document.h"
@@ -22,7 +23,7 @@ enum class ViewerCameraMode {
 };
 
 struct ViewerUiState {
-    InteractiveRenderMode mode = InteractiveRenderMode::Raster;
+    InteractiveRenderMode mode = InteractiveRenderMode::OpenGl;
     ViewerCameraMode camera_mode = ViewerCameraMode::Orbit;
     DisplaySettings display;
     float render_scale = 1.0f;
@@ -64,14 +65,13 @@ struct ViewerUiActions {
     bool camera_mode_changed = false;
     bool camera_parameters_changed = false;
     bool camera_reset_requested = false;
-    bool lighting_changed = false;
+    SceneChangeSet scene_changes = SceneChange::None;
     bool render_scale_changed = false;
     bool reset_requested = false;
     bool display_changed = false;
     bool ui_style_changed = false;
     bool shader_reload_requested = false;
     bool shader_auto_reload_changed = false;
-    bool scene_changed = false;
     bool import_files_requested = false;
     bool import_folder_requested = false;
     bool open_scene_requested = false;
@@ -85,8 +85,7 @@ struct ViewerUiActions {
             camera_mode_changed ||
             camera_parameters_changed ||
             camera_reset_requested ||
-            lighting_changed ||
-            scene_changed ||
+            scene_changes != SceneChange::None ||
             render_scale_changed ||
             reset_requested;
     }
@@ -105,6 +104,7 @@ public:
         int accumulated_path_samples,
         ExecutionBackend active_path_backend,
         const CudaOpenGlInteropUiState& interop_state,
+        const CudaPathStatistics& cuda_statistics,
         OpenGlShaderUiState& shader_state,
         bool scene_shortcuts_enabled);
 

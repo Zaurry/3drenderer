@@ -216,6 +216,34 @@ bool is_object_selected(const ViewerUiState& state, ObjectId id) {
         id) != state.selected_objects.end();
 }
 
+SceneChangeSet render_changes_for_subtree(
+    const SceneDocument& document,
+    ObjectId id,
+    bool topology_changed) {
+    const SceneObject* object = document.find(id);
+    if (!object) {
+        return SceneChange::None;
+    }
+
+    SceneChangeSet changes = SceneChange::None;
+    if (object->type == SceneObjectType::Mesh) {
+        changes |= SceneChange::Geometry;
+        if (topology_changed) {
+            changes |= SceneChange::MaterialBindings;
+            changes |= SceneChange::Materials;
+            changes |= SceneChange::Textures;
+        }
+    } else if (
+        object->type == SceneObjectType::PointLight ||
+        object->type == SceneObjectType::DirectionalLight) {
+        changes |= SceneChange::Lighting;
+    }
+    for (ObjectId child : document.children(id)) {
+        changes |= render_changes_for_subtree(document, child, topology_changed);
+    }
+    return changes;
+}
+
 void select_object(ViewerUiState& state, ObjectId id, bool additive) {
     if (!additive) {
         state.selected_objects.clear();
@@ -343,6 +371,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                int accumulated_path_samples,
                                ExecutionBackend active_path_backend,
                                const CudaOpenGlInteropUiState& interop_state,
+                               const CudaPathStatistics& cuda_statistics,
                                OpenGlShaderUiState& shader_state,
                                bool scene_shortcuts_enabled) {
     ViewerUiActions actions;
@@ -403,10 +432,10 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
             state.gizmo_operation = 2;
         }
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z, false) && document.undo()) {
-            actions.scene_changed = true;
+            actions.scene_changes = SceneChange::All;
         }
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y, false) && document.redo()) {
-            actions.scene_changed = true;
+            actions.scene_changes = SceneChange::All;
         }
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O, false)) {
             actions.open_scene_requested = true;
@@ -422,7 +451,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
             const ObjectId copy = document.duplicate_subtree(state.active_object);
             if (copy != kInvalidObjectId) {
                 select_object(state, copy, false);
-                actions.scene_changed = true;
+                actions.scene_changes = SceneChange::All;
             }
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) &&
@@ -430,7 +459,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
             document.erase_subtree(state.active_object)) {
             state.selected_objects.clear();
             state.active_object = kInvalidObjectId;
-            actions.scene_changed = true;
+            actions.scene_changes = SceneChange::All;
         }
         if (ImGui::IsKeyPressed(ImGuiKey_F, false)) {
             actions.focus_object = state.active_object;
@@ -439,6 +468,8 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
 
     if (state.rendering_panel_visible) {
         if (ImGui::Begin("Rendering", &state.rendering_panel_visible)) {
+            const RenderModeCapability active_capabilities =
+                render_mode_descriptor(state.mode).capabilities;
             if (ImGui::CollapsingHeader("Performance", ImGuiTreeNodeFlags_DefaultOpen)) {
                 if (performance.valid) {
                     ImGui::Text("%.1f FPS  |  %.2f ms",
@@ -447,7 +478,9 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 } else {
                     ImGui::TextUnformatted("Collecting frame timing...");
                 }
-                if (state.mode == InteractiveRenderMode::Path) {
+                if (has_capability(
+                        active_capabilities,
+                        RenderModeCapability::Progressive)) {
                     ImGui::Text("%d spp  |  %s",
                                 accumulated_path_samples,
                                 active_path_backend == ExecutionBackend::Cuda ? "CUDA" : "CPU");
@@ -456,6 +489,38 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         if (!interop_state.detail.empty()) {
                             ImGui::TextWrapped("%s", interop_state.detail.c_str());
                         }
+                        ImGui::Text(
+                            "GPU trace %.3f ms  |  reset %.3f ms  |  upload %.3f ms",
+                            cuda_statistics.trace_milliseconds,
+                            cuda_statistics.reset_milliseconds,
+                            cuda_statistics.upload_milliseconds);
+                        ImGui::Text(
+                            "Alloc generation %llu  |  downloads %llu",
+                            static_cast<unsigned long long>(
+                                cuda_statistics.allocation_generation),
+                            static_cast<unsigned long long>(
+                                cuda_statistics.framebuffer_downloads));
+                        ImGui::Text(
+                            "Upload KiB: geometry %.1f  BVH %.1f  material %.1f  "
+                            "binding %.1f  texture %.1f  lighting %.1f",
+                            static_cast<double>(
+                                cuda_statistics.geometry_upload_bytes) /
+                                1024.0,
+                            static_cast<double>(
+                                cuda_statistics.bvh_upload_bytes) /
+                                1024.0,
+                            static_cast<double>(
+                                cuda_statistics.material_upload_bytes) /
+                                1024.0,
+                            static_cast<double>(
+                                cuda_statistics.material_binding_upload_bytes) /
+                                1024.0,
+                            static_cast<double>(
+                                cuda_statistics.texture_upload_bytes) /
+                                1024.0,
+                            static_cast<double>(
+                                cuda_statistics.lighting_upload_bytes) /
+                                1024.0);
                     }
                     if (ImGui::Button(state.path_accumulation_paused ? "Resume accumulation"
                                                                      : "Pause accumulation")) {
@@ -469,30 +534,49 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
             }
 
             if (ImGui::CollapsingHeader("Rendering", ImGuiTreeNodeFlags_DefaultOpen)) {
-                int mode = static_cast<int>(state.mode);
-                constexpr const char* modes[] = {"Raster", "Ray", "Path", "OpenGL"};
-                if (ImGui::Combo("Mode", &mode, modes, 4)) {
-                    state.mode = static_cast<InteractiveRenderMode>(mode);
-                    actions.mode_changed = true;
+                const RenderModeDescriptor& active_mode =
+                    render_mode_descriptor(state.mode);
+                if (ImGui::BeginCombo("Mode", active_mode.label)) {
+                    for (const RenderModeDescriptor& descriptor :
+                         interactive_render_modes()) {
+                        const bool selected = descriptor.mode == state.mode;
+                        if (ImGui::Selectable(descriptor.label, selected)) {
+                            state.mode = descriptor.mode;
+                            actions.mode_changed = true;
+                        }
+                        if (selected) {
+                            ImGui::SetItemDefaultFocus();
+                        }
+                    }
+                    ImGui::EndCombo();
                 }
 
-                if (state.mode == InteractiveRenderMode::Path &&
-                    draw_path_backend(render_settings.path_backend)) {
+                if (has_capability(
+                        active_capabilities,
+                        RenderModeCapability::PathBackendSelection) &&
+                    draw_path_backend(render_settings.path.backend)) {
                     actions.path_backend_changed = true;
                 }
-                if (state.mode == InteractiveRenderMode::Ray) {
-                    ImGui::SliderInt("Max depth", &render_settings.max_depth, 1, 32);
-                }
-                if (state.mode == InteractiveRenderMode::Path &&
-                    render_settings.path_backend != PathBackend::Cuda) {
+                if (has_capability(
+                        active_capabilities,
+                        RenderModeCapability::PathBackendSelection) &&
+                    render_settings.path.backend != PathBackend::Cuda) {
                     const int hardware_threads =
                         static_cast<int>(std::max(1U, std::thread::hardware_concurrency()));
                     ImGui::SliderInt(
-                        "CPU threads", &render_settings.thread_count, 0, hardware_threads, "%d");
+                        "CPU threads",
+                        &render_settings.path.thread_count,
+                        0,
+                        hardware_threads,
+                        "%d");
                     if (ImGui::IsItemHovered()) {
                         ImGui::SetTooltip("0 uses the hardware thread count");
                     }
-                    ImGui::SliderInt("Tile size", &render_settings.tile_size, 4, 64);
+                    ImGui::SliderInt(
+                        "Tile size",
+                        &render_settings.path.tile_size,
+                        4,
+                        64);
                 }
                 int render_scale_percent =
                     static_cast<int>(std::lround(state.render_scale * 100.0f));
@@ -502,7 +586,9 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 }
             }
 
-            if (state.mode == InteractiveRenderMode::OpenGl &&
+            if (has_capability(
+                    active_capabilities,
+                    RenderModeCapability::ShaderReload) &&
                 ImGui::CollapsingHeader("GLSL Shader", ImGuiTreeNodeFlags_DefaultOpen)) {
                 ImGui::TextUnformatted(shader_state.valid ? "Program: active"
                                                           : "Program: unavailable");
@@ -619,8 +705,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         "Environment strength",
                         environment);
                 if (environment_edit.changed) {
-                    actions.lighting_changed = true;
-                    actions.scene_changed = true;
+                    actions.scene_changes |= SceneChange::Lighting;
                 }
                 if (environment_edit.finished) {
                     document.checkpoint();
@@ -634,8 +719,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                                     Color(10.0f, 10.0f, 10.0f));
                     document.checkpoint();
                     select_object(state, id, false);
-                    actions.scene_changed = true;
-                    actions.lighting_changed = true;
+                    actions.scene_changes |= SceneChange::Lighting;
                 }
                 ImGui::SameLine();
                 if (ImGui::Button("Add directional light")) {
@@ -645,8 +729,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                                           Color(0.25f, 0.25f, 0.25f));
                     document.checkpoint();
                     select_object(state, id, false);
-                    actions.scene_changed = true;
-                    actions.lighting_changed = true;
+                    actions.scene_changes |= SceneChange::Lighting;
                 }
             }
         }
@@ -699,17 +782,16 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
             }
             ImGui::Separator();
             if (ImGui::Button("Undo") && document.undo()) {
-                actions.scene_changed = true;
+                actions.scene_changes = SceneChange::All;
             }
             ImGui::SameLine();
             if (ImGui::Button("Redo") && document.redo()) {
-                actions.scene_changed = true;
+                actions.scene_changes = SceneChange::All;
             }
             ImGui::SameLine();
             if (ImGui::Button("Add group")) {
                 document.create_group("Group");
                 document.checkpoint();
-                actions.scene_changed = true;
             }
             if (ImGui::RadioButton("Move (G)", state.gizmo_operation == 0)) {
                 state.gizmo_operation = 0;
@@ -758,7 +840,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                 ImGui::AcceptDragDropPayload("SCENE_OBJECT")) {
                             const ObjectId dropped = *static_cast<const ObjectId*>(payload->Data);
                             if (document.reparent(dropped, id)) {
-                                actions.scene_changed = true;
+                                actions.scene_changes = SceneChange::All;
                             }
                         }
                         ImGui::EndDragDropTarget();
@@ -797,14 +879,16 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 if (ImGui::Checkbox("Visible", &visibility)) {
                     active->visible = visibility;
                     document.checkpoint();
-                    actions.scene_changed = true;
+                    actions.scene_changes |= render_changes_for_subtree(
+                        document,
+                        active->id,
+                        true);
                 }
                 ImGui::SameLine();
                 bool locked = active->locked;
                 if (ImGui::Checkbox("Locked", &locked)) {
                     active->locked = locked;
                     document.checkpoint();
-                    actions.scene_changed = true;
                 }
 
                 ImGui::BeginDisabled(active->locked);
@@ -835,7 +919,10 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                 std::copysign(1.0e-4f, active->transform.scale[axis]);
                         }
                     }
-                    actions.scene_changed = true;
+                    actions.scene_changes |= render_changes_for_subtree(
+                        document,
+                        active->id,
+                        false);
                 }
                 if (transform_finished) {
                     document.checkpoint();
@@ -890,7 +977,8 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                             if (reset_override &&
                                 document.clear_material_override(active->id, slot)) {
                                 document.checkpoint();
-                                actions.scene_changed = true;
+                                actions.scene_changes |= SceneChange::Materials;
+                                actions.scene_changes |= SceneChange::MaterialBindings;
                             }
                         } else {
                             ImGui::TextDisabled("Original OBJ/MTL material");
@@ -942,7 +1030,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                     material_changed;
                                 material_edit_finished =
                                     ImGui::IsItemDeactivatedAfterEdit() || material_edit_finished;
-                                ImGui::TextDisabled("Physical roughness: Ray/Path");
+                                ImGui::TextDisabled("Physical roughness: Path");
                             } else if (properties->type == MaterialType::Dielectric) {
                                 material_changed =
                                     ImGui::SliderFloat(
@@ -950,7 +1038,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                     material_changed;
                                 material_edit_finished =
                                     ImGui::IsItemDeactivatedAfterEdit() || material_edit_finished;
-                                ImGui::TextDisabled("Physical refraction: Ray/Path");
+                                ImGui::TextDisabled("Physical refraction: Path");
                             } else if (properties->type == MaterialType::Emissive) {
                                 const ColorStrengthEditResult emission_edit =
                                     draw_color_and_strength(
@@ -1023,7 +1111,8 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
 
                             if (material_changed &&
                                 document.set_material_override(active->id, *properties)) {
-                                actions.scene_changed = true;
+                                actions.scene_changes |= SceneChange::Materials;
+                                actions.scene_changes |= SceneChange::MaterialBindings;
                             }
                             if (material_edit_finished ||
                                 (material_changed && checkpoint_immediately)) {
@@ -1042,8 +1131,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                             "Light intensity",
                             active->light_color);
                     if (light_edit.changed) {
-                        actions.lighting_changed = true;
-                        actions.scene_changed = true;
+                        actions.scene_changes |= SceneChange::Lighting;
                     }
                     if (light_edit.finished) {
                         document.checkpoint();
@@ -1054,7 +1142,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     const ObjectId copy = document.duplicate_subtree(active->id);
                     if (copy != kInvalidObjectId) {
                         select_object(state, copy, false);
-                        actions.scene_changed = true;
+                        actions.scene_changes = SceneChange::All;
                     }
                 }
                 ImGui::SameLine();
@@ -1063,7 +1151,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     if (document.erase_subtree(removed)) {
                         state.selected_objects.clear();
                         state.active_object = kInvalidObjectId;
-                        actions.scene_changed = true;
+                        actions.scene_changes = SceneChange::All;
                     }
                 }
                 ImGui::SameLine();

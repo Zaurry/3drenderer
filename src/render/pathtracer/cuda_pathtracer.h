@@ -10,6 +10,23 @@
 namespace renderer {
 
 using CudaSurfaceHandle = std::uint64_t;
+using CudaStreamHandle = std::uint64_t;
+
+struct CudaPathStatistics {
+    float trace_milliseconds = 0.0f;
+    float reset_milliseconds = 0.0f;
+    float upload_milliseconds = 0.0f;
+    std::uint64_t geometry_upload_bytes = 0;
+    std::uint64_t material_binding_upload_bytes = 0;
+    std::uint64_t material_upload_bytes = 0;
+    std::uint64_t texture_upload_bytes = 0;
+    std::uint64_t lighting_upload_bytes = 0;
+    std::uint64_t bvh_upload_bytes = 0;
+    std::uint64_t allocation_generation = 0;
+    std::uint64_t framebuffer_downloads = 0;
+    bool interop_active = false;
+    bool fallback_active = false;
+};
 
 bool cuda_path_backend_compiled();
 bool cuda_path_backend_available(std::string* reason = nullptr);
@@ -44,6 +61,9 @@ public:
         CudaSurfaceHandle surface);
     void download_current_frame(Framebuffer& target);
     int accumulated_samples() const;
+    CudaStreamHandle stream_handle() const;
+    const CudaPathStatistics& statistics() const;
+    void set_presentation_state(bool interop_active, bool fallback_active);
 
 private:
     class Impl;

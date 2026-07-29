@@ -69,7 +69,7 @@ int worker_count_for(const RenderSettings& settings, int total_tiles) {
         return 1;
     }
 
-    int worker_count = settings.thread_count;
+    int worker_count = settings.path.thread_count;
     if (worker_count <= 0) {
         worker_count = static_cast<int>(std::thread::hardware_concurrency());
     }
@@ -80,7 +80,7 @@ int worker_count_for(const RenderSettings& settings, int total_tiles) {
 }  // namespace
 
 RenderResult PathTracerRenderer::render(const Scene& scene, const Camera& camera, const RenderSettings& settings) {
-    if (resolve_path_backend(settings.path_backend) == ExecutionBackend::Cuda) {
+    if (resolve_path_backend(settings.path.backend) == ExecutionBackend::Cuda) {
         return render_cuda_path(scene, camera, settings);
     }
     return render_cpu(scene, camera, settings);
@@ -94,8 +94,8 @@ RenderResult PathTracerRenderer::render_cpu(
     Image image(settings.width, settings.height);
     const SceneIntersector intersector(scene);
 
-    const int samples_per_pixel = std::max(1, settings.samples_per_pixel);
-    const int tile_size = std::max(1, settings.tile_size);
+    const int samples_per_pixel = std::max(1, settings.path.samples_per_pixel);
+    const int tile_size = std::max(1, settings.path.tile_size);
     const int tiles_x = (settings.width + tile_size - 1) / tile_size;
     const int tiles_y = (settings.height + tile_size - 1) / tile_size;
     const int total_tiles = tiles_x * tiles_y;
@@ -121,7 +121,11 @@ RenderResult PathTracerRenderer::render_cpu(
 
             for (int y = start_y; y < end_y; ++y) {
                 for (int x = start_x; x < end_x; ++x) {
-                    PcgRandom rng(pixel_seed(x, y, settings.width, settings.sample_seed_offset));
+                    PcgRandom rng(pixel_seed(
+                        x,
+                        y,
+                        settings.width,
+                        settings.path.sample_seed_offset));
                     Color accumulated = black();
 
                     for (int sample = 0; sample < samples_per_pixel; ++sample) {

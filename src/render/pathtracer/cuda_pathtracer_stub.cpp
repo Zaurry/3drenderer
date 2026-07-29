@@ -58,4 +58,15 @@ int CudaPathInteractiveRenderer::accumulated_samples() const {
     return 0;
 }
 
+CudaStreamHandle CudaPathInteractiveRenderer::stream_handle() const {
+    return 0;
+}
+
+const CudaPathStatistics& CudaPathInteractiveRenderer::statistics() const {
+    static const CudaPathStatistics unavailable_statistics;
+    return unavailable_statistics;
+}
+
+void CudaPathInteractiveRenderer::set_presentation_state(bool, bool) {}
+
 }  // namespace renderer

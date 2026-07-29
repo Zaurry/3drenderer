@@ -1,15 +1,12 @@
 #include "render/pathtracer/pathtracer_renderer.h"
 #include "render/pathtracer/path_backend.h"
 #include "render/pathtracer/cuda_pathtracer.h"
-#include "render/rasterizer/rasterizer_renderer.h"
-#include "render/raytracer/raytracer_renderer.h"
 #include "scene/scene_asset_loader.h"
 #include "scene/scene.h"
 
 #include <algorithm>
 #include <exception>
 #include <iostream>
-#include <memory>
 #include <stdexcept>
 #include <string>
 
@@ -21,33 +18,30 @@ struct SceneBundle {
 };
 
 struct CliOptions {
-    std::string mode = "ray";
+    std::string mode = "path";
     std::string scene = "gradient_sphere";
     std::string obj_path;
     std::string output_path;
     int width = 512;
     int height = 512;
     int samples_per_pixel = 1;
-    int max_depth = 5;
     int thread_count = 0;
     renderer::PathBackend path_backend = renderer::PathBackend::Auto;
-    bool path_backend_specified = false;
     bool help = false;
 };
 
 void print_help() {
     std::cout
-        << "CPU 3D Renderer v0.1\n"
+        << "3D Path Renderer v0.1\n"
         << "\n"
         << "Usage:\n"
-        << "  renderer --mode raster|ray|path --scene gradient_sphere|raster_triangle|mirror_spheres|cornell_box|obj_viewer --output file.png [options]\n"
+        << "  renderer --mode path --scene gradient_sphere|triangle|mirror_spheres|cornell_box|obj_viewer --output file.png [options]\n"
         << "\n"
         << "Options:\n"
         << "  --obj path          OBJ file for --scene obj_viewer\n"
         << "  --width integer     image width, default 512\n"
         << "  --height integer    image height, default 512\n"
         << "  --spp integer       samples per pixel, default 1\n"
-        << "  --max-depth integer Whitted ray bounce depth, default 5\n"
         << "  --threads integer   path tracer worker threads, default hardware threads\n"
         << "  --path-backend auto|cpu|cuda  path execution backend, default auto\n"
         << "  --help              show this help\n";
@@ -93,13 +87,10 @@ CliOptions parse_args(int argc, char** argv) {
             options.height = parse_positive_int(require_value(argc, argv, i, arg), arg);
         } else if (arg == "--spp") {
             options.samples_per_pixel = parse_positive_int(require_value(argc, argv, i, arg), arg);
-        } else if (arg == "--max-depth") {
-            options.max_depth = parse_positive_int(require_value(argc, argv, i, arg), arg);
         } else if (arg == "--threads") {
             options.thread_count = parse_positive_int(require_value(argc, argv, i, arg), arg);
         } else if (arg == "--path-backend") {
             options.path_backend = renderer::parse_path_backend(require_value(argc, argv, i, arg));
-            options.path_backend_specified = true;
         } else if (arg == "--output") {
             options.output_path = require_value(argc, argv, i, arg);
         } else {
@@ -110,8 +101,9 @@ CliOptions parse_args(int argc, char** argv) {
     if (!options.help && options.output_path.empty()) {
         throw std::invalid_argument("--output is required");
     }
-    if (options.path_backend_specified && options.mode != "path") {
-        throw std::invalid_argument("--path-backend is only valid with --mode path");
+    if (!options.help && options.mode != "path") {
+        throw std::invalid_argument(
+            "unknown mode: " + options.mode + " (only path is supported)");
     }
     return options;
 }
@@ -153,9 +145,9 @@ SceneBundle make_scene_bundle(const CliOptions& options) {
                 options.width,
                 options.height)};
     }
-    if (options.scene == "raster_triangle") {
+    if (options.scene == "triangle") {
         return SceneBundle{
-            renderer::make_raster_triangle_scene(),
+            renderer::make_triangle_scene(),
             make_camera(
                 renderer::Vec3(0.0f, 0.0f, 2.0f),
                 renderer::Vec3(0.0f, 0.0f, 0.0f),
@@ -190,27 +182,13 @@ SceneBundle make_scene_bundle(const CliOptions& options) {
     throw std::invalid_argument("unknown scene: " + options.scene);
 }
 
-std::unique_ptr<renderer::IRenderer> make_renderer(const std::string& mode) {
-    if (mode == "raster") {
-        return std::make_unique<renderer::RasterizerRenderer>();
-    }
-    if (mode == "ray") {
-        return std::make_unique<renderer::RayTracerRenderer>();
-    }
-    if (mode == "path") {
-        return std::make_unique<renderer::PathTracerRenderer>();
-    }
-    throw std::invalid_argument("unknown mode: " + mode);
-}
-
 renderer::RenderSettings make_settings(const CliOptions& options) {
     renderer::RenderSettings settings;
     settings.width = options.width;
     settings.height = options.height;
-    settings.samples_per_pixel = options.samples_per_pixel;
-    settings.max_depth = options.max_depth;
-    settings.thread_count = options.thread_count;
-    settings.path_backend = options.path_backend;
+    settings.path.samples_per_pixel = options.samples_per_pixel;
+    settings.path.thread_count = options.thread_count;
+    settings.path.backend = options.path_backend;
     return settings;
 }
 
@@ -225,17 +203,17 @@ int main(int argc, char** argv) {
         }
 
         SceneBundle bundle = make_scene_bundle(options);
-        if (options.mode == "path" && options.path_backend == renderer::PathBackend::Auto) {
+        if (options.path_backend == renderer::PathBackend::Auto) {
             std::string reason;
             if (!renderer::cuda_path_backend_available(&reason)) {
                 std::cerr << "warning: CUDA path backend unavailable, using CPU: "
                           << reason << '\n';
             }
         }
-        std::unique_ptr<renderer::IRenderer> renderer_instance = make_renderer(options.mode);
+        renderer::PathTracerRenderer renderer_instance;
         const renderer::RenderSettings settings = make_settings(options);
         const renderer::RenderResult result =
-            renderer_instance->render(bundle.scene, bundle.camera, settings);
+            renderer_instance.render(bundle.scene, bundle.camera, settings);
 
         if (!result.image.write_png(options.output_path)) {
             throw std::runtime_error("failed to write PNG: " + options.output_path);
@@ -244,13 +222,8 @@ int main(int argc, char** argv) {
         std::cout << "mode=" << options.mode
                   << " scene=" << options.scene
                   << " size=" << settings.width << "x" << settings.height
-                  << " spp=" << settings.samples_per_pixel;
-        if (options.mode == "ray") {
-            std::cout << " max_depth=" << settings.max_depth;
-        }
-        if (options.mode == "path") {
-            std::cout << " backend=" << renderer::execution_backend_name(result.backend);
-        }
+                  << " spp=" << settings.path.samples_per_pixel
+                  << " backend=" << renderer::execution_backend_name(result.backend);
         std::cout << " seconds=" << result.seconds
                   << " output=" << options.output_path << "\n";
         return 0;

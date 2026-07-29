@@ -10,12 +10,12 @@ public:
         return false;
     }
 
-    bool begin_frame(int, int, CudaSurfaceHandle& surface) {
+    bool begin_frame(int, int, CudaStreamHandle, CudaSurfaceHandle& surface) {
         surface = 0;
         return false;
     }
 
-    bool end_frame() {
+    bool end_frame(CudaStreamHandle) {
         return false;
     }
 
@@ -65,12 +65,13 @@ bool CudaOpenGlInteropTexture::initialize() {
 bool CudaOpenGlInteropTexture::begin_frame(
     int width,
     int height,
+    CudaStreamHandle stream,
     CudaSurfaceHandle& surface) {
-    return impl_->begin_frame(width, height, surface);
+    return impl_->begin_frame(width, height, stream, surface);
 }
 
-bool CudaOpenGlInteropTexture::end_frame() {
-    return impl_->end_frame();
+bool CudaOpenGlInteropTexture::end_frame(CudaStreamHandle stream) {
+    return impl_->end_frame(stream);
 }
 
 void CudaOpenGlInteropTexture::cancel_frame() noexcept {

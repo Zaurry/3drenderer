@@ -1,5 +1,7 @@
 # Eigen Float Full-Project Migration Implementation Plan
 
+> **历史文档（已过期）：** 本文记录当时的实现计划。CPU 软件光栅化与 Whitted 光追已于 2026-07-29 删除；当前架构仅支持 OpenGL 与 Path。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the renderer's custom double-precision math with Eigen float types and native Eigen operations across all first-party code while preserving rendering behavior and measuring performance.

@@ -49,7 +49,7 @@ Scene make_gradient_sphere_scene() {
     return scene;
 }
 
-Scene make_raster_triangle_scene() {
+Scene make_triangle_scene() {
     Scene scene;
     scene.environment = Color(0.05f, 0.06f, 0.08f);
     scene.materials.push_back(diffuse(Color(0.2f, 0.7f, 0.9f)));

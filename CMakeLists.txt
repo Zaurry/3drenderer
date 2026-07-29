@@ -149,17 +149,12 @@ set(RENDERER_CORE_SOURCES
     src/interactive/free_camera_controller.cpp
     src/interactive/orbit_camera_controller.cpp
     src/interactive/viewer_session.cpp
-    src/render/depth_buffer.cpp
     src/render/display_settings.cpp
     src/render/framebuffer.cpp
+    src/render/interactive/render_mode.cpp
     src/render/interactive/path_interactive_session.cpp
-    src/render/interactive/raster_interactive_session.cpp
-    src/render/interactive/ray_interactive_session.cpp
     src/render/pathtracer/pathtracer_renderer.cpp
     src/render/pathtracer/path_backend.cpp
-    src/render/rasterizer/raster_geometry.cpp
-    src/render/rasterizer/rasterizer_renderer.cpp
-    src/render/raytracer/raytracer_renderer.cpp
     src/render/scene_intersector.cpp
     src/sampling/sampler.cpp
     src/scene/camera.cpp
@@ -207,6 +202,7 @@ if(RENDERER_BUILD_VIEWER)
     set(RENDERER_OPENGL_SOURCES
         src/platform/opengl/gl_shader_program.cpp
         src/render/opengl/opengl_raster_renderer.cpp
+        src/render/interactive/viewer_render_backend.cpp
     )
     if(RENDERER_HAS_CUDA)
         list(APPEND RENDERER_OPENGL_SOURCES

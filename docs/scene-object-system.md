@@ -1,137 +1,86 @@
-# Scene object system
+# 场景对象系统
 
-The viewer now separates the editable scene from the renderer's flat runtime
-scene:
+Viewer 编辑的是 `SceneDocument`，渲染后端消费扁平的 `Scene`。二者分离，使对象层级、身份、历史记录和文件语义不侵入 CPU/CUDA/OpenGL 的热路径。
+
+## 数据流
 
 ```text
-OBJ files/directories
-        |
-        v
 SceneDocument
-  - deduplicated mesh assets
-  - object hierarchy
-  - local TRS transforms
-  - visibility and locking
-  - per-object material overrides
-  - point/directional lights
-  - environment
-  - undo/redo history
-        |
-        v
-flattened Scene render snapshot
-        |
-        +-- CPU raster
-        +-- CPU ray/path
-        +-- CUDA path
-        `-- OpenGL/GLSL
+  +-- assets
+  +-- objects / hierarchy
+  +-- transforms
+  +-- material overrides
+  +-- undo / redo
+  +-- file/session state
+          |
+          v
+  rebuild_render_scene()
+          |
+          v
+        Scene
+      /       \
+ OpenGL       Path
+           CPU / CUDA
 ```
 
-Keeping a renderer-facing snapshot makes object edits behave identically in
-all four viewer modes. An OBJ is loaded only once into the document asset
-cache; duplicating an object creates another object that references the same
-asset. Geometry is transformed and flattened only when the document changes.
-This is the compatibility layer for the existing render backends; true
-GPU/CPU draw instancing and a two-level render BVH can be added later without
-changing the document or `.rscene` format.
+## 对象身份与层级
 
-## Opening assets
+每个对象都有稳定的 `ObjectId`。父子关系、独立 transform、visible、locked、名称与材质 override 都保留在文档层；导入多个 OBJ 不会把对象身份压平。
 
-`--asset` is repeatable and accepts either an OBJ file or a directory:
+对象世界矩阵由父级到子级组合。mesh 顶点与法线在生成 `Scene` 时变换；点光源位置和方向光方向同样由对象世界矩阵得到。
 
-```powershell
-.\build\default\bin\viewer.exe `
-  --asset "Computer Graphics Archive\hw1\model-a.obj" `
-  --asset "Computer Graphics Archive\hw1\model-b.obj" `
-  --mode raster
-```
+## Asset
 
-To recursively import every OBJ below a directory:
+`SceneMeshAsset` 保存导入源、局部几何、局部材质、纹理与局部 bounds。多个对象可引用同一个 asset，同时保留独立 transform 与材质 override。
 
-```powershell
-.\build\default\bin\viewer.exe `
-  --asset "Computer Graphics Archive\hw1" `
-  --mode raster
-```
+目录导入会递归发现支持的资产，并保持每个导入对象的独立身份。默认资产场景会添加一个方向光，便于首次预览。
 
-Directory structure becomes object hierarchy. Files are sorted by relative
-path before import, making object creation deterministic.
+## 材质 override
 
-The viewer also supports:
+override 以对象和 material slot 为粒度。生成扁平 `Scene` 时：
 
-- **Import OBJ...** for one or more files.
-- **Import folder...** for recursive import.
-- Dragging OBJ files, directories, or `.rscene` files onto the window.
-- `--scene-file path\to\scene.rscene` for opening a saved scene directly.
+1. 解析 asset 的基础材质与纹理索引。
+2. 对对象覆盖的 slot 应用 override。
+3. 生成全局 material 数组。
+4. 写入 primitive-material binding。
 
-## Editing
+因此材质编辑需要更新材质与 binding，但不需要重建 BVH。
 
-The **Scene Objects** panel contains the Outliner and Inspector.
+## SceneChangeSet
 
-- Click selects one object; `Ctrl+click` toggles multi-selection.
-- Drag an Outliner row onto another row to reparent it while preserving its
-  world transform.
-- `G`, `R`, and `S` choose translate, rotate, and scale gizmos.
-- The Inspector edits exact local translation, Euler rotation, and scale.
-- The Inspector's **Materials** section selects OBJ/MTL material slots by
-  material name. Editing creates an override for the active object only.
-- `Ctrl+D` duplicates the selected subtree. Mesh duplicates share the same
-  loaded asset and initially copy the same overrides; subsequent edits remain
-  independent.
-- `Delete` removes the selected subtree.
-- `F` frames the active object.
-- `Ctrl+Z` and `Ctrl+Y` undo and redo scene edits.
-- Visibility is inherited: hiding a group hides every descendant.
-- Locked objects cannot edit or reset material overrides.
+编辑器操作必须返回足够精确的变更分类：
 
-### Material overrides
+| 操作 | 变更 |
+|---|---|
+| 相机、选择、命名、locked | `None` |
+| 环境色、点光源、方向光 | `Lighting` |
+| 材质 override | `Materials | MaterialBindings` |
+| mesh/group transform | `Geometry`，若包含 light 还包括 `Lighting` |
+| visible 改变 | 对受影响子树按拓扑分类 |
+| 导入、删除、复制、reparent、undo/redo | `All` |
 
-An override can change the material type, base color/tint, roughness, IOR,
-emission, opacity, alpha cutoff, bump scale, and two-sided state. Diffuse,
-opacity, and bump texture switches are shown when the source material provides
-those maps and start enabled. The base color/tint is multiplied by the
-original diffuse texture, so changing a color does not discard `map_Kd`.
+`viewer_main` 只负责将 UI 与外部导入产生的变更合并。实际后端同步由统一 Viewer backend 完成。
 
-**Reset override** removes the active object's override and restores the
-currently loaded OBJ/MTL values. The original OBJ, MTL, and texture files are
-never modified. The first editor version intentionally does not replace
-texture files.
+## 保存与会话
 
-Raster and OpenGL update base color, textures, emission, opacity, bump, and
-two-sided preview state immediately. Metal roughness and dielectric IOR retain
-their physical meaning in Ray and Path modes; this does not turn the raster
-backends into a full PBR pipeline.
+`.rscene` 保存文档结构、asset 引用、对象层级、transform、材质 override 与灯光。Viewer 会话在此基础上额外保存：
 
-Selection outlines and the transform gizmo are editor overlays. They do not
-modify the linear framebuffer or path-tracing accumulation samples.
+- 窗口和布局。
+- 当前模式（仅 `opengl` / `path`）。
+- Path backend 与 CPU 参数。
+- 相机状态。
+- 选择、gizmo 与显示设置。
 
-## Scene files
+运行时资产表可以暂时保留无对象引用的资产以支持 undo/redo；`.rscene` 和 Viewer 会话只序列化当前 mesh 对象引用的资产。恢复旧快照时也会跳过孤立资产，避免重新加载已经删除的模型。
 
-`.rscene` version 2 is a versioned JSON scene document. It stores:
+会话格式版本保持为 1。旧 `max_depth` 会被忽略；旧 `raster` / `ray` 模式会话被拒绝。
 
-- asset paths, relative to the scene file when possible;
-- stable object and parent IDs;
-- object names, types, local transforms, visibility, and locking;
-- non-empty per-object material overrides;
-- light color/intensity and the environment.
+## 渲染边界
 
-Version 1 scene files remain readable and open with no material overrides.
-Overrides whose material slot is no longer present are retained in the file,
-ignored while rendering, and reported as warnings.
+后端不得直接依赖编辑器对象：
 
-Use **Open scene...**, **Save**, and **Save as...** in the panel. `Ctrl+O` and
-`Ctrl+S` are available while the panel is open. Saving writes a temporary file
-first and then replaces the destination. Missing assets are reported as
-warnings and their object entries remain in the Outliner, so the hierarchy is
-not silently discarded.
+- OpenGL backend 根据 `SceneChangeSet` 更新 GL 资源。
+- CPU Path 使用扁平 `Scene` 与 `SceneIntersector`。
+- CUDA Path 将 `Scene` 拆成独立 device buffers，并按变更类别同步。
 
-The scene file references OBJ/MTL/texture assets; it does not copy them.
-Keeping the `.rscene` near its asset directory makes the relative references
-portable.
-
-## Current render boundary
-
-The authoring side is asset/object based, while render backends still consume
-`Scene::triangles`. Rebuilding a snapshot is proportional to the total number
-of visible triangle instances. This is suitable for editing the homework
-scenes and guarantees feature parity today. Large scenes with many repeated
-instances will benefit from a later BLAS/TLAS runtime representation.
+这个边界允许后续增加新的对象组件或渲染后端，而不要求修改显示层或破坏现有对象身份。

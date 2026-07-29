@@ -9,8 +9,8 @@
 namespace renderer {
 
 void PathInteractiveSession::reset(const Scene& scene, const RenderSettings& settings) {
-    requested_backend_ = settings.path_backend;
-    active_backend_ = resolve_path_backend(settings.path_backend);
+    requested_backend_ = settings.path.backend;
+    active_backend_ = resolve_path_backend(settings.path.backend);
     if (active_backend_ == ExecutionBackend::Cuda) {
         if (!cuda_renderer_) {
             cuda_renderer_ = std::make_unique<CudaPathInteractiveRenderer>();
@@ -31,7 +31,7 @@ void PathInteractiveSession::render_next_frame(
     const RenderSettings& settings,
     const InteractiveFrameState& frame_state,
     Framebuffer& target) {
-    if (settings.path_backend != requested_backend_) {
+    if (settings.path.backend != requested_backend_) {
         reset(scene, settings);
     }
     if (active_backend_ == ExecutionBackend::Cuda) {
@@ -43,17 +43,18 @@ void PathInteractiveSession::render_next_frame(
     const bool dimensions_changed = settings.width != width_ || settings.height != height_;
     if (dimensions_changed ||
         frame_state.camera_changed ||
-        frame_state.scene_changed ||
-        frame_state.lighting_changed ||
+        frame_state.scene_changes != SceneChange::None ||
         frame_state.framebuffer_resized ||
         frame_state.reset_requested) {
         reset_accumulation(settings.width, settings.height);
     }
 
     RenderSettings one_sample_settings = settings;
-    one_sample_settings.samples_per_pixel = 1;
-    one_sample_settings.sample_seed_offset =
-        settings.sample_seed_offset + static_cast<std::uint64_t>(accumulated_samples_) + 1ULL;
+    one_sample_settings.path.samples_per_pixel = 1;
+    one_sample_settings.path.sample_seed_offset =
+        settings.path.sample_seed_offset +
+        static_cast<std::uint64_t>(accumulated_samples_) +
+        1ULL;
     const Image sample = renderer_.render(scene, camera, one_sample_settings).image;
     if (target.width() != sample.width() || target.height() != sample.height()) {
         target.resize(sample.width(), sample.height());
@@ -79,7 +80,7 @@ void PathInteractiveSession::render_next_frame_to_cuda_surface(
     const RenderSettings& settings,
     const InteractiveFrameState& frame_state,
     CudaSurfaceHandle surface) {
-    if (settings.path_backend != requested_backend_) {
+    if (settings.path.backend != requested_backend_) {
         reset(scene, settings);
     }
     if (active_backend_ != ExecutionBackend::Cuda || !cuda_renderer_) {
@@ -107,6 +108,22 @@ int PathInteractiveSession::accumulated_samples() const {
 
 ExecutionBackend PathInteractiveSession::active_backend() const {
     return active_backend_;
+}
+
+CudaStreamHandle PathInteractiveSession::cuda_stream_handle() const {
+    return cuda_renderer_ ? cuda_renderer_->stream_handle() : 0;
+}
+
+const CudaPathStatistics* PathInteractiveSession::cuda_statistics() const {
+    return cuda_renderer_ ? &cuda_renderer_->statistics() : nullptr;
+}
+
+void PathInteractiveSession::set_cuda_presentation_state(
+    bool interop_active,
+    bool fallback_active) {
+    if (cuda_renderer_) {
+        cuda_renderer_->set_presentation_state(interop_active, fallback_active);
+    }
 }
 
 void PathInteractiveSession::reset_accumulation(int width, int height) {

@@ -1,5 +1,7 @@
 #include "interactive/frame_rate_counter.h"
 
+#include "render/interactive/render_mode.h"
+
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -11,16 +13,7 @@ namespace renderer {
 namespace {
 
 const char* mode_label(InteractiveRenderMode mode) {
-    if (mode == InteractiveRenderMode::Raster) {
-        return "raster";
-    }
-    if (mode == InteractiveRenderMode::Ray) {
-        return "ray";
-    }
-    if (mode == InteractiveRenderMode::Path) {
-        return "path";
-    }
-    return "opengl";
+    return render_mode_descriptor(mode).cli_name;
 }
 
 }  // namespace
@@ -76,7 +69,9 @@ std::string format_viewer_title(
         title << "FPS --";
     }
 
-    if (mode == InteractiveRenderMode::Path) {
+    if (has_capability(
+            render_mode_descriptor(mode).capabilities,
+            RenderModeCapability::Progressive)) {
         title << " - " << std::max(0, path_sample_count) << " spp";
     }
     return title.str();

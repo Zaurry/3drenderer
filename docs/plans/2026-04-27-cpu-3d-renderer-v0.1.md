@@ -1,5 +1,7 @@
 # CPU 3D Renderer v0.1 Implementation Plan
 
+> **历史文档（已过期）：** 本文记录当时的实现计划。CPU 软件光栅化与 Whitted 光追已于 2026-07-29 删除；当前架构仅支持 OpenGL 与 Path。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a C++20 CPU renderer that outputs PNG images through software rasterization, Whitted ray tracing, and path tracing.
