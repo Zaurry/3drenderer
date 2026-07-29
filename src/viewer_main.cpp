@@ -289,6 +289,7 @@ struct ViewerSessionSignature {
     float render_scale = 1.0f;
     float ui_font_scale = 1.0f;
     float exposure_ev = 0.0f;
+    bool automatic_interaction_quality = true;
     bool path_accumulation_paused = false;
     bool show_point_light_markers = true;
     bool panel_visible = true;
@@ -325,6 +326,8 @@ ViewerSessionSignature make_session_signature(
     signature.render_scale = ui.render_scale;
     signature.ui_font_scale = ui.ui_font_scale;
     signature.exposure_ev = ui.display.exposure_ev;
+    signature.automatic_interaction_quality =
+        ui.automatic_interaction_quality;
     signature.path_accumulation_paused = ui.path_accumulation_paused;
     signature.show_point_light_markers = ui.show_point_light_markers;
     signature.panel_visible = ui.panel_visible;
@@ -835,6 +838,8 @@ int main(int argc, char** argv) {
             frame_state.delta_seconds = delta_seconds;
             frame_state.scene_changes = scene_changes;
             frame_state.reset_requested = ui_actions.reset_requested;
+            frame_state.automatic_interaction_quality =
+                ui_state.automatic_interaction_quality;
 
             if (input.window_resized || ui_actions.render_scale_changed) {
                 settings.width = scaled_dimension(window_width, ui_state.render_scale);
@@ -948,6 +953,7 @@ int main(int argc, char** argv) {
                 rendered_frames == 0 ||
                 mode_changed ||
                 ui_actions.path_backend_changed ||
+                ui_actions.automatic_interaction_quality_changed ||
                 frame_state.camera_changed ||
                 frame_state.scene_changes != renderer::SceneChange::None ||
                 frame_state.framebuffer_resized ||

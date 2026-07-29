@@ -494,6 +494,35 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                             cuda_statistics.trace_milliseconds,
                             cuda_statistics.reset_milliseconds,
                             cuda_statistics.upload_milliseconds);
+                        const char* work_mode = "full frame";
+                        if (cuda_statistics.work_mode ==
+                            CudaPathWorkMode::InteractionPreview) {
+                            work_mode = "interaction preview";
+                        } else if (cuda_statistics.work_mode ==
+                                   CudaPathWorkMode::NativeTile) {
+                            work_mode = "native tile";
+                        }
+                        ImGui::Text(
+                            "%s  |  internal %dx%d",
+                            work_mode,
+                            cuda_statistics.internal_width,
+                            cuda_statistics.internal_height);
+                        if (cuda_statistics.work_mode ==
+                            CudaPathWorkMode::NativeTile) {
+                            ImGui::Text(
+                                "Sweep %.1f%%  |  tile y=%d rows=%d  |  %.3f complete spp/s",
+                                cuda_statistics.sweep_progress * 100.0f,
+                                cuda_statistics.tile_y,
+                                cuda_statistics.tile_rows,
+                                cuda_statistics.complete_sweeps_per_second);
+                        }
+                        if (cuda_statistics.traversal_milliseconds > 0.0f ||
+                            cuda_statistics.sort_milliseconds > 0.0f) {
+                            ImGui::Text(
+                                "Traversal %.3f ms  |  sort %.3f ms",
+                                cuda_statistics.traversal_milliseconds,
+                                cuda_statistics.sort_milliseconds);
+                        }
                         ImGui::Text(
                             "Alloc generation %llu  |  downloads %llu",
                             static_cast<unsigned long long>(
@@ -577,6 +606,12 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         &render_settings.path.tile_size,
                         4,
                         64);
+                }
+                if (active_path_backend == ExecutionBackend::Cuda &&
+                    ImGui::Checkbox(
+                        "Auto interaction quality",
+                        &state.automatic_interaction_quality)) {
+                    actions.automatic_interaction_quality_changed = true;
                 }
                 int render_scale_percent =
                     static_cast<int>(std::lround(state.render_scale * 100.0f));

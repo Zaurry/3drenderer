@@ -2564,6 +2564,99 @@ void test_cuda_pathtracer_alpha_texture_and_interactive_reset_when_available() {
     RENDER_CHECK(session.accumulated_samples() == 1);
 }
 
+void test_cuda_pathtracer_auto_interaction_preview_and_native_tiles_when_available() {
+    if (!renderer::cuda_path_backend_available()) {
+        return;
+    }
+
+    renderer::Scene scene = renderer::make_triangle_scene();
+    scene.environment = renderer::Color(0.1f, 0.2f, 0.3f);
+    const renderer::Camera camera(
+        renderer::Vec3(0.0f, 0.0f, 1.5f),
+        renderer::Vec3::Zero(),
+        renderer::Vec3::UnitY(),
+        45.0f,
+        0.25f);
+    renderer::RenderSettings settings;
+    settings.width = 16;
+    settings.height = 64;
+    settings.path.backend = renderer::PathBackend::Cuda;
+    settings.path.sample_seed_offset = 91;
+
+    renderer::PathInteractiveSession reference;
+    renderer::Framebuffer reference_frame(settings.width, settings.height);
+    renderer::InteractiveFrameState full_state;
+    reference.reset(scene, settings);
+    reference.render_next_frame(
+        scene,
+        camera,
+        settings,
+        full_state,
+        reference_frame);
+    RENDER_CHECK(reference.accumulated_samples() == 1);
+
+    renderer::PathInteractiveSession automatic;
+    renderer::Framebuffer automatic_frame(settings.width, settings.height);
+    renderer::InteractiveFrameState interaction_state;
+    interaction_state.automatic_interaction_quality = true;
+    interaction_state.camera_changed = true;
+    automatic.reset(scene, settings);
+    automatic.render_next_frame(
+        scene,
+        camera,
+        settings,
+        interaction_state,
+        automatic_frame);
+    RENDER_CHECK(automatic.accumulated_samples() == 0);
+    RENDER_CHECK(
+        automatic.cuda_statistics()->work_mode ==
+        renderer::CudaPathWorkMode::InteractionPreview);
+    const renderer::Color preview_bottom =
+        automatic_frame.pixel(8, settings.height - 1);
+
+    interaction_state.camera_changed = false;
+    for (int frame = 0; frame < 8; ++frame) {
+        automatic.render_next_frame(
+            scene,
+            camera,
+            settings,
+            interaction_state,
+            automatic_frame);
+    }
+    RENDER_CHECK(automatic.accumulated_samples() == 0);
+    const renderer::CudaPathStatistics partial_tile =
+        *automatic.cuda_statistics();
+    RENDER_CHECK(
+        partial_tile.work_mode == renderer::CudaPathWorkMode::NativeTile);
+    RENDER_CHECK(partial_tile.internal_width == settings.width);
+    RENDER_CHECK(partial_tile.tile_rows == 32);
+    RENDER_CHECK(nearly_equal(partial_tile.sweep_progress, 0.5f));
+    RENDER_CHECK(
+        (automatic_frame.pixel(8, settings.height - 1) -
+         preview_bottom).norm() <
+        1.0e-6f);
+
+    automatic.render_next_frame(
+        scene,
+        camera,
+        settings,
+        interaction_state,
+        automatic_frame);
+    RENDER_CHECK(automatic.accumulated_samples() == 1);
+    const renderer::CudaPathStatistics completed_tile =
+        *automatic.cuda_statistics();
+    RENDER_CHECK(completed_tile.sweep_progress == 0.0f);
+    RENDER_CHECK(framebuffer_colors_are_finite(automatic_frame));
+    for (int y = 0; y < settings.height; ++y) {
+        for (int x = 0; x < settings.width; ++x) {
+            RENDER_CHECK(
+                (automatic_frame.pixel(x, y) -
+                 reference_frame.pixel(x, y)).norm() <
+                1.0e-6f);
+        }
+    }
+}
+
 renderer::Scene make_cuda_nee_test_scene(
     bool triangle_light,
     bool faces_receiver = true,
@@ -3298,6 +3391,7 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     state.ui.camera_mode = renderer::ViewerCameraMode::Free;
     state.ui.render_scale = 0.75f;
     state.ui.ui_font_scale = 1.25f;
+    state.ui.automatic_interaction_quality = false;
     state.ui.path_accumulation_paused = true;
     state.ui.show_point_light_markers = false;
     state.ui.panel_visible = false;
@@ -3361,6 +3455,7 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     RENDER_CHECK(loaded.ui.camera_mode == renderer::ViewerCameraMode::Free);
     RENDER_CHECK(nearly_equal(loaded.ui.render_scale, 0.75f));
     RENDER_CHECK(nearly_equal(loaded.ui.ui_font_scale, 1.25f));
+    RENDER_CHECK(!loaded.ui.automatic_interaction_quality);
     RENDER_CHECK(loaded.ui.path_accumulation_paused);
     RENDER_CHECK(!loaded.ui.show_point_light_markers);
     RENDER_CHECK(!loaded.ui.panel_visible);
@@ -3402,6 +3497,16 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     RENDER_CHECK(
         ignored_legacy_field.ui.mode ==
         renderer::InteractiveRenderMode::Path);
+
+    nlohmann::json old_session_json = saved_json;
+    old_session_json["view"].erase("automatic_interaction_quality");
+    {
+        std::ofstream output(session_path);
+        output << old_session_json.dump(2) << '\n';
+    }
+    const renderer::ViewerSessionState old_session =
+        renderer::ViewerSessionStore::load(session_path);
+    RENDER_CHECK(old_session.ui.automatic_interaction_quality);
 
     for (const char* removed_mode : {"raster", "ray"}) {
         nlohmann::json removed_mode_json = saved_json;
@@ -3671,6 +3776,7 @@ int main() {
     test_path_backend_selection_contract();
     test_cuda_pathtracer_matches_cpu_statistics_when_available();
     test_cuda_pathtracer_alpha_texture_and_interactive_reset_when_available();
+    test_cuda_pathtracer_auto_interaction_preview_and_native_tiles_when_available();
     test_cuda_pathtracer_emissive_nee_and_mis_when_available();
     test_cuda_pathtracer_lighting_contracts_when_available();
     test_cuda_pathtracer_spheres_materials_and_bump_texture_when_available();

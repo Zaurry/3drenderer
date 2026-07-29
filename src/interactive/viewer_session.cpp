@@ -212,6 +212,8 @@ ViewerSessionState ViewerSessionStore::load(
         finite_clamped(view, "ui_font_scale", 0.75f, 2.0f);
     state.ui.path_accumulation_paused =
         view.value("path_accumulation_paused", false);
+    state.ui.automatic_interaction_quality =
+        view.value("automatic_interaction_quality", true);
     state.ui.show_point_light_markers =
         view.value("show_point_light_markers", true);
     state.ui.panel_visible = view.value("panel_visible", true);
@@ -303,6 +305,10 @@ void ViewerSessionStore::save(
         {"render_scale", state.ui.render_scale},
         {"ui_font_scale", state.ui.ui_font_scale},
         {"path_accumulation_paused", state.ui.path_accumulation_paused},
+        {
+            "automatic_interaction_quality",
+            state.ui.automatic_interaction_quality,
+        },
         {"show_point_light_markers", state.ui.show_point_light_markers},
         {"panel_visible", state.ui.panel_visible},
         {"scene_panel_visible", state.ui.scene_panel_visible},

@@ -12,6 +12,12 @@ namespace renderer {
 using CudaSurfaceHandle = std::uint64_t;
 using CudaStreamHandle = std::uint64_t;
 
+enum class CudaPathWorkMode {
+    FullFrame,
+    InteractionPreview,
+    NativeTile,
+};
+
 struct CudaPathStatistics {
     float trace_milliseconds = 0.0f;
     float reset_milliseconds = 0.0f;
@@ -24,6 +30,15 @@ struct CudaPathStatistics {
     std::uint64_t bvh_upload_bytes = 0;
     std::uint64_t allocation_generation = 0;
     std::uint64_t framebuffer_downloads = 0;
+    CudaPathWorkMode work_mode = CudaPathWorkMode::FullFrame;
+    int internal_width = 0;
+    int internal_height = 0;
+    int tile_y = 0;
+    int tile_rows = 0;
+    float sweep_progress = 0.0f;
+    float complete_sweeps_per_second = 0.0f;
+    float traversal_milliseconds = 0.0f;
+    float sort_milliseconds = 0.0f;
     bool interop_active = false;
     bool fallback_active = false;
 };

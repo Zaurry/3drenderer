@@ -140,6 +140,12 @@ CUDA 后端使用：
 - 同尺寸 reset 的原地初始化 kernel。
 - Host 侧打包数组容量复用与异步上传。
 - Host 构建阶段的 BVH 最大深度验证。
+- CUDA 专用 16-bin SAH BVH4；叶节点最多 8 个三角形，inner/leaf 统一编码并按
+  AABB 入口距离由近到远遍历。
+- 求交数据使用 `v0 / edge1 / edge2` 紧凑布局，UV、normal 与 normal mask
+  独立存放；每条射线只计算一次逆方向。
+- continuation ray 使用 alpha-aware nearest-visible-hit；shadow ray 使用
+  alpha-aware any-hit 并在首个有效遮挡处退出。
 - CUDA Graph 驱动的 primary、intersection、shade/scatter、emissive sampling、
   direct visibility、accumulate/resolve Wavefront 阶段。
 - 双缓冲 active/next path queue、warp 聚合入队和紧凑的
@@ -148,8 +154,19 @@ CUDA 后端使用：
 - 只有最终材质实际使用 bump texture 时才计算 tangent/bitangent。
 - Diffuse bounce 对 emissive 三角形/球体执行一次 NEE，并用 β=2 power
   heuristic 与 cosine-weighted BSDF 样本做 MIS。
+- Viewer 默认启用 `Auto interaction quality`：相机/场景交互使用自适应
+  100%/75%/50%/25% 内部分辨率与最多 2 个 shading bounce；连续静止 8 帧后
+  恢复原生 64-bounce 累积。
+- 原生累积按 1–64 行水平 tile 调度，每次 Viewer 循环只提交一个 GPU work
+  quantum；完整 sweep 后才增加 1 spp。低分辨率预览会放大写入完整 interop
+  surface，原生 tile 随后逐块覆盖。
 
-Performance 面板显示 GPU trace/reset/upload 时间、各类累计上传字节、分配代次、framebuffer 下载次数及 interop/fallback 状态。
+Performance 面板分别显示 UI FPS、完整原生 spp、GPU 工作模式、内部分辨率、
+tile/sweep 进度、GPU trace/reset/upload 时间、各类累计上传字节、分配代次、
+framebuffer 下载次数及 interop/fallback 状态。
+
+重场景基准、真实相机与 RTX 5080 结果见
+[CUDA 重场景性能结果](docs/output/cuda-heavy-scene-performance-results.md)。
 
 CUDA Path 不依赖 OptiX 或 RT Core。这里的“降噪”来自 NEE/MIS 降低 Monte
 Carlo 方差；没有引入 OptiX/OIDN 等后处理降噪器。CPU Path 的采样与输出算法保持不变。

@@ -28,6 +28,7 @@ struct ViewerUiState {
     DisplaySettings display;
     float render_scale = 1.0f;
     float ui_font_scale = 1.0f;
+    bool automatic_interaction_quality = true;
     bool path_accumulation_paused = false;
     bool show_point_light_markers = true;
     bool panel_visible = true;
@@ -67,6 +68,7 @@ struct ViewerUiActions {
     bool camera_reset_requested = false;
     SceneChangeSet scene_changes = SceneChange::None;
     bool render_scale_changed = false;
+    bool automatic_interaction_quality_changed = false;
     bool reset_requested = false;
     bool display_changed = false;
     bool ui_style_changed = false;
@@ -87,6 +89,7 @@ struct ViewerUiActions {
             camera_reset_requested ||
             scene_changes != SceneChange::None ||
             render_scale_changed ||
+            automatic_interaction_quality_changed ||
             reset_requested;
     }
 };

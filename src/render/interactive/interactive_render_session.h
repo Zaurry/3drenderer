@@ -50,6 +50,7 @@ struct InteractiveFrameState {
     SceneChangeSet scene_changes = SceneChange::None;
     bool framebuffer_resized = false;
     bool reset_requested = false;
+    bool automatic_interaction_quality = false;
     float delta_seconds = 0.0f;
 };
 

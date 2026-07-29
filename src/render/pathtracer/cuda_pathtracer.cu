@@ -9,12 +9,15 @@
 #include <cuda_runtime.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cfloat>
 #include <climits>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <numeric>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -26,7 +29,6 @@ namespace {
 constexpr int kThreadsPerBlock = 128;
 constexpr int kMaxPathBounces = 64;
 constexpr int kRussianRouletteStartBounce = 3;
-constexpr int kMaxTransparentLayers = 64;
 constexpr int kBvhStackCapacity = 64;
 constexpr float kPi = 3.14159265358979323846f;
 
@@ -53,15 +55,16 @@ struct DRay {
     DVec3 direction;
 };
 
-struct DVertex {
-    DVec3 position;
-    DVec2 uv;
-    DVec3 normal;
-    int has_normal;
+struct DTraversalTriangle {
+    DVec3 v0;
+    DVec3 edge1;
+    DVec3 edge2;
 };
 
-struct DTriangle {
-    DVertex vertices[3];
+struct DShadingTriangle {
+    DVec2 uvs[3];
+    DVec3 normals[3];
+    unsigned int normal_mask;
 };
 
 struct DSphere {
@@ -90,13 +93,13 @@ struct DTexture {
     int first_pixel;
 };
 
-struct DBvhNode {
-    DVec3 bounds_min;
-    DVec3 bounds_max;
-    int left;
-    int right;
-    int first;
-    int count;
+struct DBvh4Node {
+    DVec3 bounds_min[4];
+    DVec3 bounds_max[4];
+    int children[4];
+    int first[4];
+    int counts[4];
+    int child_count;
 };
 
 struct DPointLight {
@@ -136,10 +139,11 @@ struct DScene {
     const DSphere* spheres;
     const int* sphere_material_ids;
     int sphere_count;
-    const DTriangle* triangles;
+    const DTraversalTriangle* traversal_triangles;
+    const DShadingTriangle* shading_triangles;
     const int* triangle_material_ids;
     int triangle_count;
-    const DBvhNode* bvh_nodes;
+    const DBvh4Node* bvh_nodes;
     int bvh_node_count;
     const int* primitive_indices;
     const DPointLight* point_lights;
@@ -227,7 +231,12 @@ struct DFrameParameters {
     int completed_samples;
     int batch_sample_count;
     int* batch_sample_index;
+    int pixel_offset;
+    int pixel_count;
     int path_capacity;
+    int max_bounces;
+    int output_width;
+    int output_height;
     int* error_code;
     cudaSurfaceObject_t output_surface;
 };
@@ -238,6 +247,265 @@ __host__ DVec3 to_device(const Vec3& value) {
 
 __host__ DVec2 to_device(const Vec2& value) {
     return DVec2{value.x(), value.y()};
+}
+
+struct GpuBvhPrimitiveInfo {
+    Bounds3 bounds;
+    Vec3 centroid = Vec3::Zero();
+};
+
+struct GpuBinaryBvhNode {
+    Bounds3 bounds;
+    int left = -1;
+    int right = -1;
+    int first = 0;
+    int count = 0;
+};
+
+struct GpuBvh4Layout {
+    std::vector<DBvh4Node> nodes;
+    std::vector<int> primitive_indices;
+};
+
+float host_bounds_area(const Bounds3& bounds) {
+    if (!bounds.min.allFinite() || !bounds.max.allFinite()) {
+        return 0.0f;
+    }
+    const Vec3 extent = (bounds.max - bounds.min).cwiseMax(0.0f);
+    return 2.0f *
+        (extent.x() * extent.y() +
+         extent.x() * extent.z() +
+         extent.y() * extent.z());
+}
+
+class GpuBvh4Builder {
+public:
+    explicit GpuBvh4Builder(const std::vector<Triangle>& triangles)
+        : triangles_(triangles),
+          primitive_info_(triangles.size()),
+          primitive_indices_(triangles.size()) {
+        std::iota(primitive_indices_.begin(), primitive_indices_.end(), 0);
+        for (std::size_t index = 0; index < triangles.size(); ++index) {
+            primitive_info_[index].bounds = triangles[index].bounds();
+            primitive_info_[index].centroid = triangles[index].centroid();
+        }
+    }
+
+    GpuBvh4Layout build() {
+        GpuBvh4Layout layout;
+        if (triangles_.empty()) {
+            return layout;
+        }
+        binary_nodes_.reserve(triangles_.size() * 2);
+        const int root = build_binary(
+            0,
+            static_cast<int>(primitive_indices_.size()));
+        wide_nodes_.reserve((binary_nodes_.size() + 2) / 3);
+        collapse(root);
+        layout.nodes = std::move(wide_nodes_);
+        layout.primitive_indices = std::move(primitive_indices_);
+        return layout;
+    }
+
+private:
+    static constexpr int kBinCount = 16;
+    static constexpr int kMaxLeafTriangles = 8;
+
+    struct Bin {
+        Bounds3 bounds;
+        int count = 0;
+    };
+
+    const std::vector<Triangle>& triangles_;
+    std::vector<GpuBvhPrimitiveInfo> primitive_info_;
+    std::vector<int> primitive_indices_;
+    std::vector<GpuBinaryBvhNode> binary_nodes_;
+    std::vector<DBvh4Node> wide_nodes_;
+
+    int build_binary(int first, int count) {
+        const int node_index = static_cast<int>(binary_nodes_.size());
+        binary_nodes_.push_back(GpuBinaryBvhNode{});
+        Bounds3 bounds;
+        Bounds3 centroid_bounds;
+        for (int offset = 0; offset < count; ++offset) {
+            const GpuBvhPrimitiveInfo& primitive =
+                primitive_info_[primitive_indices_[first + offset]];
+            bounds.expand(primitive.bounds);
+            centroid_bounds.expand(primitive.centroid);
+        }
+        binary_nodes_[node_index].bounds = bounds;
+        if (count <= kMaxLeafTriangles) {
+            binary_nodes_[node_index].first = first;
+            binary_nodes_[node_index].count = count;
+            return node_index;
+        }
+
+        const int axis = centroid_bounds.longest_axis();
+        const float minimum = centroid_bounds.min[axis];
+        const float maximum = centroid_bounds.max[axis];
+        const float extent = maximum - minimum;
+        int middle = first;
+        if (std::isfinite(extent) && extent > 1.0e-12f) {
+            std::array<Bin, kBinCount> bins{};
+            for (int offset = 0; offset < count; ++offset) {
+                const int primitive_index = primitive_indices_[first + offset];
+                const float coordinate =
+                    primitive_info_[primitive_index].centroid[axis];
+                const int bin_index = std::clamp(
+                    static_cast<int>(
+                        (coordinate - minimum) *
+                        static_cast<float>(kBinCount) / extent),
+                    0,
+                    kBinCount - 1);
+                ++bins[bin_index].count;
+                bins[bin_index].bounds.expand(
+                    primitive_info_[primitive_index].bounds);
+            }
+
+            std::array<int, kBinCount - 1> left_counts{};
+            std::array<int, kBinCount - 1> right_counts{};
+            std::array<float, kBinCount - 1> left_areas{};
+            std::array<float, kBinCount - 1> right_areas{};
+            Bounds3 left_bounds;
+            int left_count = 0;
+            for (int bin = 0; bin < kBinCount - 1; ++bin) {
+                if (bins[bin].count > 0) {
+                    left_bounds.expand(bins[bin].bounds);
+                }
+                left_count += bins[bin].count;
+                left_counts[bin] = left_count;
+                left_areas[bin] = host_bounds_area(left_bounds);
+            }
+            Bounds3 right_bounds;
+            int right_count = 0;
+            for (int bin = kBinCount - 1; bin > 0; --bin) {
+                if (bins[bin].count > 0) {
+                    right_bounds.expand(bins[bin].bounds);
+                }
+                right_count += bins[bin].count;
+                right_counts[bin - 1] = right_count;
+                right_areas[bin - 1] = host_bounds_area(right_bounds);
+            }
+
+            int best_split = -1;
+            double best_cost = DBL_MAX;
+            for (int split = 0; split < kBinCount - 1; ++split) {
+                if (left_counts[split] == 0 || right_counts[split] == 0) {
+                    continue;
+                }
+                const double cost =
+                    static_cast<double>(left_counts[split]) *
+                        left_areas[split] +
+                    static_cast<double>(right_counts[split]) *
+                        right_areas[split];
+                if (cost < best_cost) {
+                    best_cost = cost;
+                    best_split = split;
+                }
+            }
+            if (best_split >= 0) {
+                const float split_position =
+                    minimum +
+                    extent * static_cast<float>(best_split + 1) /
+                        static_cast<float>(kBinCount);
+                auto begin = primitive_indices_.begin() + first;
+                auto end = begin + count;
+                middle = static_cast<int>(
+                    std::partition(
+                        begin,
+                        end,
+                        [&](int primitive_index) {
+                            return primitive_info_[primitive_index]
+                                       .centroid[axis] < split_position;
+                        }) -
+                    primitive_indices_.begin());
+            }
+        }
+
+        if (middle <= first || middle >= first + count) {
+            middle = first + count / 2;
+            auto begin = primitive_indices_.begin();
+            std::nth_element(
+                begin + first,
+                begin + middle,
+                begin + first + count,
+                [&](int lhs, int rhs) {
+                    return primitive_info_[lhs].centroid[axis] <
+                        primitive_info_[rhs].centroid[axis];
+                });
+        }
+
+        const int left = build_binary(first, middle - first);
+        const int right =
+            build_binary(middle, first + count - middle);
+        binary_nodes_[node_index].left = left;
+        binary_nodes_[node_index].right = right;
+        return node_index;
+    }
+
+    int collapse(int binary_index) {
+        const int wide_index = static_cast<int>(wide_nodes_.size());
+        wide_nodes_.push_back(DBvh4Node{});
+        std::vector<int> candidates;
+        const GpuBinaryBvhNode& root = binary_nodes_[binary_index];
+        if (root.count > 0) {
+            candidates.push_back(binary_index);
+        } else {
+            candidates.push_back(root.left);
+            candidates.push_back(root.right);
+        }
+        while (candidates.size() < 4) {
+            int expand_index = -1;
+            float largest_area = -1.0f;
+            for (int index = 0;
+                 index < static_cast<int>(candidates.size());
+                 ++index) {
+                const GpuBinaryBvhNode& candidate =
+                    binary_nodes_[candidates[index]];
+                if (candidate.count > 0) {
+                    continue;
+                }
+                const float area = host_bounds_area(candidate.bounds);
+                if (area > largest_area) {
+                    largest_area = area;
+                    expand_index = index;
+                }
+            }
+            if (expand_index < 0) {
+                break;
+            }
+            const GpuBinaryBvhNode expanded =
+                binary_nodes_[candidates[expand_index]];
+            candidates[expand_index] = expanded.left;
+            candidates.push_back(expanded.right);
+        }
+
+        DBvh4Node node{};
+        node.child_count = static_cast<int>(candidates.size());
+        for (int slot = 0; slot < 4; ++slot) {
+            node.children[slot] = -1;
+            node.first[slot] = 0;
+            node.counts[slot] = 0;
+        }
+        for (int slot = 0; slot < node.child_count; ++slot) {
+            const GpuBinaryBvhNode& candidate =
+                binary_nodes_[candidates[slot]];
+            node.bounds_min[slot] = to_device(candidate.bounds.min);
+            node.bounds_max[slot] = to_device(candidate.bounds.max);
+            if (candidate.count > 0) {
+                node.first[slot] = candidate.first;
+                node.counts[slot] = candidate.count;
+            } else {
+                node.children[slot] = collapse(candidates[slot]);
+            }
+        }
+        wide_nodes_[wide_index] = node;
+        return wide_index;
+    }
+};
+
+GpuBvh4Layout build_gpu_bvh4(const std::vector<Triangle>& triangles) {
+    return GpuBvh4Builder(triangles).build();
 }
 
 __device__ DVec3 v3(float x, float y, float z) {
@@ -290,10 +558,6 @@ __device__ bool usable(DVec3 value) {
 __device__ DVec3 normalize(DVec3 value) {
     const float squared = length_squared(value);
     return squared > 1.0e-24f ? divv(value, sqrtf(squared)) : v3(0.0f, 0.0f, 0.0f);
-}
-
-__device__ float component(DVec3 value, int axis) {
-    return axis == 0 ? value.x : (axis == 1 ? value.y : value.z);
 }
 
 __device__ float max_component(DVec3 value) {
@@ -410,38 +674,56 @@ __device__ DVec3 cosine_weighted_hemisphere(DPcgState& rng) {
         sqrtf(fmaxf(0.0f, 1.0f - r2))));
 }
 
-__device__ bool intersect_bounds(
-    const DBvhNode& node,
-    const DRay& ray,
-    float t_min,
-    float t_max) {
+__device__ float material_opacity(
+    const DScene& scene,
+    const DMaterial& material,
+    DVec2 uv);
+
+__device__ DVec3 inverse_direction(DVec3 direction) {
     constexpr float epsilon = 1.0e-12f;
-    for (int axis = 0; axis < 3; ++axis) {
-        const float direction = component(ray.direction, axis);
-        const float origin = component(ray.origin, axis);
-        const float minimum = component(node.bounds_min, axis);
-        const float maximum = component(node.bounds_max, axis);
-        if (fabsf(direction) < epsilon) {
-            if (origin < minimum || origin > maximum) {
-                return false;
-            }
-            continue;
-        }
-        const float safe_direction = copysignf(fmaxf(fabsf(direction), epsilon), direction);
-        float near_t = (minimum - origin) / safe_direction;
-        float far_t = (maximum - origin) / safe_direction;
-        if (near_t > far_t) {
-            const float temporary = near_t;
-            near_t = far_t;
-            far_t = temporary;
-        }
-        t_min = fmaxf(t_min, near_t);
-        t_max = fminf(t_max, far_t);
-        if (t_max < t_min) {
-            return false;
-        }
-    }
-    return true;
+    const auto inverse_component = [](float value) {
+        return fabsf(value) < epsilon
+            ? copysignf(FLT_MAX, value == 0.0f ? 1.0f : value)
+            : 1.0f / value;
+    };
+    return v3(
+        inverse_component(direction.x),
+        inverse_component(direction.y),
+        inverse_component(direction.z));
+}
+
+__device__ bool intersect_bounds(
+    DVec3 bounds_min,
+    DVec3 bounds_max,
+    const DRay& ray,
+    DVec3 inverse,
+    float t_min,
+    float t_max,
+    float& entry_t) {
+    const float tx0 =
+        (bounds_min.x - ray.origin.x) * inverse.x;
+    const float tx1 =
+        (bounds_max.x - ray.origin.x) * inverse.x;
+    const float ty0 =
+        (bounds_min.y - ray.origin.y) * inverse.y;
+    const float ty1 =
+        (bounds_max.y - ray.origin.y) * inverse.y;
+    const float tz0 =
+        (bounds_min.z - ray.origin.z) * inverse.z;
+    const float tz1 =
+        (bounds_max.z - ray.origin.z) * inverse.z;
+    const float entry = fmaxf(
+        t_min,
+        fmaxf(
+            fminf(tx0, tx1),
+            fmaxf(fminf(ty0, ty1), fminf(tz0, tz1))));
+    const float exit = fminf(
+        t_max,
+        fminf(
+            fmaxf(tx0, tx1),
+            fminf(fmaxf(ty0, ty1), fmaxf(tz0, tz1))));
+    entry_t = entry;
+    return exit >= entry;
 }
 
 __device__ bool intersect_sphere_geometry(
@@ -477,33 +759,30 @@ __device__ bool intersect_sphere_geometry(
 }
 
 __device__ bool intersect_triangle_geometry(
-    const DTriangle& triangle,
+    const DTraversalTriangle& triangle,
     const DRay& ray,
     float t_min,
     float t_max,
     float& hit_t,
     float& hit_u,
     float& hit_v) {
-    const DVec3 a = triangle.vertices[0].position;
-    const DVec3 edge1 = sub(triangle.vertices[1].position, a);
-    const DVec3 edge2 = sub(triangle.vertices[2].position, a);
-    const DVec3 h = cross(ray.direction, edge2);
-    const float determinant = dot(edge1, h);
+    const DVec3 h = cross(ray.direction, triangle.edge2);
+    const float determinant = dot(triangle.edge1, h);
     if (fabsf(determinant) < 1.0e-12f) {
         return false;
     }
     const float inverse = 1.0f / determinant;
-    const DVec3 s = sub(ray.origin, a);
+    const DVec3 s = sub(ray.origin, triangle.v0);
     const float u = inverse * dot(s, h);
     if (u < 0.0f || u > 1.0f) {
         return false;
     }
-    const DVec3 q = cross(s, edge1);
+    const DVec3 q = cross(s, triangle.edge1);
     const float v = inverse * dot(ray.direction, q);
     if (v < 0.0f || u + v > 1.0f) {
         return false;
     }
-    const float t = inverse * dot(edge2, q);
+    const float t = inverse * dot(triangle.edge2, q);
     if (t < t_min || t > t_max) {
         return false;
     }
@@ -514,18 +793,111 @@ __device__ bool intersect_triangle_geometry(
     return true;
 }
 
-__device__ bool nearest_hit(
+__device__ bool triangle_candidate_visible(
+    const DScene& scene,
+    const DRay& ray,
+    int primitive_index,
+    float u,
+    float v) {
+    const int material_id =
+        scene.triangle_material_ids[primitive_index];
+    if (material_id < 0 || material_id >= scene.material_count) {
+        return true;
+    }
+    const DMaterial material = scene.materials[material_id];
+    if (!material.two_sided) {
+        const DTraversalTriangle& geometry =
+            scene.traversal_triangles[primitive_index];
+        const DVec3 outward = cross(geometry.edge1, geometry.edge2);
+        if (dot(ray.direction, outward) >= 0.0f) {
+            return false;
+        }
+    }
+    if (material.opacity_texture_id < 0) {
+        return material.opacity >= material.alpha_cutoff;
+    }
+    const DShadingTriangle& shading =
+        scene.shading_triangles[primitive_index];
+    const float w = 1.0f - u - v;
+    const DVec2 uv{
+        shading.uvs[0].x * w +
+            shading.uvs[1].x * u +
+            shading.uvs[2].x * v,
+        shading.uvs[0].y * w +
+            shading.uvs[1].y * u +
+            shading.uvs[2].y * v};
+    return material_opacity(scene, material, uv) >=
+        material.alpha_cutoff;
+}
+
+__device__ bool sphere_candidate_visible(
+    const DScene& scene,
+    const DRay& ray,
+    int primitive_index,
+    float hit_t) {
+    const int material_id =
+        scene.sphere_material_ids[primitive_index];
+    if (material_id < 0 || material_id >= scene.material_count) {
+        return true;
+    }
+    const DSphere& sphere = scene.spheres[primitive_index];
+    const DVec3 position =
+        add(ray.origin, mul(ray.direction, hit_t));
+    const DVec3 outward =
+        divv(sub(position, sphere.center), sphere.radius);
+    const bool front_face = dot(ray.direction, outward) < 0.0f;
+    const DMaterial material = scene.materials[material_id];
+    if (!material.two_sided && !front_face) {
+        return false;
+    }
+    if (material.opacity_texture_id < 0) {
+        return material.opacity >= material.alpha_cutoff;
+    }
+    return material_opacity(scene, material, DVec2{0.0f, 0.0f}) >=
+        material.alpha_cutoff;
+}
+
+__device__ void sort_child_hits(
+    float* near_values,
+    int* slots,
+    int count) {
+    for (int index = 1; index < count; ++index) {
+        const float near_value = near_values[index];
+        const int slot = slots[index];
+        int position = index;
+        while (position > 0 &&
+               near_values[position - 1] > near_value) {
+            near_values[position] = near_values[position - 1];
+            slots[position] = slots[position - 1];
+            --position;
+        }
+        near_values[position] = near_value;
+        slots[position] = slot;
+    }
+}
+
+__device__ bool nearest_visible_hit(
     const DScene& scene,
     const DRay& ray,
     float t_min,
     float t_max,
-    DCompactHit& hit) {
+    DCompactHit& hit,
+    int* error_code) {
     bool found = false;
     float closest = t_max;
     for (int sphere_index = 0; sphere_index < scene.sphere_count; ++sphere_index) {
         float candidate_t = 0.0f;
         if (intersect_sphere_geometry(
-                scene.spheres[sphere_index], ray, t_min, closest, candidate_t)) {
+                scene.spheres[sphere_index],
+                ray,
+                t_min,
+                closest,
+                candidate_t) &&
+            sphere_candidate_visible(
+                scene,
+                ray,
+                sphere_index,
+                candidate_t)) {
             found = true;
             closest = candidate_t;
             hit = DCompactHit{candidate_t, 0.0f, 0.0f, 0, sphere_index};
@@ -535,27 +907,39 @@ __device__ bool nearest_hit(
     if (scene.bvh_node_count <= 0) {
         return found;
     }
+    const DVec3 ray_inverse = inverse_direction(ray.direction);
+    // Negative stack entries encode ~(parent_node * 4 + child_slot).
     int stack[kBvhStackCapacity];
     int stack_size = 1;
     stack[0] = 0;
     while (stack_size > 0) {
-        const int node_index = stack[--stack_size];
-        const DBvhNode& node = scene.bvh_nodes[node_index];
-        if (!intersect_bounds(node, ray, t_min, closest)) {
-            continue;
-        }
-        if (node.count > 0) {
-            for (int offset = 0; offset < node.count; ++offset) {
-                const int primitive_index = scene.primitive_indices[node.first + offset];
+        const int reference = stack[--stack_size];
+        if (reference < 0) {
+            const int leaf_code = ~reference;
+            const int node_index = leaf_code >> 2;
+            const int slot = leaf_code & 3;
+            const DBvh4Node& leaf_parent = scene.bvh_nodes[node_index];
+            for (int offset = 0;
+                 offset < leaf_parent.counts[slot];
+                 ++offset) {
+                const int primitive_index =
+                    scene.primitive_indices[
+                        leaf_parent.first[slot] + offset];
                 float candidate_t = 0.0f;
                 float candidate_u = 0.0f;
                 float candidate_v = 0.0f;
                 if (intersect_triangle_geometry(
-                        scene.triangles[primitive_index],
+                        scene.traversal_triangles[primitive_index],
                         ray,
                         t_min,
                         closest,
                         candidate_t,
+                        candidate_u,
+                        candidate_v) &&
+                    triangle_candidate_visible(
+                        scene,
+                        ray,
+                        primitive_index,
                         candidate_u,
                         candidate_v)) {
                     found = true;
@@ -570,20 +954,152 @@ __device__ bool nearest_hit(
             }
             continue;
         }
-        if (node.left >= 0) {
-            if (stack_size >= kBvhStackCapacity) {
-                return found;
+        const int node_index = reference;
+        const DBvh4Node& node = scene.bvh_nodes[node_index];
+        float near_values[4];
+        int hit_slots[4];
+        int hit_count = 0;
+        for (int slot = 0; slot < node.child_count; ++slot) {
+            float entry = 0.0f;
+            if (intersect_bounds(
+                    node.bounds_min[slot],
+                    node.bounds_max[slot],
+                    ray,
+                    ray_inverse,
+                    t_min,
+                    closest,
+                    entry)) {
+                near_values[hit_count] = entry;
+                hit_slots[hit_count] = slot;
+                ++hit_count;
             }
-            stack[stack_size++] = node.left;
         }
-        if (node.right >= 0) {
+        sort_child_hits(near_values, hit_slots, hit_count);
+        for (int hit_index = hit_count - 1; hit_index >= 0; --hit_index) {
+            const int slot = hit_slots[hit_index];
+            if (near_values[hit_index] > closest) {
+                continue;
+            }
             if (stack_size >= kBvhStackCapacity) {
+                if (error_code) {
+                    atomicCAS(error_code, 0, 5);
+                }
                 return found;
             }
-            stack[stack_size++] = node.right;
+            if (node.counts[slot] > 0) {
+                stack[stack_size++] = ~(node_index * 4 + slot);
+            } else if (node.children[slot] >= 0) {
+                stack[stack_size++] = node.children[slot];
+            }
         }
     }
     return found;
+}
+
+__device__ bool occluded_scene(
+    const DScene& scene,
+    const DRay& ray,
+    float t_min,
+    float t_max,
+    int* error_code) {
+    for (int sphere_index = 0;
+         sphere_index < scene.sphere_count;
+         ++sphere_index) {
+        float candidate_t = 0.0f;
+        if (intersect_sphere_geometry(
+                scene.spheres[sphere_index],
+                ray,
+                t_min,
+                t_max,
+                candidate_t) &&
+            sphere_candidate_visible(
+                scene,
+                ray,
+                sphere_index,
+                candidate_t)) {
+            return true;
+        }
+    }
+    if (scene.bvh_node_count <= 0) {
+        return false;
+    }
+    const DVec3 ray_inverse = inverse_direction(ray.direction);
+    // Negative stack entries encode ~(parent_node * 4 + child_slot).
+    int stack[kBvhStackCapacity];
+    int stack_size = 1;
+    stack[0] = 0;
+    while (stack_size > 0) {
+        const int reference = stack[--stack_size];
+        if (reference < 0) {
+            const int leaf_code = ~reference;
+            const int node_index = leaf_code >> 2;
+            const int slot = leaf_code & 3;
+            const DBvh4Node& leaf_parent = scene.bvh_nodes[node_index];
+            for (int offset = 0;
+                 offset < leaf_parent.counts[slot];
+                 ++offset) {
+                const int primitive_index =
+                    scene.primitive_indices[
+                        leaf_parent.first[slot] + offset];
+                float candidate_t = 0.0f;
+                float candidate_u = 0.0f;
+                float candidate_v = 0.0f;
+                if (intersect_triangle_geometry(
+                        scene.traversal_triangles[primitive_index],
+                        ray,
+                        t_min,
+                        t_max,
+                        candidate_t,
+                        candidate_u,
+                        candidate_v) &&
+                    triangle_candidate_visible(
+                        scene,
+                        ray,
+                        primitive_index,
+                        candidate_u,
+                        candidate_v)) {
+                    return true;
+                }
+            }
+            continue;
+        }
+        const int node_index = reference;
+        const DBvh4Node& node = scene.bvh_nodes[node_index];
+        float near_values[4];
+        int hit_slots[4];
+        int hit_count = 0;
+        for (int slot = 0; slot < node.child_count; ++slot) {
+            float entry = 0.0f;
+            if (intersect_bounds(
+                    node.bounds_min[slot],
+                    node.bounds_max[slot],
+                    ray,
+                    ray_inverse,
+                    t_min,
+                    t_max,
+                    entry)) {
+                near_values[hit_count] = entry;
+                hit_slots[hit_count] = slot;
+                ++hit_count;
+            }
+        }
+        sort_child_hits(near_values, hit_slots, hit_count);
+        for (int hit_index = hit_count - 1; hit_index >= 0; --hit_index) {
+            const int slot = hit_slots[hit_index];
+            if (stack_size >= kBvhStackCapacity) {
+                if (error_code) {
+                    atomicCAS(error_code, 0, 5);
+                }
+                return false;
+            }
+            if (node.counts[slot] > 0) {
+                stack[stack_size++] = ~(node_index * 4 + slot);
+            } else if (node.children[slot] >= 0) {
+                stack[stack_size++] = node.children[slot];
+            }
+        }
+    }
+    return false;
 }
 
 __device__ void reconstruct_hit(
@@ -607,23 +1123,21 @@ __device__ void reconstruct_hit(
         return;
     }
 
-    const DTriangle& triangle = scene.triangles[compact.primitive_index];
+    const DTraversalTriangle& geometry =
+        scene.traversal_triangles[compact.primitive_index];
+    const DShadingTriangle& triangle =
+        scene.shading_triangles[compact.primitive_index];
     const float w = 1.0f - compact.u - compact.v;
-    const DVec3 edge1 =
-        sub(triangle.vertices[1].position, triangle.vertices[0].position);
-    const DVec3 edge2 =
-        sub(triangle.vertices[2].position, triangle.vertices[0].position);
-    const DVec3 geometric = normalize(cross(edge1, edge2));
+    const DVec3 geometric =
+        normalize(cross(geometry.edge1, geometry.edge2));
     DVec3 shading = geometric;
     if (reconstruct_shading &&
-        triangle.vertices[0].has_normal &&
-        triangle.vertices[1].has_normal &&
-        triangle.vertices[2].has_normal) {
+        (triangle.normal_mask & 0x7U) == 0x7U) {
         shading = add(
             add(
-                mul(triangle.vertices[0].normal, w),
-                mul(triangle.vertices[1].normal, compact.u)),
-            mul(triangle.vertices[2].normal, compact.v));
+                mul(triangle.normals[0], w),
+                mul(triangle.normals[1], compact.u)),
+            mul(triangle.normals[2], compact.v));
         if (!usable(shading)) {
             shading = geometric;
         } else {
@@ -634,12 +1148,12 @@ __device__ void reconstruct_hit(
         }
     }
     hit.uv = DVec2{
-        triangle.vertices[0].uv.x * w +
-            triangle.vertices[1].uv.x * compact.u +
-            triangle.vertices[2].uv.x * compact.v,
-        triangle.vertices[0].uv.y * w +
-            triangle.vertices[1].uv.y * compact.u +
-            triangle.vertices[2].uv.y * compact.v};
+        triangle.uvs[0].x * w +
+            triangle.uvs[1].x * compact.u +
+            triangle.uvs[2].x * compact.v,
+        triangle.uvs[0].y * w +
+            triangle.uvs[1].y * compact.u +
+            triangle.uvs[2].y * compact.v};
     set_normals(hit, ray, geometric, shading);
     hit.material_id = scene.triangle_material_ids[compact.primitive_index];
 }
@@ -698,41 +1212,15 @@ __device__ bool intersect_scene_compact(
     const DRay& ray,
     float t_min,
     float t_max,
-    DCompactHit& hit) {
-    float search_min = t_min;
-    for (int layer = 0; layer < kMaxTransparentLayers; ++layer) {
-        DCompactHit compact{};
-        if (!nearest_hit(scene, ray, search_min, t_max, compact)) {
-            return false;
-        }
-        DHit candidate{};
-        reconstruct_hit(scene, ray, compact, false, candidate);
-        if (candidate.material_id < 0 || candidate.material_id >= scene.material_count) {
-            hit = compact;
-            return true;
-        }
-        const DMaterial material = scene.materials[candidate.material_id];
-        const bool visible_side = material.two_sided || candidate.front_face;
-        if (visible_side && material_opacity(scene, material, candidate.uv) >= material.alpha_cutoff) {
-            hit = compact;
-            return true;
-        }
-        const float advanced = nextafterf(candidate.t, t_max);
-        if (!(advanced > search_min)) {
-            return false;
-        }
-        search_min = advanced;
-    }
-    return false;
-}
-
-__device__ bool occluded_scene(
-    const DScene& scene,
-    const DRay& ray,
-    float t_min,
-    float t_max) {
-    DCompactHit compact{};
-    return intersect_scene_compact(scene, ray, t_min, t_max, compact);
+    DCompactHit& hit,
+    int* error_code = nullptr) {
+    return nearest_visible_hit(
+        scene,
+        ray,
+        t_min,
+        t_max,
+        hit,
+        error_code);
 }
 
 __device__ DVec3 bumped_normal(
@@ -747,15 +1235,16 @@ __device__ DVec3 bumped_normal(
     if (texture.width <= 0 || texture.height <= 0) {
         return hit.shading_normal;
     }
-    const DTriangle& triangle = scene.triangles[hit.primitive_index];
-    const DVec3 edge1 =
-        sub(triangle.vertices[1].position, triangle.vertices[0].position);
-    const DVec3 edge2 =
-        sub(triangle.vertices[2].position, triangle.vertices[0].position);
-    const float du1 = triangle.vertices[1].uv.x - triangle.vertices[0].uv.x;
-    const float dv1 = triangle.vertices[1].uv.y - triangle.vertices[0].uv.y;
-    const float du2 = triangle.vertices[2].uv.x - triangle.vertices[0].uv.x;
-    const float dv2 = triangle.vertices[2].uv.y - triangle.vertices[0].uv.y;
+    const DTraversalTriangle& geometry =
+        scene.traversal_triangles[hit.primitive_index];
+    const DShadingTriangle& triangle =
+        scene.shading_triangles[hit.primitive_index];
+    const DVec3 edge1 = geometry.edge1;
+    const DVec3 edge2 = geometry.edge2;
+    const float du1 = triangle.uvs[1].x - triangle.uvs[0].x;
+    const float dv1 = triangle.uvs[1].y - triangle.uvs[0].y;
+    const float du2 = triangle.uvs[2].x - triangle.uvs[0].x;
+    const float dv2 = triangle.uvs[2].y - triangle.uvs[0].y;
     const float uv_determinant = du1 * dv2 - dv1 * du2;
     if (!isfinite(uv_determinant) || fabsf(uv_determinant) <= 1.0e-12f) {
         return hit.shading_normal;
@@ -908,7 +1397,8 @@ __device__ bool scatter(
 __device__ DVec3 direct_lighting(
     const DScene& scene,
     const DHit& hit,
-    const DSurface& surface) {
+    const DSurface& surface,
+    int* error_code) {
     DVec3 direct = v3(0.0f, 0.0f, 0.0f);
     constexpr float inverse_pi = 0.31830988618379067154f;
     for (int index = 0; index < scene.directional_light_count; ++index) {
@@ -922,7 +1412,12 @@ __device__ DVec3 direct_lighting(
             continue;
         }
         const DRay shadow{offset_origin(hit.position, hit.geometric_normal, light_direction), light_direction};
-        if (!occluded_scene(scene, shadow, 0.0f, 1.0e30f)) {
+        if (!occluded_scene(
+                scene,
+                shadow,
+                0.0f,
+                1.0e30f,
+                error_code)) {
             direct = add(direct, mul(product(surface.base_color, light.radiance), cosine * inverse_pi));
         }
     }
@@ -944,7 +1439,8 @@ __device__ DVec3 direct_lighting(
                 scene,
                 shadow,
                 0.0f,
-                distance - 1.0e-7f)) {
+                distance - 1.0e-7f,
+                error_code)) {
             direct = add(
                 direct,
                 mul(product(surface.base_color, divv(light.intensity, distance_squared)), cosine * inverse_pi));
@@ -1045,30 +1541,28 @@ __device__ bool sample_emissive_shadow_task(
             light.primitive_index >= scene.triangle_count) {
             return false;
         }
-        const DTriangle triangle = scene.triangles[light.primitive_index];
+        const DTraversalTriangle triangle =
+            scene.traversal_triangles[light.primitive_index];
+        const DShadingTriangle shading =
+            scene.shading_triangles[light.primitive_index];
         const float root = sqrtf(random_float(rng));
         const float w0 = 1.0f - root;
         const float w1 = root * (1.0f - random_float(rng));
         const float w2 = 1.0f - w0 - w1;
         light_position = add(
+            triangle.v0,
             add(
-                mul(triangle.vertices[0].position, w0),
-                mul(triangle.vertices[1].position, w1)),
-            mul(triangle.vertices[2].position, w2));
-        outward_normal = normalize(cross(
-            sub(
-                triangle.vertices[1].position,
-                triangle.vertices[0].position),
-            sub(
-                triangle.vertices[2].position,
-                triangle.vertices[0].position)));
+                mul(triangle.edge1, w1),
+                mul(triangle.edge2, w2)));
+        outward_normal =
+            normalize(cross(triangle.edge1, triangle.edge2));
         light_uv = DVec2{
-            triangle.vertices[0].uv.x * w0 +
-                triangle.vertices[1].uv.x * w1 +
-                triangle.vertices[2].uv.x * w2,
-            triangle.vertices[0].uv.y * w0 +
-                triangle.vertices[1].uv.y * w1 +
-                triangle.vertices[2].uv.y * w2};
+            shading.uvs[0].x * w0 +
+                shading.uvs[1].x * w1 +
+                shading.uvs[2].x * w2,
+            shading.uvs[0].y * w0 +
+                shading.uvs[1].y * w1 +
+                shading.uvs[2].y * w2};
     } else {
         return false;
     }
@@ -1163,39 +1657,42 @@ __global__ void prepare_sample_kernel(
     cudaGraphConditionalHandle wavefront_handle,
     cudaGraphConditionalHandle emissive_handle) {
     const DFrameParameters& frame = *parameters;
-    const int index = blockIdx.x * blockDim.x + threadIdx.x;
-    const int pixel_count = frame.width * frame.height;
-    if (index >= pixel_count) {
-        return;
-    }
-    const int x = index % frame.width;
-    const int y = index / frame.width;
-    DPcgState rng = frame.random_states[index];
-    const float u =
-        (static_cast<float>(x) + random_float(rng)) /
-        static_cast<float>(frame.width);
-    const float v = 1.0f -
-        (static_cast<float>(y) + random_float(rng)) /
-            static_cast<float>(frame.height);
-    const DVec3 direction = normalize(add(
-        add(
-            frame.camera.forward,
+    const int first = blockIdx.x * blockDim.x + threadIdx.x;
+    const int stride = blockDim.x * gridDim.x;
+    for (int sample_index = first;
+         sample_index < frame.pixel_count;
+         sample_index += stride) {
+        const int pixel_index = frame.pixel_offset + sample_index;
+        const int x = pixel_index % frame.width;
+        const int y = pixel_index / frame.width;
+        DPcgState rng = frame.random_states[pixel_index];
+        const float u =
+            (static_cast<float>(x) + random_float(rng)) /
+            static_cast<float>(frame.width);
+        const float v = 1.0f -
+            (static_cast<float>(y) + random_float(rng)) /
+                static_cast<float>(frame.height);
+        const DVec3 direction = normalize(add(
+            add(
+                frame.camera.forward,
+                mul(
+                    frame.camera.right,
+                    (u - 0.5f) * frame.camera.viewport_width)),
             mul(
-                frame.camera.right,
-                (u - 0.5f) * frame.camera.viewport_width)),
-        mul(
-            frame.camera.up,
-            (v - 0.5f) * frame.camera.viewport_height)));
-    primary_paths[index] = DPathState{
-        DRay{frame.camera.eye, direction},
-        v3(1.0f, 1.0f, 1.0f),
-        0.0f,
-        1,
-        index};
-    frame.sample_radiance[index] = v3(0.0f, 0.0f, 0.0f);
-    frame.random_states[index] = rng;
-    if (index == 0) {
-        *primary_count = pixel_count;
+                frame.camera.up,
+                (v - 0.5f) * frame.camera.viewport_height)));
+        primary_paths[sample_index] = DPathState{
+            DRay{frame.camera.eye, direction},
+            v3(1.0f, 1.0f, 1.0f),
+            0.0f,
+            1,
+            sample_index};
+        frame.sample_radiance[sample_index] =
+            v3(0.0f, 0.0f, 0.0f);
+        frame.random_states[pixel_index] = rng;
+    }
+    if (first == 0) {
+        *primary_count = frame.pixel_count;
         *secondary_count = 0;
         *bounce_index = 0;
         if (wavefront_handle != 0) {
@@ -1217,29 +1714,30 @@ __global__ void intersect_wavefront_kernel(
     const int* bounce_index,
     DWavefrontHit* hits) {
     const DFrameParameters& frame = *parameters;
-    const int index = blockIdx.x * blockDim.x + threadIdx.x;
+    const int first = blockIdx.x * blockDim.x + threadIdx.x;
     const int active_index = *bounce_index & 1;
     const DPathState* active_paths =
         active_index == 0 ? first_paths : second_paths;
     int count = path_counts[active_index];
-    if (index == 0) {
+    if (first == 0) {
         path_counts[1 - active_index] = 0;
     }
     if (count < 0 || count > frame.path_capacity) {
         atomicCAS(frame.error_code, 0, 3);
         count = max(0, min(count, frame.path_capacity));
     }
-    if (index >= count) {
+    if (first >= count) {
         return;
     }
     DCompactHit hit{};
     const bool found = intersect_scene_compact(
         frame.scene,
-        active_paths[index].ray,
+        active_paths[first].ray,
         0.0f,
         1.0e30f,
-        hit);
-    hits[index] = DWavefrontHit{hit, found ? 1 : 0};
+        hit,
+        frame.error_code);
+    hits[first] = DWavefrontHit{hit, found ? 1 : 0};
 }
 
 __global__ void shade_wavefront_kernel(
@@ -1317,7 +1815,9 @@ __global__ void shade_wavefront_kernel(
         return;
     }
 
-    DPcgState rng = frame.random_states[path.pixel_index];
+    const int random_index =
+        frame.pixel_offset + path.pixel_index;
+    DPcgState rng = frame.random_states[random_index];
     if (material.type == static_cast<int>(MaterialType::Diffuse)) {
         shading_records[index] = DShadingRecord{
             hit.position,
@@ -1343,14 +1843,14 @@ __global__ void shade_wavefront_kernel(
             scattered,
             bsdf_pdf,
             was_delta)) {
-        frame.random_states[path.pixel_index] = rng;
+        frame.random_states[random_index] = rng;
         return;
     }
 
     DVec3 throughput = product(path.throughput, attenuation);
     if (!finite(throughput) || max_component(throughput) <= 0.0f ||
-        bounce + 1 >= kMaxPathBounces) {
-        frame.random_states[path.pixel_index] = rng;
+        bounce + 1 >= frame.max_bounces) {
+        frame.random_states[random_index] = rng;
         return;
     }
     if (bounce + 1 >= kRussianRouletteStartBounce) {
@@ -1358,7 +1858,7 @@ __global__ void shade_wavefront_kernel(
             fmaxf(max_component(throughput), 0.05f),
             0.95f);
         if (random_float(rng) >= probability) {
-            frame.random_states[path.pixel_index] = rng;
+            frame.random_states[random_index] = rng;
             return;
         }
         throughput = divv(throughput, probability);
@@ -1391,7 +1891,7 @@ __global__ void shade_wavefront_kernel(
     } else {
         atomicCAS(frame.error_code, 0, 1);
     }
-    frame.random_states[path.pixel_index] = rng;
+    frame.random_states[random_index] = rng;
 }
 
 __global__ void sample_emissive_lights_kernel(
@@ -1401,17 +1901,20 @@ __global__ void sample_emissive_lights_kernel(
     const int* path_counts,
     const int* bounce_index) {
     const DFrameParameters& frame = *parameters;
-    const int index = blockIdx.x * blockDim.x + threadIdx.x;
+    const int first = blockIdx.x * blockDim.x + threadIdx.x;
     int count = path_counts[*bounce_index & 1];
-    count = max(0, min(count, frame.path_capacity));
-    if (index >= count) {
+    if (count < 0 || count > frame.path_capacity) {
+        atomicCAS(frame.error_code, 0, 3);
+        count = max(0, min(count, frame.path_capacity));
+    }
+    if (first >= count) {
         return;
     }
-    shadow_tasks[index].t_max = 0.0f;
+    shadow_tasks[first].t_max = 0.0f;
     if (frame.scene.emissive_light_count <= 0) {
         return;
     }
-    const DShadingRecord record = shading_records[index];
+    const DShadingRecord record = shading_records[first];
     if (!record.valid) {
         return;
     }
@@ -1421,7 +1924,9 @@ __global__ void sample_emissive_lights_kernel(
     DSurface surface{};
     surface.base_color = record.base_color;
     surface.shading_normal = record.shading_normal;
-    DPcgState rng = frame.random_states[record.pixel_index];
+    const int random_index =
+        frame.pixel_offset + record.pixel_index;
+    DPcgState rng = frame.random_states[random_index];
     DShadowTask shadow_task{};
     if (sample_emissive_shadow_task(
             frame.scene,
@@ -1431,25 +1936,28 @@ __global__ void sample_emissive_lights_kernel(
             record.pixel_index,
             rng,
             shadow_task)) {
-        shadow_tasks[index] = shadow_task;
+        shadow_tasks[first] = shadow_task;
     }
-    frame.random_states[record.pixel_index] = rng;
+    frame.random_states[random_index] = rng;
 }
 
 __global__ void direct_visibility_kernel(
     const DFrameParameters* parameters,
     const DShadingRecord* shading_records,
-    const DShadowTask* shadow_tasks,
     const int* path_counts,
-    const int* bounce_index) {
+    const int* bounce_index,
+    const DShadowTask* shadow_tasks) {
     const DFrameParameters& frame = *parameters;
-    const int index = blockIdx.x * blockDim.x + threadIdx.x;
+    const int first = blockIdx.x * blockDim.x + threadIdx.x;
     int count = path_counts[*bounce_index & 1];
-    count = max(0, min(count, frame.path_capacity));
-    if (index >= count) {
+    if (count < 0 || count > frame.path_capacity) {
+        atomicCAS(frame.error_code, 0, 3);
+        count = max(0, min(count, frame.path_capacity));
+    }
+    if (first >= count) {
         return;
     }
-    const DShadingRecord record = shading_records[index];
+    const DShadingRecord record = shading_records[first];
     if (!record.valid) {
         return;
     }
@@ -1461,17 +1969,23 @@ __global__ void direct_visibility_kernel(
     surface.shading_normal = record.shading_normal;
     DVec3 contribution = product(
         record.throughput,
-        direct_lighting(frame.scene, hit, surface));
+        direct_lighting(
+            frame.scene,
+            hit,
+            surface,
+            frame.error_code));
     if (frame.scene.emissive_light_count > 0) {
-        const DShadowTask task = shadow_tasks[index];
-        if (task.t_max > 0.0f) {
-            if (!occluded_scene(
-                    frame.scene,
-                    task.ray,
-                    0.0f,
-                    task.t_max)) {
-                contribution = add(contribution, task.contribution);
-            }
+        const DShadowTask task = shadow_tasks[first];
+        if (task.t_max > 0.0f &&
+            !occluded_scene(
+                frame.scene,
+                task.ray,
+                0.0f,
+                task.t_max,
+                frame.error_code)) {
+            contribution = add(
+                contribution,
+                task.contribution);
         }
     }
     frame.sample_radiance[record.pixel_index] = add(
@@ -1490,7 +2004,7 @@ __global__ void advance_wavefront_kernel(
     const DFrameParameters& frame = *parameters;
     const int next_bounce = *bounce_index + 1;
     *bounce_index = next_bounce;
-    int count = next_bounce < kMaxPathBounces
+    int count = next_bounce < frame.max_bounces
         ? path_counts[next_bounce & 1]
         : 0;
     if (count < 0 || count > frame.path_capacity) {
@@ -1500,35 +2014,55 @@ __global__ void advance_wavefront_kernel(
     if (conditional_handle != 0) {
         cudaGraphSetConditional(
             conditional_handle,
-            count > 0 && next_bounce < kMaxPathBounces ? 1U : 0U);
+            count > 0 && next_bounce < frame.max_bounces ? 1U : 0U);
     }
 }
 
 __global__ void finalize_sample_kernel(
     const DFrameParameters* parameters) {
     const DFrameParameters& frame = *parameters;
-    const int index = blockIdx.x * blockDim.x + threadIdx.x;
-    const int pixel_count = frame.width * frame.height;
-    if (index >= pixel_count) {
-        return;
-    }
-    const DVec3 sum = add(
-        frame.accumulation[index],
-        frame.sample_radiance[index]);
-    frame.accumulation[index] = sum;
-    if (frame.output_surface != 0) {
-        const int completed_samples =
-            frame.completed_samples + *frame.batch_sample_index;
-        const DVec3 color = divv(
-            sum,
-            static_cast<float>(completed_samples + 1));
-        const int x = index % frame.width;
-        const int y = index / frame.width;
-        surf2Dwrite(
-            make_float4(color.x, color.y, color.z, 1.0f),
-            frame.output_surface,
-            x * static_cast<int>(sizeof(float4)),
-            y);
+    const int first = blockIdx.x * blockDim.x + threadIdx.x;
+    const int stride = blockDim.x * gridDim.x;
+    for (int sample_index = first;
+         sample_index < frame.pixel_count;
+         sample_index += stride) {
+        const int pixel_index = frame.pixel_offset + sample_index;
+        const DVec3 sum = add(
+            frame.accumulation[pixel_index],
+            frame.sample_radiance[sample_index]);
+        frame.accumulation[pixel_index] = sum;
+        if (frame.output_surface != 0) {
+            const int completed_samples =
+                frame.completed_samples + *frame.batch_sample_index;
+            const DVec3 color = divv(
+                sum,
+                static_cast<float>(completed_samples + 1));
+            const int x = pixel_index % frame.width;
+            const int y = pixel_index / frame.width;
+            const int output_x_begin =
+                x * frame.output_width / frame.width;
+            const int output_x_end =
+                (x + 1) * frame.output_width / frame.width;
+            const int output_y_begin =
+                y * frame.output_height / frame.height;
+            const int output_y_end =
+                (y + 1) * frame.output_height / frame.height;
+            const float4 output =
+                make_float4(color.x, color.y, color.z, 1.0f);
+            for (int output_y = output_y_begin;
+                 output_y < output_y_end;
+                 ++output_y) {
+                for (int output_x = output_x_begin;
+                     output_x < output_x_end;
+                     ++output_x) {
+                    surf2Dwrite(
+                        output,
+                        frame.output_surface,
+                        output_x * static_cast<int>(sizeof(float4)),
+                        output_y);
+                }
+            }
+        }
     }
 }
 
@@ -1566,13 +2100,16 @@ __global__ void resolve_frame_kernel(
     const DVec3* accumulation,
     DVec3* resolved,
     int pixel_count,
+    int pixel_offset,
     int sample_count) {
     const int index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index >= pixel_count) {
         return;
     }
     resolved[index] = sample_count > 0
-        ? divv(accumulation[index], static_cast<float>(sample_count))
+        ? divv(
+            accumulation[pixel_offset + index],
+            static_cast<float>(sample_count))
         : v3(0.0f, 0.0f, 0.0f);
 }
 
@@ -1607,6 +2144,29 @@ public:
         }
         data_ = replacement;
         capacity_ = new_capacity;
+        ++statistics.allocation_generation;
+    }
+
+    void resize_exact(
+        std::size_t count,
+        CudaPathStatistics& statistics) {
+        count_ = count;
+        if (count == capacity_) {
+            return;
+        }
+        T* replacement = nullptr;
+        if (count > 0) {
+            check_cuda(
+                cudaMalloc(
+                    reinterpret_cast<void**>(&replacement),
+                    count * sizeof(T)),
+                "cudaMalloc exact");
+        }
+        if (data_) {
+            check_cuda(cudaFree(data_), "cudaFree exact");
+        }
+        data_ = replacement;
+        capacity_ = count;
         ++statistics.allocation_generation;
     }
 
@@ -1845,51 +2405,59 @@ public:
             statistics_.geometry_upload_bytes +=
                 spheres_.upload(spheres_host_, stream_, statistics_);
 
-            triangles_host_.clear();
-            triangles_host_.reserve(scene.triangles.size());
+            traversal_triangles_host_.clear();
+            shading_triangles_host_.clear();
+            traversal_triangles_host_.reserve(scene.triangles.size());
+            shading_triangles_host_.reserve(scene.triangles.size());
             if (pack_bindings) {
                 triangle_material_ids_host_.clear();
                 triangle_material_ids_host_.reserve(scene.triangles.size());
             }
             for (const Triangle& triangle : scene.triangles) {
-                DTriangle packed{};
+                const TriangleVertex& first = triangle.vertex(0);
+                const TriangleVertex& second = triangle.vertex(1);
+                const TriangleVertex& third = triangle.vertex(2);
+                const Vec3 edge1 = second.position - first.position;
+                const Vec3 edge2 = third.position - first.position;
+                traversal_triangles_host_.push_back(
+                    DTraversalTriangle{
+                        to_device(first.position),
+                        to_device(edge1),
+                        to_device(edge2)});
+                DShadingTriangle shading{};
                 for (int vertex_index = 0; vertex_index < 3; ++vertex_index) {
                     const TriangleVertex& vertex = triangle.vertex(vertex_index);
-                    packed.vertices[vertex_index] = DVertex{
-                        to_device(vertex.position),
-                        to_device(vertex.uv),
-                        to_device(vertex.normal),
-                        vertex.has_normal ? 1 : 0};
+                    shading.uvs[vertex_index] = to_device(vertex.uv);
+                    shading.normals[vertex_index] =
+                        to_device(vertex.normal);
+                    if (vertex.has_normal) {
+                        shading.normal_mask |=
+                            1U << static_cast<unsigned int>(vertex_index);
+                    }
                 }
-                triangles_host_.push_back(packed);
+                shading_triangles_host_.push_back(shading);
                 if (pack_bindings) {
                     triangle_material_ids_host_.push_back(
                         triangle.material_id());
                 }
             }
             statistics_.geometry_upload_bytes +=
-                triangles_.upload(triangles_host_, stream_, statistics_);
+                traversal_triangles_.upload(
+                    traversal_triangles_host_,
+                    stream_,
+                    statistics_);
+            statistics_.geometry_upload_bytes +=
+                shading_triangles_.upload(
+                    shading_triangles_host_,
+                    stream_,
+                    statistics_);
 
-            Bvh bvh;
-            bvh.build_layout(scene.triangles);
-            if (bvh.maximum_depth() + 1 >= kBvhStackCapacity) {
-                throw std::runtime_error(
-                    "host BVH exceeds the CUDA traversal stack capacity");
-            }
-            bvh_nodes_host_.clear();
-            bvh_nodes_host_.reserve(bvh.nodes().size());
-            for (const BvhNode& node : bvh.nodes()) {
-                bvh_nodes_host_.push_back(DBvhNode{
-                    to_device(node.bounds.min),
-                    to_device(node.bounds.max),
-                    node.left,
-                    node.right,
-                    node.first,
-                    node.count});
-            }
+            GpuBvh4Layout bvh = build_gpu_bvh4(scene.triangles);
+            bvh_nodes_host_ = std::move(bvh.nodes);
             statistics_.bvh_upload_bytes +=
                 bvh_nodes_.upload(bvh_nodes_host_, stream_, statistics_);
-            primitive_indices_host_ = bvh.primitive_indices();
+            primitive_indices_host_ =
+                std::move(bvh.primitive_indices);
             statistics_.bvh_upload_bytes +=
                 primitive_indices_.upload(
                     primitive_indices_host_,
@@ -1967,9 +2535,11 @@ public:
         view_.spheres = spheres_.get();
         view_.sphere_material_ids = sphere_material_ids_.get();
         view_.sphere_count = static_cast<int>(spheres_.size());
-        view_.triangles = triangles_.get();
+        view_.traversal_triangles = traversal_triangles_.get();
+        view_.shading_triangles = shading_triangles_.get();
         view_.triangle_material_ids = triangle_material_ids_.get();
-        view_.triangle_count = static_cast<int>(triangles_.size());
+        view_.triangle_count =
+            static_cast<int>(traversal_triangles_.size());
         view_.bvh_nodes = bvh_nodes_.get();
         view_.bvh_node_count = static_cast<int>(bvh_nodes_.size());
         view_.primitive_indices = primitive_indices_.get();
@@ -2148,9 +2718,10 @@ private:
     DeviceBuffer<DVec3> texels_;
     DeviceBuffer<DSphere> spheres_;
     DeviceBuffer<int> sphere_material_ids_;
-    DeviceBuffer<DTriangle> triangles_;
+    DeviceBuffer<DTraversalTriangle> traversal_triangles_;
+    DeviceBuffer<DShadingTriangle> shading_triangles_;
     DeviceBuffer<int> triangle_material_ids_;
-    DeviceBuffer<DBvhNode> bvh_nodes_;
+    DeviceBuffer<DBvh4Node> bvh_nodes_;
     DeviceBuffer<int> primitive_indices_;
     DeviceBuffer<DPointLight> point_lights_;
     DeviceBuffer<DDirectionalLight> directional_lights_;
@@ -2162,9 +2733,10 @@ private:
     std::vector<DVec3> texels_host_;
     std::vector<DSphere> spheres_host_;
     std::vector<int> sphere_material_ids_host_;
-    std::vector<DTriangle> triangles_host_;
+    std::vector<DTraversalTriangle> traversal_triangles_host_;
+    std::vector<DShadingTriangle> shading_triangles_host_;
     std::vector<int> triangle_material_ids_host_;
-    std::vector<DBvhNode> bvh_nodes_host_;
+    std::vector<DBvh4Node> bvh_nodes_host_;
     std::vector<int> primitive_indices_host_;
     std::vector<DPointLight> point_lights_host_;
     std::vector<DDirectionalLight> directional_lights_host_;
@@ -2176,11 +2748,17 @@ private:
 
 class CudaFrameStorage {
 public:
-    explicit CudaFrameStorage(CudaPathStatistics& statistics)
-        : statistics_(statistics) {
-        check_cuda(
-            cudaStreamCreateWithFlags(&stream_, cudaStreamNonBlocking),
-            "cudaStreamCreateWithFlags");
+    explicit CudaFrameStorage(
+        CudaPathStatistics& statistics,
+        cudaStream_t shared_stream = nullptr)
+        : statistics_(statistics),
+          stream_(shared_stream),
+          owns_stream_(shared_stream == nullptr) {
+        if (owns_stream_) {
+            check_cuda(
+                cudaStreamCreateWithFlags(&stream_, cudaStreamNonBlocking),
+                "cudaStreamCreateWithFlags");
+        }
     }
 
     ~CudaFrameStorage() {
@@ -2188,12 +2766,16 @@ public:
             cudaStreamSynchronize(stream_);
         }
         destroy_graph();
-        if (stream_) {
+        if (stream_ && owns_stream_) {
             cudaStreamDestroy(stream_);
         }
     }
 
-    void reset(int width, int height, std::uint64_t seed_offset) {
+    void reset(
+        int width,
+        int height,
+        std::uint64_t seed_offset,
+        std::size_t requested_wavefront_capacity = 0) {
         if (width <= 0 || height <= 0) {
             throw std::invalid_argument("CUDA framebuffer dimensions must be positive");
         }
@@ -2204,6 +2786,13 @@ public:
         }
         width_ = width;
         height_ = height;
+        const std::size_t wavefront_capacity =
+            requested_wavefront_capacity == 0
+            ? count
+            : std::clamp<std::size_t>(
+                requested_wavefront_capacity,
+                1,
+                count);
         reset_timer_.update(statistics_.reset_milliseconds);
         const bool record_timing = !reset_timer_.pending();
         if (record_timing) {
@@ -2211,11 +2800,14 @@ public:
         }
         accumulation_.resize(count, statistics_);
         random_states_.resize(count, statistics_);
-        ensure_wavefront_capacity(count);
+        ensure_wavefront_capacity(
+            wavefront_capacity,
+            requested_wavefront_capacity != 0);
 #if !defined(RENDERER_CUDA_SANITIZER_FALLBACK)
         if (!graph_exec_ ||
-            count > static_cast<std::size_t>(graph_capacity_)) {
-            rebuild_graph(static_cast<int>(count));
+            wavefront_capacity >
+                static_cast<std::size_t>(graph_capacity_)) {
+            rebuild_graph(static_cast<int>(wavefront_capacity));
         }
 #endif
         const int block_count = static_cast<int>((count + kThreadsPerBlock - 1) / kThreadsPerBlock);
@@ -2245,9 +2837,80 @@ public:
         const Camera& camera,
         int sample_count,
         cudaSurfaceObject_t output_surface = 0) {
+        render_work(
+            scene,
+            camera,
+            sample_count,
+            0,
+            static_cast<int>(accumulation_.size()),
+            kMaxPathBounces,
+            width_,
+            height_,
+            output_surface,
+            true);
+    }
+
+    void render_region(
+        const DScene& scene,
+        const Camera& camera,
+        int pixel_offset,
+        int pixel_count,
+        int max_bounces,
+        int output_width,
+        int output_height,
+        cudaSurfaceObject_t output_surface = 0) {
+        render_work(
+            scene,
+            camera,
+            1,
+            pixel_offset,
+            pixel_count,
+            max_bounces,
+            output_width,
+            output_height,
+            output_surface,
+            false);
+    }
+
+    void complete_sample() {
+        ++samples_;
+    }
+
+private:
+    void render_work(
+        const DScene& scene,
+        const Camera& camera,
+        int sample_count,
+        int pixel_offset,
+        int pixel_count,
+        int max_bounces,
+        int output_width,
+        int output_height,
+        cudaSurfaceObject_t output_surface,
+        bool completes_sample) {
         if (sample_count <= 0) {
             throw std::invalid_argument(
                 "CUDA wavefront sample batch must be positive");
+        }
+        if (pixel_offset < 0 || pixel_count <= 0 ||
+            static_cast<std::size_t>(pixel_offset) +
+                    static_cast<std::size_t>(pixel_count) >
+                accumulation_.size()) {
+            throw std::invalid_argument(
+                "CUDA wavefront work region is invalid");
+        }
+        if (static_cast<std::size_t>(pixel_count) >
+            wavefront_capacity_pixels_) {
+            throw std::invalid_argument(
+                "CUDA wavefront work region exceeds arena capacity");
+        }
+        if (max_bounces <= 0 || max_bounces > kMaxPathBounces) {
+            throw std::invalid_argument(
+                "CUDA wavefront bounce limit is invalid");
+        }
+        if (output_width <= 0 || output_height <= 0) {
+            throw std::invalid_argument(
+                "CUDA output dimensions must be positive");
         }
         const DCamera packed_camera{
             to_device(camera.eye()),
@@ -2256,7 +2919,6 @@ public:
             to_device(camera.up()),
             camera.viewport_width(),
             camera.viewport_height()};
-        const std::size_t count = accumulation_.size();
         check_completed_error();
         const DFrameParameters parameters{
             scene,
@@ -2269,7 +2931,12 @@ public:
             samples_,
             sample_count,
             batch_sample_index_,
-            static_cast<int>(count),
+            pixel_offset,
+            pixel_count,
+            static_cast<int>(wavefront_capacity_pixels_),
+            max_bounces,
+            output_width,
+            output_height,
             error_code_,
             output_surface};
         update_frame_parameters_kernel<<<1, 1, 0, stream_>>>(
@@ -2293,9 +2960,12 @@ public:
         if (record_timing) {
             trace_timer_.end(stream_);
         }
-        samples_ += sample_count;
+        if (completes_sample) {
+            samples_ += sample_count;
+        }
     }
 
+public:
     void synchronize_and_check_errors() {
         check_cuda(cudaStreamSynchronize(stream_), "path rendering stream synchronize");
         throw_if_wavefront_error();
@@ -2303,7 +2973,27 @@ public:
     }
 
     std::vector<Color> download_pixels(bool use_pinned_staging = true) {
-        const std::size_t count = accumulation_.size();
+        return download_region_pixels(
+            0,
+            static_cast<int>(accumulation_.size()),
+            samples_,
+            use_pinned_staging);
+    }
+
+    std::vector<Color> download_region_pixels(
+        int pixel_offset,
+        int pixel_count,
+        int sample_count,
+        bool use_pinned_staging = true) {
+        if (pixel_offset < 0 || pixel_count <= 0 ||
+            static_cast<std::size_t>(pixel_offset) +
+                    static_cast<std::size_t>(pixel_count) >
+                accumulation_.size()) {
+            throw std::invalid_argument(
+                "CUDA download region is invalid");
+        }
+        const std::size_t count =
+            static_cast<std::size_t>(pixel_count);
         resolved_.resize(count, statistics_);
         std::vector<DVec3> pageable_pixels;
         DVec3* packed_pixels = nullptr;
@@ -2320,7 +3010,8 @@ public:
             accumulation_.get(),
             resolved_.get(),
             static_cast<int>(count),
-            samples_);
+            pixel_offset,
+            sample_count);
         check_cuda(cudaGetLastError(), "resolve_frame_kernel launch");
         resolved_.download(packed_pixels, stream_);
         ++statistics_.framebuffer_downloads;
@@ -2348,7 +3039,8 @@ public:
 private:
 #if defined(RENDERER_CUDA_SANITIZER_FALLBACK)
     void launch_sanitizer_fixed_topology(int sample_count) {
-        const int capacity = static_cast<int>(accumulation_.size());
+        const int capacity =
+            static_cast<int>(wavefront_capacity_pixels_);
         const int block_count =
             (capacity + kThreadsPerBlock - 1) / kThreadsPerBlock;
         prepare_sample_batch_kernel<<<1, 1, 0, stream_>>>(
@@ -2409,9 +3101,9 @@ private:
                     stream_>>>(
                     frame_parameters_,
                     shading_records_,
-                    shadow_tasks_,
                     path_counts_,
-                    bounce_index_);
+                    bounce_index_,
+                    shadow_tasks_);
                 advance_wavefront_kernel<<<1, 1, 0, stream_>>>(
                     frame_parameters_,
                     path_counts_,
@@ -2433,8 +3125,13 @@ private:
     }
 #endif
 
-    void ensure_wavefront_capacity(std::size_t count) {
-        if (count <= wavefront_capacity_pixels_) {
+    void ensure_wavefront_capacity(
+        std::size_t count,
+        bool exact_capacity) {
+        if ((!exact_capacity &&
+             count <= wavefront_capacity_pixels_) ||
+            (exact_capacity &&
+             count == wavefront_capacity_pixels_)) {
             return;
         }
         check_cuda(
@@ -2472,7 +3169,10 @@ private:
             offset = aligned + element_size * element_count;
         };
         reserve_region(
-            layout.sample_radiance, alignof(DVec3), sizeof(DVec3), count);
+            layout.sample_radiance,
+            alignof(DVec3),
+            sizeof(DVec3),
+            count);
         reserve_region(
             layout.first_paths, alignof(DPathState), sizeof(DPathState), count);
         reserve_region(
@@ -2501,7 +3201,15 @@ private:
             1);
         layout.total_bytes = offset;
 
-        wavefront_arena_.resize(layout.total_bytes, statistics_);
+        if (exact_capacity) {
+            wavefront_arena_.resize_exact(
+                layout.total_bytes,
+                statistics_);
+        } else {
+            wavefront_arena_.resize(
+                layout.total_bytes,
+                statistics_);
+        }
         unsigned char* const base = wavefront_arena_.get();
         sample_radiance_ =
             reinterpret_cast<DVec3*>(base + layout.sample_radiance);
@@ -2535,6 +3243,15 @@ private:
         destroy_graph();
         const int block_count =
             (capacity + kThreadsPerBlock - 1) / kThreadsPerBlock;
+        const int prepare_block_count = occupancy_grid_size(
+            reinterpret_cast<void*>(prepare_sample_kernel),
+            block_count);
+        const int intersect_block_count = block_count;
+        const int emissive_block_count = block_count;
+        const int direct_block_count = block_count;
+        const int finalize_block_count = occupancy_grid_size(
+            reinterpret_cast<void*>(finalize_sample_kernel),
+            block_count);
         check_cuda(
             cudaGraphCreate(&graph_, 0),
             "cudaGraphCreate wavefront graph");
@@ -2617,7 +3334,7 @@ private:
             sample_body,
             nullptr,
             reinterpret_cast<void*>(prepare_sample_kernel),
-            dim3(block_count),
+            dim3(prepare_block_count),
             dim3(kThreadsPerBlock),
             prepare_arguments);
 
@@ -2650,7 +3367,7 @@ private:
             body,
             nullptr,
             reinterpret_cast<void*>(intersect_wavefront_kernel),
-            dim3(block_count),
+            dim3(intersect_block_count),
             dim3(kThreadsPerBlock),
             intersect_arguments);
 
@@ -2701,7 +3418,7 @@ private:
             emissive_body,
             nullptr,
             reinterpret_cast<void*>(sample_emissive_lights_kernel),
-            dim3(block_count),
+            dim3(emissive_block_count),
             dim3(kThreadsPerBlock),
             emissive_arguments);
         body_tail = emissive_conditional_node;
@@ -2709,14 +3426,14 @@ private:
         void* direct_arguments[] = {
             &frame_parameters,
             &shading_records,
-            &shadow_tasks,
             &path_counts,
-            &bounce_index};
+            &bounce_index,
+            &shadow_tasks};
         body_tail = add_kernel_node(
             body,
             body_tail,
             reinterpret_cast<void*>(direct_visibility_kernel),
-            dim3(block_count),
+            dim3(direct_block_count),
             dim3(kThreadsPerBlock),
             direct_arguments);
 
@@ -2740,7 +3457,7 @@ private:
             sample_body,
             conditional_node,
             reinterpret_cast<void*>(finalize_sample_kernel),
-            dim3(block_count),
+            dim3(finalize_block_count),
             dim3(kThreadsPerBlock),
             finalize_arguments);
 
@@ -2765,6 +3482,31 @@ private:
                 0),
             "cudaGraphInstantiate wavefront graph");
         graph_capacity_ = capacity;
+    }
+
+    int occupancy_grid_size(void* function, int capacity_blocks) {
+        int device = 0;
+        check_cuda(cudaGetDevice(&device), "cudaGetDevice");
+        int multiprocessor_count = 0;
+        check_cuda(
+            cudaDeviceGetAttribute(
+                &multiprocessor_count,
+                cudaDevAttrMultiProcessorCount,
+                device),
+            "cudaDeviceGetAttribute multiprocessor count");
+        int resident_blocks = 0;
+        check_cuda(
+            cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+                &resident_blocks,
+                function,
+                kThreadsPerBlock,
+                0),
+            "cudaOccupancyMaxActiveBlocksPerMultiprocessor");
+        return std::max(
+            1,
+            std::min(
+                capacity_blocks,
+                2 * resident_blocks * multiprocessor_count));
     }
 
     cudaGraphNode_t add_kernel_node(
@@ -2809,7 +3551,7 @@ private:
     }
 
     void check_completed_error() {
-        if (!stream_) {
+        if (!stream_ || !error_code_) {
             return;
         }
         const cudaError_t query = cudaStreamQuery(stream_);
@@ -2821,6 +3563,9 @@ private:
     }
 
     void throw_if_wavefront_error() {
+        if (!error_code_) {
+            return;
+        }
         int error = 0;
         check_cuda(
             cudaMemcpy(
@@ -2835,11 +3580,16 @@ private:
         if (error == 1) {
             throw std::runtime_error("CUDA wavefront path queue overflow");
         }
+        if (error == 5) {
+            throw std::runtime_error(
+                "CUDA BVH4 traversal stack overflow");
+        }
         throw std::runtime_error("CUDA wavefront queue count is invalid");
     }
 
     CudaPathStatistics& statistics_;
     cudaStream_t stream_ = nullptr;
+    bool owns_stream_ = false;
     cudaGraph_t graph_ = nullptr;
     cudaGraphExec_t graph_exec_ = nullptr;
     cudaGraphConditionalHandle batch_conditional_handle_ = 0;
@@ -2916,7 +3666,8 @@ RenderResult render_cuda_path(
 class CudaPathInteractiveRenderer::Impl {
 public:
     Impl()
-        : frame_(statistics_) {}
+        : frame_(statistics_),
+          preview_frame_(statistics_, frame_.stream()) {}
 
     void reset(const Scene& scene, const RenderSettings& settings) {
         if (!scene_) {
@@ -2927,7 +3678,12 @@ public:
         } else {
             scene_->sync(scene, SceneChange::All);
         }
-        frame_.reset(settings.width, settings.height, settings.path.sample_seed_offset);
+        frame_.reset(
+            settings.width,
+            settings.height,
+            settings.path.sample_seed_offset);
+        reset_interactive_state(settings.width, settings.height);
+        preview_has_run_ = false;
     }
 
     void render_next_frame(
@@ -2957,22 +3713,141 @@ public:
         const bool reset_accumulation =
             frame_.width() != settings.width ||
             frame_.height() != settings.height ||
+            frame_state.automatic_interaction_quality !=
+                automatic_quality_enabled_ ||
             frame_state.camera_changed ||
             frame_state.scene_changes != SceneChange::None ||
             frame_state.framebuffer_resized ||
             frame_state.reset_requested;
         if (reset_accumulation) {
-            frame_.reset(settings.width, settings.height, settings.path.sample_seed_offset);
+            const CudaPathWorkMode previous_work_mode =
+                last_work_mode_;
+            frame_.reset(
+                settings.width,
+                settings.height,
+                settings.path.sample_seed_offset,
+                frame_state.automatic_interaction_quality
+                    ? native_wavefront_capacity(
+                        settings.width,
+                        settings.height)
+                    : static_cast<std::size_t>(settings.width) *
+                        static_cast<std::size_t>(settings.height));
+            reset_interactive_state(settings.width, settings.height);
+            if (frame_state.automatic_interaction_quality &&
+                automatic_quality_enabled_) {
+                last_work_mode_ = previous_work_mode;
+            }
+            automatic_quality_enabled_ =
+                frame_state.automatic_interaction_quality;
         }
-        frame_.render_sample(
-            scene_->view(),
-            camera,
-            static_cast<cudaSurfaceObject_t>(surface));
+        output_width_ = settings.width;
+        output_height_ = settings.height;
+
+        if (!frame_state.automatic_interaction_quality) {
+            active_frame_is_preview_ = false;
+            frame_.render_sample(
+                scene_->view(),
+                camera,
+                static_cast<cudaSurfaceObject_t>(surface));
+            statistics_.work_mode = CudaPathWorkMode::FullFrame;
+            statistics_.internal_width = settings.width;
+            statistics_.internal_height = settings.height;
+            statistics_.tile_y = 0;
+            statistics_.tile_rows = settings.height;
+            statistics_.sweep_progress = 1.0f;
+            scene_->update_timing();
+            return;
+        }
+
+        const bool interaction_changed =
+            frame_state.camera_changed ||
+            frame_state.scene_changes != SceneChange::None ||
+            frame_state.framebuffer_resized ||
+            frame_state.reset_requested;
+        if (interaction_changed) {
+            idle_frames_ = 0;
+            preview_dirty_ = true;
+            if (!preview_has_run_ ||
+                frame_state.scene_changes != SceneChange::None) {
+                preview_scale_tier_ =
+                    initial_preview_scale_tier(
+                        scene_->view().triangle_count);
+                preview_trace_ema_ = 0.0f;
+                slow_preview_frames_ = 0;
+                fast_preview_frames_ = 0;
+            }
+        } else if (idle_frames_ < kIdleFramesBeforeNative) {
+            ++idle_frames_;
+        }
+
+        update_adaptive_work_size();
+        if (idle_frames_ < kIdleFramesBeforeNative) {
+            render_interaction_preview(
+                camera,
+                settings,
+                static_cast<cudaSurfaceObject_t>(surface));
+        } else {
+            render_native_tile(
+                camera,
+                settings,
+                static_cast<cudaSurfaceObject_t>(surface));
+        }
         scene_->update_timing();
     }
 
     void download_current_frame(Framebuffer& target) {
-        if (target.width() != frame_.width() || target.height() != frame_.height()) {
+        if (active_frame_is_preview_) {
+            const std::vector<Color> preview =
+                preview_frame_.download_pixels();
+            if (target.width() != output_width_ ||
+                target.height() != output_height_) {
+                target.resize(output_width_, output_height_);
+            }
+            for (int y = 0; y < output_height_; ++y) {
+                const int source_y = std::min(
+                    preview_frame_.height() - 1,
+                    y * preview_frame_.height() / output_height_);
+                for (int x = 0; x < output_width_; ++x) {
+                    const int source_x = std::min(
+                        preview_frame_.width() - 1,
+                        x * preview_frame_.width() / output_width_);
+                    target.set_pixel(
+                        x,
+                        y,
+                        preview[static_cast<std::size_t>(source_y) *
+                                    static_cast<std::size_t>(
+                                        preview_frame_.width()) +
+                                static_cast<std::size_t>(source_x)]);
+                }
+            }
+            return;
+        }
+        if (last_work_mode_ == CudaPathWorkMode::NativeTile &&
+            automatic_quality_enabled_ &&
+            last_native_tile_count_ > 0) {
+            if (target.width() != frame_.width() ||
+                target.height() != frame_.height()) {
+                target.resize(frame_.width(), frame_.height());
+            }
+            const std::vector<Color> tile =
+                frame_.download_region_pixels(
+                    last_native_tile_offset_,
+                    last_native_tile_count_,
+                    last_native_tile_divisor_);
+            for (int index = 0;
+                 index < last_native_tile_count_;
+                 ++index) {
+                const int framebuffer_index =
+                    last_native_tile_offset_ + index;
+                target.set_pixel(
+                    framebuffer_index % frame_.width(),
+                    framebuffer_index / frame_.width(),
+                    tile[static_cast<std::size_t>(index)]);
+            }
+            return;
+        }
+        if (target.width() != frame_.width() ||
+            target.height() != frame_.height()) {
             target.resize(frame_.width(), frame_.height());
         }
         target.set_pixels(frame_.download_pixels());
@@ -2988,6 +3863,7 @@ public:
 
     const CudaPathStatistics& statistics() {
         frame_.update_timings();
+        preview_frame_.update_timings();
         if (scene_) {
             scene_->update_timing();
         }
@@ -3000,9 +3876,221 @@ public:
     }
 
 private:
+    static constexpr int kIdleFramesBeforeNative = 8;
+    static constexpr int kPreviewBounceLimit = 2;
+    static constexpr int kInitialTileRows = 32;
+    static constexpr int kMaximumTileRows = 64;
+
+    static std::size_t native_wavefront_capacity(int width, int height) {
+        return static_cast<std::size_t>(width) *
+            static_cast<std::size_t>(
+                std::min(height, kMaximumTileRows));
+    }
+
+    static int initial_preview_scale_tier(
+        int triangle_count) {
+        if (triangle_count >= 1'000'000) {
+            return 3;
+        }
+        if (triangle_count >= 20'000) {
+            return 2;
+        }
+        return 0;
+    }
+
+    void reset_interactive_state(int width, int height) {
+        output_width_ = width;
+        output_height_ = height;
+        idle_frames_ = kIdleFramesBeforeNative;
+        tile_y_ = 0;
+        tile_rows_ = std::min(kInitialTileRows, height);
+        last_native_tile_offset_ = 0;
+        last_native_tile_count_ = 0;
+        last_native_tile_divisor_ = 1;
+        fast_tile_count_ = 0;
+        preview_dirty_ = true;
+        active_frame_is_preview_ = false;
+        last_work_mode_ = CudaPathWorkMode::FullFrame;
+        sweep_started_ = std::chrono::steady_clock::now();
+        statistics_.internal_width = width;
+        statistics_.internal_height = height;
+        statistics_.tile_y = 0;
+        statistics_.tile_rows = tile_rows_;
+        statistics_.sweep_progress = 0.0f;
+        statistics_.complete_sweeps_per_second = 0.0f;
+    }
+
+    void update_adaptive_work_size() {
+        const float elapsed = statistics_.trace_milliseconds;
+        if (!(elapsed > 0.0f) || !std::isfinite(elapsed)) {
+            return;
+        }
+        if (last_work_mode_ == CudaPathWorkMode::InteractionPreview) {
+            preview_trace_ema_ = preview_trace_ema_ > 0.0f
+                ? preview_trace_ema_ * 0.4f + elapsed * 0.6f
+                : elapsed;
+            if (preview_trace_ema_ > 12.0f) {
+                ++slow_preview_frames_;
+                fast_preview_frames_ = 0;
+                if (slow_preview_frames_ >= 2 &&
+                    preview_scale_tier_ + 1 <
+                        static_cast<int>(preview_scales_.size())) {
+                    ++preview_scale_tier_;
+                    slow_preview_frames_ = 0;
+                    preview_dirty_ = true;
+                }
+            } else if (preview_trace_ema_ < 8.0f) {
+                ++fast_preview_frames_;
+                slow_preview_frames_ = 0;
+                if (fast_preview_frames_ >= 30 &&
+                    preview_scale_tier_ > 0) {
+                    --preview_scale_tier_;
+                    fast_preview_frames_ = 0;
+                    preview_dirty_ = true;
+                }
+            } else {
+                slow_preview_frames_ = 0;
+                fast_preview_frames_ = 0;
+            }
+        } else if (last_work_mode_ == CudaPathWorkMode::NativeTile) {
+            if (elapsed > 10.0f && tile_rows_ > 1) {
+                tile_rows_ = std::max(1, tile_rows_ / 2);
+                fast_tile_count_ = 0;
+            } else if (elapsed < 4.0f) {
+                ++fast_tile_count_;
+                if (fast_tile_count_ >= 8 &&
+                    tile_rows_ < kMaximumTileRows) {
+                    tile_rows_ = std::min(
+                        kMaximumTileRows,
+                        tile_rows_ * 2);
+                    fast_tile_count_ = 0;
+                }
+            } else {
+                fast_tile_count_ = 0;
+            }
+        }
+    }
+
+    void render_interaction_preview(
+        const Camera& camera,
+        const RenderSettings& settings,
+        cudaSurfaceObject_t surface) {
+        const float scale =
+            preview_scales_[static_cast<std::size_t>(preview_scale_tier_)];
+        const int preview_width = std::max(
+            1,
+            static_cast<int>(std::lround(
+                static_cast<float>(settings.width) * scale)));
+        const int preview_height = std::max(
+            1,
+            static_cast<int>(std::lround(
+                static_cast<float>(settings.height) * scale)));
+        if (preview_dirty_ ||
+            preview_frame_.width() != preview_width ||
+            preview_frame_.height() != preview_height) {
+            preview_frame_.reset(
+                preview_width,
+                preview_height,
+                settings.path.sample_seed_offset);
+            preview_dirty_ = false;
+        }
+        preview_frame_.render_region(
+            scene_->view(),
+            camera,
+            0,
+            preview_width * preview_height,
+            kPreviewBounceLimit,
+            settings.width,
+            settings.height,
+            surface);
+        preview_frame_.complete_sample();
+        preview_has_run_ = true;
+        active_frame_is_preview_ = true;
+        last_work_mode_ = CudaPathWorkMode::InteractionPreview;
+        statistics_.work_mode = last_work_mode_;
+        statistics_.internal_width = preview_width;
+        statistics_.internal_height = preview_height;
+        statistics_.tile_y = 0;
+        statistics_.tile_rows = preview_height;
+        statistics_.sweep_progress = 0.0f;
+    }
+
+    void render_native_tile(
+        const Camera& camera,
+        const RenderSettings& settings,
+        cudaSurfaceObject_t surface) {
+        const int rows = std::min(
+            tile_rows_,
+            settings.height - tile_y_);
+        last_native_tile_offset_ =
+            tile_y_ * settings.width;
+        last_native_tile_count_ =
+            rows * settings.width;
+        last_native_tile_divisor_ =
+            frame_.samples() + 1;
+        frame_.render_region(
+            scene_->view(),
+            camera,
+            last_native_tile_offset_,
+            last_native_tile_count_,
+            kMaxPathBounces,
+            settings.width,
+            settings.height,
+            surface);
+        active_frame_is_preview_ = false;
+        last_work_mode_ = CudaPathWorkMode::NativeTile;
+        tile_y_ += rows;
+        if (tile_y_ >= settings.height) {
+            frame_.complete_sample();
+            tile_y_ = 0;
+            const auto completed_at = std::chrono::steady_clock::now();
+            const float seconds =
+                std::chrono::duration<float>(
+                    completed_at - sweep_started_).count();
+            if (seconds > 0.0f) {
+                statistics_.complete_sweeps_per_second =
+                    1.0f / seconds;
+            }
+            sweep_started_ = completed_at;
+        }
+        statistics_.work_mode = last_work_mode_;
+        statistics_.internal_width = settings.width;
+        statistics_.internal_height = rows;
+        statistics_.tile_y = tile_y_;
+        statistics_.tile_rows = rows;
+        statistics_.sweep_progress =
+            static_cast<float>(tile_y_) /
+            static_cast<float>(settings.height);
+    }
+
     CudaPathStatistics statistics_;
     CudaFrameStorage frame_;
+    CudaFrameStorage preview_frame_;
     std::unique_ptr<CudaSceneStorage> scene_;
+    const std::array<float, 4> preview_scales_{
+        1.0f,
+        0.75f,
+        0.5f,
+        0.25f};
+    int preview_scale_tier_ = 0;
+    int slow_preview_frames_ = 0;
+    int fast_preview_frames_ = 0;
+    int fast_tile_count_ = 0;
+    int idle_frames_ = kIdleFramesBeforeNative;
+    int tile_y_ = 0;
+    int tile_rows_ = kInitialTileRows;
+    int last_native_tile_offset_ = 0;
+    int last_native_tile_count_ = 0;
+    int last_native_tile_divisor_ = 1;
+    int output_width_ = 1;
+    int output_height_ = 1;
+    float preview_trace_ema_ = 0.0f;
+    bool preview_dirty_ = true;
+    bool preview_has_run_ = false;
+    bool active_frame_is_preview_ = false;
+    bool automatic_quality_enabled_ = false;
+    CudaPathWorkMode last_work_mode_ = CudaPathWorkMode::FullFrame;
+    std::chrono::steady_clock::time_point sweep_started_{};
 };
 
 CudaPathInteractiveRenderer::CudaPathInteractiveRenderer()
