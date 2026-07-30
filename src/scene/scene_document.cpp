@@ -241,6 +241,12 @@ SceneDocument SceneDocument::from_scene(
     std::string builtin_id) {
     SceneDocument document;
     document.state_.environment = scene.environment;
+    std::vector<PointLight> point_lights =
+        std::move(scene.point_lights);
+    std::vector<DirectionalLight> directional_lights =
+        std::move(scene.directional_lights);
+    scene.point_lights.clear();
+    scene.directional_lights.clear();
     auto asset = std::make_shared<SceneMeshAsset>();
     asset->id = document.next_asset_id_++;
     asset->source_path.clear();
@@ -254,6 +260,9 @@ SceneDocument SceneDocument::from_scene(
     for (const Triangle& triangle : asset->local_scene.triangles) {
         asset->local_bounds.expand(triangle.bounds());
     }
+    for (const Sphere& sphere : asset->local_scene.spheres) {
+        asset->local_bounds.expand(sphere.bounds());
+    }
     document.assets_.push_back(asset);
     SceneObject object;
     object.id = document.next_object_id_++;
@@ -261,8 +270,26 @@ SceneDocument SceneDocument::from_scene(
     object.type = SceneObjectType::Mesh;
     object.asset_id = asset->id;
     document.state_.objects.push_back(std::move(object));
+    for (std::size_t index = 0;
+         index < point_lights.size();
+         ++index) {
+        document.create_point_light(
+            "Point Light " + std::to_string(index + 1),
+            point_lights[index].position,
+            point_lights[index].intensity);
+    }
+    for (std::size_t index = 0;
+         index < directional_lights.size();
+         ++index) {
+        document.create_directional_light(
+            "Directional Light " +
+                std::to_string(index + 1),
+            directional_lights[index].direction,
+            directional_lights[index].radiance);
+    }
     document.history_.assign(1, document.state_);
-    document.rebuild_render_scene();
+    document.render_dirty_ = true;
+    document.instanced_dirty_ = true;
     return document;
 }
 
@@ -272,6 +299,7 @@ const std::vector<SceneObject>& SceneDocument::objects() const {
 
 std::vector<SceneObject>& SceneDocument::objects() {
     render_dirty_ = true;
+    instanced_dirty_ = true;
     return state_.objects;
 }
 
@@ -305,6 +333,7 @@ SceneObject* SceneDocument::find(ObjectId id) {
         return nullptr;
     }
     render_dirty_ = true;
+    instanced_dirty_ = true;
     return &*found;
 }
 
@@ -326,6 +355,7 @@ ObjectId SceneDocument::create_group(std::string name, ObjectId parent_id) {
     object.type = SceneObjectType::Group;
     state_.objects.push_back(std::move(object));
     render_dirty_ = true;
+    instanced_dirty_ = true;
     return state_.objects.back().id;
 }
 
@@ -413,6 +443,7 @@ ObjectId SceneDocument::import_obj(
     object.asset_id = asset->id;
     state_.objects.push_back(std::move(object));
     render_dirty_ = true;
+    instanced_dirty_ = true;
     return state_.objects.back().id;
 }
 
@@ -491,8 +522,7 @@ std::vector<ObjectId> SceneDocument::import_path(
         throw std::runtime_error("asset path is neither a file nor directory: " + normalized.string());
     }
 
-    if (render_scene_.directional_lights.empty() &&
-        std::none_of(state_.objects.begin(), state_.objects.end(), [](const SceneObject& object) {
+    if (std::none_of(state_.objects.begin(), state_.objects.end(), [](const SceneObject& object) {
             return object.type == SceneObjectType::DirectionalLight;
         })) {
         create_directional_light(
@@ -501,7 +531,8 @@ std::vector<ObjectId> SceneDocument::import_path(
             Color(25.0f, 25.0f, 25.0f));
     }
     checkpoint();
-    rebuild_render_scene();
+    render_dirty_ = true;
+    instanced_dirty_ = true;
     return imported;
     } catch (...) {
         state_ = previous_state;
@@ -510,6 +541,7 @@ std::vector<ObjectId> SceneDocument::import_path(
         next_object_id_ = previous_next_object_id;
         next_asset_id_ = previous_next_asset_id;
         render_dirty_ = true;
+        instanced_dirty_ = true;
         throw;
     }
 }
@@ -539,6 +571,7 @@ ObjectId SceneDocument::duplicate_subtree(ObjectId id) {
     const ObjectId result = clone_subtree(id, source->parent_id);
     if (result != kInvalidObjectId) {
         render_dirty_ = true;
+        instanced_dirty_ = true;
         checkpoint();
     }
     return result;
@@ -562,6 +595,7 @@ bool SceneDocument::erase_subtree(ObjectId id) {
         return remove.contains(object.id);
     });
     render_dirty_ = true;
+    instanced_dirty_ = true;
     checkpoint();
     return true;
 }
@@ -608,6 +642,7 @@ bool SceneDocument::reparent(ObjectId id, ObjectId new_parent_id) {
         return false;
     }
     render_dirty_ = true;
+    instanced_dirty_ = true;
     checkpoint();
     return true;
 }
@@ -650,6 +685,7 @@ bool SceneDocument::set_world_matrix(ObjectId id, const Mat4& world) {
         return false;
     }
     render_dirty_ = true;
+    instanced_dirty_ = true;
     return true;
 }
 
@@ -718,6 +754,7 @@ bool SceneDocument::set_material_override(
         *found = material_override_value;
     }
     render_dirty_ = true;
+    instanced_dirty_ = true;
     return true;
 }
 
@@ -740,6 +777,7 @@ bool SceneDocument::clear_material_override(
         return false;
     }
     render_dirty_ = true;
+    instanced_dirty_ = true;
     return true;
 }
 
@@ -827,6 +865,98 @@ void SceneDocument::ensure_render_scene() const {
 const Scene& SceneDocument::render_scene() const {
     ensure_render_scene();
     return render_scene_;
+}
+
+void SceneDocument::ensure_instanced_scene() const {
+    if (!instanced_dirty_) {
+        return;
+    }
+
+    InstancedSceneView result;
+    result.environment = state_.environment;
+    result.assets.reserve(assets_.size());
+    result.instances.reserve(state_.objects.size());
+    std::unordered_map<AssetId, int> asset_indices;
+
+    for (const SceneObject& object : state_.objects) {
+        if (object.type != SceneObjectType::Mesh) {
+            continue;
+        }
+        const auto asset = find_asset(object.asset_id);
+        if (!asset ||
+            asset_indices.contains(asset->id)) {
+            continue;
+        }
+        const int asset_index =
+            static_cast<int>(result.assets.size());
+        asset_indices.emplace(asset->id, asset_index);
+        result.assets.push_back(
+            InstancedSceneAssetView{
+                asset->id,
+                &asset->local_scene,
+                asset->local_bounds});
+    }
+
+    for (const SceneObject& object : state_.objects) {
+        if (!is_effectively_visible(object.id)) {
+            continue;
+        }
+        const Mat4 world = world_matrix(object.id);
+        if (object.type == SceneObjectType::PointLight) {
+            result.point_lights.push_back(
+                PointLight{
+                    transform_point(world, Vec3::Zero()),
+                    object.light_color});
+            continue;
+        }
+        if (object.type == SceneObjectType::DirectionalLight) {
+            const Vec3 direction =
+                (world.topLeftCorner<3, 3>() *
+                 Vec3(0.0f, 0.0f, -1.0f)).normalized();
+            result.directional_lights.push_back(
+                DirectionalLight{direction, object.light_color});
+            continue;
+        }
+        if (object.type != SceneObjectType::Mesh) {
+            continue;
+        }
+        const auto asset = find_asset(object.asset_id);
+        if (!asset) {
+            continue;
+        }
+        const int asset_index =
+            asset_indices.at(asset->id);
+
+        InstancedSceneInstanceView instance;
+        instance.object_id = object.id;
+        instance.asset_index = asset_index;
+        instance.object_to_world = world;
+        instance.world_to_object = world.inverse();
+        instance.normal_to_world =
+            world.topLeftCorner<3, 3>().inverse().transpose();
+        instance.world_bounds =
+            transform_bounds(asset->local_bounds, world);
+        instance.materials = asset->local_scene.materials;
+        for (const SceneMaterialOverride& material_override :
+             object.material_overrides) {
+            if (material_override.material_slot >=
+                instance.materials.size()) {
+                continue;
+            }
+            apply_material_override(
+                instance.materials[material_override.material_slot],
+                material_override);
+        }
+        result.instances.push_back(std::move(instance));
+    }
+
+    instanced_scene_ = std::move(result);
+    instanced_dirty_ = false;
+}
+
+const InstancedSceneView& SceneDocument::instanced_render_scene() const {
+    ensure_instanced_scene();
+    return instanced_scene_;
 }
 
 bool SceneDocument::rebuild_render_scene() {
@@ -958,6 +1088,7 @@ bool SceneDocument::rebuild_render_scene() {
 
 Color& SceneDocument::environment() {
     render_dirty_ = true;
+    instanced_dirty_ = true;
     return state_.environment;
 }
 
@@ -998,6 +1129,7 @@ bool SceneDocument::undo() {
     }
     state_ = history_[--history_cursor_];
     render_dirty_ = true;
+    instanced_dirty_ = true;
     return true;
 }
 
@@ -1007,6 +1139,7 @@ bool SceneDocument::redo() {
     }
     state_ = history_[++history_cursor_];
     render_dirty_ = true;
+    instanced_dirty_ = true;
     return true;
 }
 
@@ -1250,8 +1383,12 @@ SceneDocument SceneDocument::deserialize_document(
                     asset->material_names.push_back(
                         "Material " + std::to_string(index + 1));
                 }
-                for (const Triangle& triangle : asset->local_scene.triangles) {
+                for (const Triangle& triangle :
+                     asset->local_scene.triangles) {
                     asset->local_bounds.expand(triangle.bounds());
+                }
+                for (const Sphere& sphere : asset->local_scene.spheres) {
+                    asset->local_bounds.expand(sphere.bounds());
                 }
                 document.assets_.push_back(asset);
                 asset_ids[stored_id] = asset->id;
@@ -1431,7 +1568,7 @@ SceneDocument SceneDocument::deserialize_document(
     document.history_cursor_ = 0;
     document.saved_cursor_ = 0;
     document.render_dirty_ = true;
-    document.rebuild_render_scene();
+    document.instanced_dirty_ = true;
     return document;
 }
 

@@ -41,7 +41,10 @@ public:
         return render_mode_descriptor(mode()).capabilities;
     }
 
-    void reset(const Scene& scene, const RenderSettings&) override {
+    void reset(
+        const Scene& scene,
+        const RenderSettings&,
+        const InstancedSceneView*) override {
         renderer_.reset(scene);
         update_output();
     }
@@ -50,7 +53,8 @@ public:
         const Scene& scene,
         const Camera& camera,
         const RenderSettings& settings,
-        const InteractiveFrameState& frame_state) override {
+        const InteractiveFrameState& frame_state,
+        const InstancedSceneView*) override {
         if (frame_state.scene_changes != SceneChange::None) {
             renderer_.sync_scene(scene, frame_state.scene_changes);
         }
@@ -107,8 +111,17 @@ public:
         return render_mode_descriptor(mode()).capabilities;
     }
 
-    void reset(const Scene& scene, const RenderSettings& settings) override {
-        session_.reset(scene, settings);
+    void reset(
+        const Scene& scene,
+        const RenderSettings& settings,
+        const InstancedSceneView* instanced_scene) override {
+        if (instanced_scene &&
+            resolve_path_backend(settings.path.backend) ==
+                ExecutionBackend::Cuda) {
+            session_.reset_instanced(scene, settings, *instanced_scene);
+        } else {
+            session_.reset(scene, settings);
+        }
         framebuffer_.resize(settings.width, settings.height);
         output_ = RenderFrameOutput::host(framebuffer_);
         if (session_.active_backend() == ExecutionBackend::Cuda) {
@@ -122,7 +135,8 @@ public:
         const Scene& scene,
         const Camera& camera,
         const RenderSettings& settings,
-        const InteractiveFrameState& frame_state) override {
+        const InteractiveFrameState& frame_state,
+        const InstancedSceneView* instanced_scene) override {
         if (session_.active_backend() == ExecutionBackend::Cuda &&
             interop_.state() != CudaOpenGlInteropState::Fallback &&
             interop_.state() != CudaOpenGlInteropState::Unavailable) {
@@ -139,7 +153,8 @@ public:
                         camera,
                         settings,
                         frame_state,
-                        surface);
+                        surface,
+                        instanced_scene);
                 } catch (...) {
                     interop_.cancel_frame();
                     throw;
@@ -160,12 +175,23 @@ public:
             }
         }
 
-        session_.render_next_frame(
-            scene,
-            camera,
-            settings,
-            frame_state,
-            framebuffer_);
+        if (instanced_scene &&
+            session_.active_backend() == ExecutionBackend::Cuda) {
+            session_.render_next_frame_instanced(
+                scene,
+                *instanced_scene,
+                camera,
+                settings,
+                frame_state,
+                framebuffer_);
+        } else {
+            session_.render_next_frame(
+                scene,
+                camera,
+                settings,
+                frame_state,
+                framebuffer_);
+        }
         session_.set_cuda_presentation_state(false, true);
         output_ = RenderFrameOutput::host(framebuffer_);
         return output_;

@@ -4,6 +4,7 @@
 #include "core/math/ray.h"
 #include "core/math/types.h"
 #include "scene/light.h"
+#include "scene/instanced_scene.h"
 #include "scene/scene.h"
 
 #include <nlohmann/json_fwd.hpp>
@@ -142,6 +143,7 @@ public:
     std::optional<ScenePickResult> pick(const Ray& ray) const;
 
     const Scene& render_scene() const;
+    const InstancedSceneView& instanced_render_scene() const;
     bool rebuild_render_scene();
     Color& environment();
     const Color& environment() const;
@@ -166,8 +168,10 @@ private:
     State state_;
     std::vector<std::shared_ptr<SceneMeshAsset>> assets_;
     mutable Scene render_scene_;
+    mutable InstancedSceneView instanced_scene_;
     mutable Bounds3 render_bounds_;
     mutable bool render_dirty_ = true;
+    mutable bool instanced_dirty_ = true;
     ObjectId next_object_id_ = 1;
     AssetId next_asset_id_ = 1;
     std::vector<State> history_;
@@ -201,6 +205,7 @@ private:
         int height,
         bool session_snapshot);
     void ensure_render_scene() const;
+    void ensure_instanced_scene() const;
 };
 
 }  // namespace renderer

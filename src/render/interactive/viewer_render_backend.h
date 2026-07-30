@@ -4,6 +4,7 @@
 #include "render/interactive/render_mode.h"
 #include "render/pathtracer/cuda_pathtracer.h"
 #include "render/pathtracer/path_backend.h"
+#include "scene/instanced_scene.h"
 
 #include <filesystem>
 #include <memory>
@@ -30,12 +31,16 @@ public:
 
     virtual InteractiveRenderMode mode() const = 0;
     virtual RenderModeCapability capabilities() const = 0;
-    virtual void reset(const Scene& scene, const RenderSettings& settings) = 0;
+    virtual void reset(
+        const Scene& scene,
+        const RenderSettings& settings,
+        const InstancedSceneView* instanced_scene = nullptr) = 0;
     virtual const RenderFrameOutput& render(
         const Scene& scene,
         const Camera& camera,
         const RenderSettings& settings,
-        const InteractiveFrameState& frame_state) = 0;
+        const InteractiveFrameState& frame_state,
+        const InstancedSceneView* instanced_scene = nullptr) = 0;
     virtual const RenderFrameOutput& output() const = 0;
     virtual ViewerRenderBackendStatistics statistics() const = 0;
 

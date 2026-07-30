@@ -111,7 +111,7 @@ public:
         OpenGlShaderUiState& shader_state,
         bool scene_shortcuts_enabled);
 
-    bool draw_scene_gizmo(
+    SceneChangeSet draw_scene_gizmo(
         ViewerUiState& state,
         SceneDocument& document,
         const Camera& camera,
@@ -124,7 +124,7 @@ public:
 
     void draw_point_light_markers(
         const ViewerUiState& state,
-        const Scene& scene,
+        const SceneDocument& document,
         const Camera& camera) const;
 };
 

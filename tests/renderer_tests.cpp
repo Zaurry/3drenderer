@@ -2735,6 +2735,467 @@ void test_cuda_pathtracer_auto_interaction_preview_and_native_tiles_when_availab
     }
 }
 
+renderer::Mat4 make_test_instance_matrix(
+    const renderer::Vec3& translation,
+    float rotation_degrees,
+    const renderer::Vec3& scale) {
+    renderer::Mat4 result = renderer::Mat4::Identity();
+    const renderer::Mat3 rotation =
+        Eigen::AngleAxisf(
+            rotation_degrees * (3.14159265358979323846f / 180.0f),
+            renderer::Vec3::UnitZ())
+            .toRotationMatrix();
+    result.topLeftCorner<3, 3>() = rotation * scale.asDiagonal();
+    result.topRightCorner<3, 1>() = translation;
+    return result;
+}
+
+void check_framebuffers_near(
+    const renderer::Framebuffer& lhs,
+    const renderer::Framebuffer& rhs,
+    float tolerance) {
+    RENDER_CHECK(lhs.width() == rhs.width());
+    RENDER_CHECK(lhs.height() == rhs.height());
+    for (int y = 0; y < lhs.height(); ++y) {
+        for (int x = 0; x < lhs.width(); ++x) {
+            RENDER_CHECK(
+                (lhs.pixel(x, y) - rhs.pixel(x, y))
+                    .cwiseAbs()
+                    .maxCoeff() <= tolerance);
+        }
+    }
+}
+
+void test_instanced_scene_view_and_cuda_transform_refit_when_available(
+    int drag_frame_count = 100) {
+    renderer::Scene local_scene;
+    local_scene.environment = renderer::Color(0.01f, 0.02f, 0.03f);
+    renderer::Material emissive;
+    emissive.type = renderer::MaterialType::Emissive;
+    emissive.emission = renderer::Color(2.0f, 1.0f, 0.5f);
+    emissive.two_sided = true;
+    local_scene.materials.push_back(emissive);
+    local_scene.triangles.emplace_back(
+        renderer::Vec3(-0.5f, -0.5f, 0.0f),
+        renderer::Vec3(0.5f, -0.5f, 0.0f),
+        renderer::Vec3(0.5f, 0.5f, 0.0f),
+        0);
+    local_scene.triangles.emplace_back(
+        renderer::Vec3(-0.5f, -0.5f, 0.0f),
+        renderer::Vec3(0.5f, 0.5f, 0.0f),
+        renderer::Vec3(-0.5f, 0.5f, 0.0f),
+        0);
+
+    renderer::SceneDocument document = renderer::SceneDocument::from_scene(
+        std::move(local_scene),
+        "Instanced emissive quad");
+    const renderer::ObjectId first = document.objects().front().id;
+    const renderer::ObjectId second = document.duplicate_subtree(first);
+    RENDER_CHECK(second != renderer::kInvalidObjectId);
+    std::optional<renderer::SceneMaterialOverride> second_material =
+        document.material_properties(second, 0);
+    RENDER_CHECK(second_material.has_value());
+    second_material->emission =
+        renderer::Color(0.25f, 3.0f, 0.75f);
+    RENDER_CHECK(document.set_material_override(
+        second,
+        *second_material));
+    RENDER_CHECK(document.set_world_matrix(
+        first,
+        make_test_instance_matrix(
+            renderer::Vec3(-0.65f, 0.0f, -2.0f),
+            18.0f,
+            renderer::Vec3(1.15f, 0.7f, 1.0f))));
+    RENDER_CHECK(document.set_world_matrix(
+        second,
+        make_test_instance_matrix(
+            renderer::Vec3(0.65f, 0.0f, -2.0f),
+            -12.0f,
+            renderer::Vec3(-0.8f, 1.25f, 1.0f))));
+    const renderer::ObjectId group =
+        document.create_group("Shared parent");
+    RENDER_CHECK(document.reparent(first, group));
+    RENDER_CHECK(document.reparent(second, group));
+    RENDER_CHECK(document.set_world_matrix(
+        group,
+        make_test_instance_matrix(
+            renderer::Vec3(0.0f, 0.05f, 0.0f),
+            3.0f,
+            renderer::Vec3::Ones())));
+
+    const renderer::InstancedSceneView& initial_instances =
+        document.instanced_render_scene();
+    RENDER_CHECK(initial_instances.assets.size() == 1);
+    RENDER_CHECK(initial_instances.instances.size() == 2);
+    RENDER_CHECK(
+        initial_instances.instances[0].asset_index ==
+        initial_instances.instances[1].asset_index);
+    RENDER_CHECK(
+        initial_instances.assets[0].local_scene->triangles.size() == 2);
+    RENDER_CHECK(
+        initial_instances.instances[0].object_to_world.isApprox(
+            document.world_matrix(initial_instances.instances[0].object_id),
+            1.0e-5f));
+
+    if (!renderer::cuda_path_backend_available()) {
+        return;
+    }
+
+    renderer::InstancedSceneView invalid_instances =
+        initial_instances;
+    invalid_instances.instances[0]
+        .object_to_world(0, 0) =
+        std::numeric_limits<float>::quiet_NaN();
+    bool rejected_invalid_instance = false;
+    try {
+        renderer::CudaPathInteractiveRenderer invalid_renderer;
+        renderer::RenderSettings invalid_settings;
+        invalid_settings.width = 1;
+        invalid_settings.height = 1;
+        invalid_settings.path.backend =
+            renderer::PathBackend::Cuda;
+        renderer::Scene placeholder;
+        invalid_renderer.reset(
+            placeholder,
+            invalid_settings,
+            &invalid_instances);
+    } catch (const std::runtime_error&) {
+        rejected_invalid_instance = true;
+    }
+    RENDER_CHECK(rejected_invalid_instance);
+
+    renderer::RenderSettings settings;
+    settings.width = 32;
+    settings.height = 24;
+    settings.path.backend = renderer::PathBackend::Cuda;
+    settings.path.sample_seed_offset = 173;
+    const renderer::Camera camera(
+        renderer::Vec3::Zero(),
+        -renderer::Vec3::UnitZ(),
+        renderer::Vec3::UnitY(),
+        45.0f,
+        static_cast<float>(settings.width) /
+            static_cast<float>(settings.height));
+    const renderer::InteractiveFrameState frame_state;
+
+    const renderer::Scene initial_flat_scene = document.render_scene();
+    renderer::PathInteractiveSession flat_session;
+    renderer::Framebuffer flat_frame(settings.width, settings.height);
+    flat_session.reset(initial_flat_scene, settings);
+    flat_session.render_next_frame(
+        initial_flat_scene,
+        camera,
+        settings,
+        frame_state,
+        flat_frame);
+
+    renderer::PathInteractiveSession instanced_session;
+    renderer::Framebuffer instanced_frame(settings.width, settings.height);
+    instanced_session.reset_instanced(
+        initial_flat_scene,
+        settings,
+        document.instanced_render_scene());
+    instanced_session.render_next_frame_instanced(
+        initial_flat_scene,
+        document.instanced_render_scene(),
+        camera,
+        settings,
+        frame_state,
+        instanced_frame);
+    RENDER_CHECK(framebuffer_colors_are_finite(instanced_frame));
+    check_framebuffers_near(flat_frame, instanced_frame, 1.0e-5f);
+
+    const renderer::CudaPathStatistics before_material_update =
+        *instanced_session.cuda_statistics();
+    RENDER_CHECK(before_material_update.blas_build_count == 1);
+    RENDER_CHECK(before_material_update.tlas_build_count == 1);
+    second_material = document.material_properties(second, 0);
+    RENDER_CHECK(second_material.has_value());
+    second_material->emission =
+        renderer::Color(0.5f, 2.5f, 1.0f);
+    RENDER_CHECK(document.set_material_override(
+        second,
+        *second_material));
+    renderer::InteractiveFrameState material_state;
+    material_state.scene_changes =
+        renderer::SceneChange::Materials |
+        renderer::SceneChange::MaterialBindings;
+    instanced_session.render_next_frame_instanced(
+        initial_flat_scene,
+        document.instanced_render_scene(),
+        camera,
+        settings,
+        material_state,
+        instanced_frame);
+    const renderer::CudaPathStatistics before_transform =
+        *instanced_session.cuda_statistics();
+    RENDER_CHECK(
+        before_transform.material_upload_bytes >
+        before_material_update.material_upload_bytes);
+    RENDER_CHECK(
+        before_transform.blas_build_count ==
+        before_material_update.blas_build_count);
+    RENDER_CHECK(
+        before_transform.geometry_upload_bytes ==
+        before_material_update.geometry_upload_bytes);
+    RENDER_CHECK(
+        before_transform.bvh_upload_bytes ==
+        before_material_update.bvh_upload_bytes);
+    RENDER_CHECK(
+        before_transform.tlas_build_count ==
+        before_material_update.tlas_build_count);
+
+    RENDER_CHECK(document.set_world_matrix(
+        first,
+        make_test_instance_matrix(
+            renderer::Vec3(-0.35f, 0.15f, -1.7f),
+            31.0f,
+            renderer::Vec3(-1.15f, 0.7f, 1.0f))));
+    renderer::InteractiveFrameState transform_state;
+    transform_state.scene_changes =
+        renderer::SceneChange::InstanceTransforms;
+    instanced_session.render_next_frame_instanced(
+        initial_flat_scene,
+        document.instanced_render_scene(),
+        camera,
+        settings,
+        transform_state,
+        instanced_frame);
+    const renderer::CudaPathStatistics after_transform =
+        *instanced_session.cuda_statistics();
+    RENDER_CHECK(instanced_session.accumulated_samples() == 1);
+    RENDER_CHECK(
+        after_transform.instance_upload_bytes >
+        before_transform.instance_upload_bytes);
+    RENDER_CHECK(
+        after_transform.tlas_refit_count ==
+        before_transform.tlas_refit_count + 1);
+    RENDER_CHECK(
+        after_transform.blas_build_count ==
+        before_transform.blas_build_count);
+    RENDER_CHECK(
+        after_transform.tlas_build_count ==
+        before_transform.tlas_build_count);
+    RENDER_CHECK(
+        after_transform.geometry_upload_bytes ==
+        before_transform.geometry_upload_bytes);
+    RENDER_CHECK(
+        after_transform.material_binding_upload_bytes ==
+        before_transform.material_binding_upload_bytes);
+    RENDER_CHECK(
+        after_transform.material_upload_bytes ==
+        before_transform.material_upload_bytes);
+    RENDER_CHECK(
+        after_transform.texture_upload_bytes ==
+        before_transform.texture_upload_bytes);
+    RENDER_CHECK(
+        after_transform.bvh_upload_bytes ==
+        before_transform.bvh_upload_bytes);
+    RENDER_CHECK(
+        after_transform.tlas_upload_bytes ==
+        before_transform.tlas_upload_bytes);
+    RENDER_CHECK(
+        after_transform.lighting_upload_bytes ==
+        before_transform.lighting_upload_bytes);
+
+    RENDER_CHECK(document.set_world_matrix(
+        first,
+        make_test_instance_matrix(
+            renderer::Vec3(-0.35f, 0.15f, -1.7f),
+            31.0f,
+            renderer::Vec3(-1.35f, 0.55f, 1.0f))));
+    const renderer::CudaPathStatistics before_scale =
+        after_transform;
+    instanced_session.render_next_frame_instanced(
+        initial_flat_scene,
+        document.instanced_render_scene(),
+        camera,
+        settings,
+        transform_state,
+        instanced_frame);
+    const renderer::CudaPathStatistics after_scale =
+        *instanced_session.cuda_statistics();
+    RENDER_CHECK(
+        after_scale.lighting_upload_bytes >
+        before_scale.lighting_upload_bytes);
+    RENDER_CHECK(
+        after_scale.blas_build_count ==
+        before_scale.blas_build_count);
+    RENDER_CHECK(
+        after_scale.geometry_upload_bytes ==
+        before_scale.geometry_upload_bytes);
+    RENDER_CHECK(
+        after_scale.tlas_refit_count ==
+        before_scale.tlas_refit_count + 1);
+
+    const renderer::Scene transformed_flat_scene = document.render_scene();
+    renderer::PathInteractiveSession transformed_flat_session;
+    renderer::Framebuffer transformed_flat_frame(
+        settings.width,
+        settings.height);
+    transformed_flat_session.reset(transformed_flat_scene, settings);
+    transformed_flat_session.render_next_frame(
+        transformed_flat_scene,
+        camera,
+        settings,
+        frame_state,
+        transformed_flat_frame);
+    RENDER_CHECK(framebuffer_colors_are_finite(instanced_frame));
+    check_framebuffers_near(
+        transformed_flat_frame,
+        instanced_frame,
+        1.0e-5f);
+
+    const renderer::CudaPathStatistics before_drag =
+        *instanced_session.cuda_statistics();
+    for (int frame = 0;
+         frame < drag_frame_count;
+         ++frame) {
+        RENDER_CHECK(document.set_world_matrix(
+            first,
+            make_test_instance_matrix(
+                renderer::Vec3(
+                    -0.35f + 0.001f * static_cast<float>(frame),
+                    0.15f,
+                    -1.7f),
+                31.0f,
+                renderer::Vec3(-1.35f, 0.55f, 1.0f))));
+        instanced_session.render_next_frame_instanced(
+            transformed_flat_scene,
+            document.instanced_render_scene(),
+            camera,
+            settings,
+            transform_state,
+            instanced_frame);
+    }
+    const renderer::CudaPathStatistics after_drag =
+        *instanced_session.cuda_statistics();
+    RENDER_CHECK(
+        after_drag.tlas_refit_count ==
+        before_drag.tlas_refit_count +
+            static_cast<std::uint64_t>(
+                drag_frame_count));
+    RENDER_CHECK(
+        after_drag.blas_build_count ==
+        before_drag.blas_build_count);
+    RENDER_CHECK(
+        after_drag.geometry_upload_bytes ==
+        before_drag.geometry_upload_bytes);
+    RENDER_CHECK(
+        after_drag.material_binding_upload_bytes ==
+        before_drag.material_binding_upload_bytes);
+    RENDER_CHECK(
+        after_drag.material_upload_bytes ==
+        before_drag.material_upload_bytes);
+    RENDER_CHECK(
+        after_drag.texture_upload_bytes ==
+        before_drag.texture_upload_bytes);
+    RENDER_CHECK(
+        after_drag.bvh_upload_bytes ==
+        before_drag.bvh_upload_bytes);
+    RENDER_CHECK(
+        after_drag.lighting_upload_bytes ==
+        before_drag.lighting_upload_bytes);
+
+    const renderer::ObjectId duplicate =
+        document.duplicate_subtree(second);
+    RENDER_CHECK(duplicate != renderer::kInvalidObjectId);
+    renderer::InteractiveFrameState topology_state;
+    topology_state.scene_changes =
+        renderer::SceneChange::All;
+    instanced_session.render_next_frame_instanced(
+        transformed_flat_scene,
+        document.instanced_render_scene(),
+        camera,
+        settings,
+        topology_state,
+        instanced_frame);
+    const renderer::CudaPathStatistics after_duplicate =
+        *instanced_session.cuda_statistics();
+    RENDER_CHECK(
+        after_duplicate.blas_build_count ==
+        after_drag.blas_build_count);
+    RENDER_CHECK(
+        after_duplicate.geometry_upload_bytes ==
+        after_drag.geometry_upload_bytes);
+    RENDER_CHECK(
+        after_duplicate.bvh_upload_bytes ==
+        after_drag.bvh_upload_bytes);
+    RENDER_CHECK(
+        after_duplicate.tlas_build_count ==
+        after_drag.tlas_build_count + 1);
+
+    RENDER_CHECK(document.erase_subtree(duplicate));
+    instanced_session.render_next_frame_instanced(
+        transformed_flat_scene,
+        document.instanced_render_scene(),
+        camera,
+        settings,
+        topology_state,
+        instanced_frame);
+    const renderer::CudaPathStatistics after_delete =
+        *instanced_session.cuda_statistics();
+    RENDER_CHECK(
+        after_delete.blas_build_count ==
+        after_duplicate.blas_build_count);
+    RENDER_CHECK(
+        after_delete.geometry_upload_bytes ==
+        after_duplicate.geometry_upload_bytes);
+    RENDER_CHECK(
+        after_delete.tlas_build_count ==
+        after_duplicate.tlas_build_count + 1);
+
+    document.find(first)->visible = false;
+    document.find(second)->visible = false;
+    const renderer::InstancedSceneView& hidden_view =
+        document.instanced_render_scene();
+    RENDER_CHECK(hidden_view.assets.size() == 1);
+    RENDER_CHECK(hidden_view.instances.empty());
+    instanced_session.render_next_frame_instanced(
+        transformed_flat_scene,
+        hidden_view,
+        camera,
+        settings,
+        topology_state,
+        instanced_frame);
+    const renderer::CudaPathStatistics after_hide =
+        *instanced_session.cuda_statistics();
+    RENDER_CHECK(
+        after_hide.blas_build_count ==
+        after_delete.blas_build_count);
+    RENDER_CHECK(
+        after_hide.geometry_upload_bytes ==
+        after_delete.geometry_upload_bytes);
+    const renderer::Color hidden_environment(
+        0.01f,
+        0.02f,
+        0.03f);
+    RENDER_CHECK(
+        (instanced_frame.pixel(16, 12) -
+         hidden_environment)
+            .cwiseAbs()
+            .maxCoeff() <
+        1.0e-6f);
+
+    document.find(first)->visible = true;
+    document.find(second)->visible = true;
+    instanced_session.render_next_frame_instanced(
+        transformed_flat_scene,
+        document.instanced_render_scene(),
+        camera,
+        settings,
+        topology_state,
+        instanced_frame);
+    const renderer::CudaPathStatistics after_show =
+        *instanced_session.cuda_statistics();
+    RENDER_CHECK(
+        after_show.blas_build_count ==
+        after_hide.blas_build_count);
+    RENDER_CHECK(
+        after_show.geometry_upload_bytes ==
+        after_hide.geometry_upload_bytes);
+}
+
 renderer::Scene make_cuda_nee_test_scene(
     bool triangle_light,
     bool faces_receiver = true,
@@ -2867,6 +3328,137 @@ void test_cuda_pathtracer_emissive_nee_and_mis_when_available() {
         64);
     RENDER_CHECK(degenerate.allFinite());
     RENDER_CHECK(degenerate.maxCoeff() < 1e-6f);
+}
+
+renderer::Color render_instanced_document_pixel(
+    renderer::SceneDocument& document,
+    const renderer::Camera& camera,
+    int samples_per_pixel,
+    std::uint64_t seed_offset) {
+    renderer::RenderSettings settings;
+    settings.width = 1;
+    settings.height = 1;
+    settings.path.backend = renderer::PathBackend::Cuda;
+    settings.path.sample_seed_offset = seed_offset;
+    renderer::Scene placeholder;
+    renderer::PathInteractiveSession session;
+    renderer::Framebuffer framebuffer(1, 1);
+    const renderer::InteractiveFrameState frame_state;
+    session.reset_instanced(
+        placeholder,
+        settings,
+        document.instanced_render_scene());
+    for (int sample = 0;
+         sample < samples_per_pixel;
+         ++sample) {
+        session.render_next_frame_instanced(
+            placeholder,
+            document.instanced_render_scene(),
+            camera,
+            settings,
+            frame_state,
+            framebuffer);
+    }
+    RENDER_CHECK(
+        session.accumulated_samples() ==
+        samples_per_pixel);
+    return framebuffer.pixel(0, 0);
+}
+
+void test_cuda_instanced_nee_mis_transforms_when_available(
+    int samples_per_pixel = 1024) {
+    if (!renderer::cuda_path_backend_available()) {
+        return;
+    }
+
+    const renderer::Camera camera(
+        renderer::Vec3::Zero(),
+        -renderer::Vec3::UnitZ(),
+        renderer::Vec3::UnitY(),
+        20.0f,
+        1.0f);
+    renderer::SceneDocument triangle_document =
+        renderer::SceneDocument::from_scene(
+            make_cuda_nee_test_scene(
+                true,
+                true,
+                false),
+            "Instanced NEE triangle");
+    const renderer::ObjectId triangle_object =
+        triangle_document.objects().front().id;
+    RENDER_CHECK(triangle_document.set_world_matrix(
+        triangle_object,
+        make_test_instance_matrix(
+            renderer::Vec3::Zero(),
+            12.0f,
+            renderer::Vec3(1.35f, 0.8f, 1.0f))));
+    const renderer::Scene transformed_flat =
+        triangle_document.render_scene();
+    const renderer::Color flat_value =
+        render_cuda_nee_test_scene(
+            transformed_flat,
+            samples_per_pixel,
+            719);
+    const renderer::Color instanced_value =
+        render_instanced_document_pixel(
+            triangle_document,
+            camera,
+            samples_per_pixel,
+            719);
+    RENDER_CHECK(flat_value.allFinite());
+    RENDER_CHECK(instanced_value.allFinite());
+    RENDER_CHECK(instanced_value.x() > 0.05f);
+    for (int channel = 0; channel < 3; ++channel) {
+        const float tolerance = std::max(
+            1.0e-4f,
+            std::abs(flat_value[channel]) * 0.01f);
+        RENDER_CHECK(
+            std::abs(
+                flat_value[channel] -
+                instanced_value[channel]) <=
+            tolerance);
+    }
+
+    renderer::SceneDocument sphere_document =
+        renderer::SceneDocument::from_scene(
+            make_cuda_nee_test_scene(
+                false,
+                true,
+                true),
+            "Instanced NEE sphere");
+    const renderer::ObjectId sphere_object =
+        sphere_document.objects().front().id;
+    RENDER_CHECK(sphere_document.set_world_matrix(
+        sphere_object,
+        make_test_instance_matrix(
+            renderer::Vec3::Zero(),
+            -17.0f,
+            renderer::Vec3(1.5f, 0.65f, 1.0f))));
+    const renderer::Color sphere_value =
+        render_instanced_document_pixel(
+            sphere_document,
+            camera,
+            samples_per_pixel,
+            811);
+    RENDER_CHECK(sphere_value.allFinite());
+    RENDER_CHECK(sphere_value.x() > 0.02f);
+
+    renderer::SceneDocument alpha_document =
+        renderer::SceneDocument::from_scene(
+            make_cuda_nee_test_scene(
+                true,
+                true,
+                false,
+                true),
+            "Instanced alpha-cutout light");
+    const renderer::Color alpha_value =
+        render_instanced_document_pixel(
+            alpha_document,
+            camera,
+            std::min(128, samples_per_pixel),
+            913);
+    RENDER_CHECK(alpha_value.allFinite());
+    RENDER_CHECK(alpha_value.maxCoeff() < 1.0e-6f);
 }
 
 void test_cuda_pathtracer_lighting_contracts_when_available() {
@@ -3767,7 +4359,20 @@ void test_viewer_session_omits_and_skips_unreferenced_assets() {
     std::filesystem::remove_all(directory);
 }
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc == 2 &&
+        std::string(argv[1]) ==
+            "--cuda-instancing-sanitizer") {
+        test_instanced_scene_view_and_cuda_transform_refit_when_available(4);
+        test_cuda_instanced_nee_mis_transforms_when_available(32);
+        std::cout
+            << "renderer_tests: CUDA instancing sanitizer smoke passed\n";
+        return 0;
+    }
+    if (argc != 1) {
+        throw std::invalid_argument(
+            "unknown renderer_tests argument");
+    }
     RENDER_CHECK(1 + 1 == 2);
     test_vec3_arithmetic();
     test_mat4_composition_order();
@@ -3855,7 +4460,9 @@ int main() {
     test_cuda_pathtracer_matches_cpu_statistics_when_available();
     test_cuda_pathtracer_alpha_texture_and_interactive_reset_when_available();
     test_cuda_pathtracer_auto_interaction_preview_and_native_tiles_when_available();
+    test_instanced_scene_view_and_cuda_transform_refit_when_available();
     test_cuda_pathtracer_emissive_nee_and_mis_when_available();
+    test_cuda_instanced_nee_mis_transforms_when_available();
     test_cuda_pathtracer_lighting_contracts_when_available();
     test_cuda_pathtracer_spheres_materials_and_bump_texture_when_available();
     test_scene_document_import_transform_hierarchy_history_and_roundtrip();

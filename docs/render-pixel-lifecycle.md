@@ -64,6 +64,7 @@ CUDA 与 CPU Path 保持同一采样和着色语义，但数据与生命周期�
 ```text
 SceneChangeSet
   -> incremental async upload
+  -> asset-local BLAS / instance TLAS
   -> persistent CUDA stream
   -> initialize_frame_kernel (仅 reset)
   -> reusable conditional CUDA Graph
@@ -93,11 +94,25 @@ t + primitive kind/id + barycentric u/v
 
 阴影射线只要求可见性，因此不会重建不需要的完整着色数据。
 
+### 实例遍历
+
+每个唯一 mesh asset 的局部求交数据、材质槽、纹理与 BVH4 只上传一次。continuation
+与 shadow ray 先遍历 TLAS，再用实例逆矩阵把未归一化射线变换到局部 BLAS，因此
+世界空间 `t` 与 shadow distance 保持不变。命中记录携带 instance、asset/local
+primitive 身份；法线使用 inverse-transpose，负缩放重新计算 world front-face。
+
+纯平移/旋转/缩放每帧只上传 instance buffer 并在 GPU 上 bottom-up refit TLAS。
+复制或隐藏已有 asset 的实例只重建 TLAS 拓扑；材质 override 与纹理更新不会重建
+BLAS。CPU Path、离线渲染与 OpenGL 仍使用原有扁平 `Scene`。
+
 ### Emissive NEE / MIS
 
-几何、材质绑定或材质变更时，CUDA scene upload 会重建有效 emissive
+资产拓扑、材质绑定或材质变更时，CUDA scene upload 会重建有效 emissive
 三角形/球体的 CDF。权重为 `面积 × emission luminance × 发光面数`；
 三角形均匀采样面积，球体均匀采样表面积。
+
+实例平移/旋转只改变采样变换；缩放 emissive 实例时才更新面积权重与 CDF。非均匀
+变换下球体成为椭球，面积 PDF 使用表面变换 Jacobian，三角形使用世界空间面积。
 
 每个 diffuse bounce 最多生成一个 emissive shadow task。面积 PDF 转为立体角
 PDF 后，与 cosine-weighted diffuse PDF 使用 β=2 power heuristic。BSDF

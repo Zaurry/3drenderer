@@ -28,7 +28,10 @@ CudaPathInteractiveRenderer::~CudaPathInteractiveRenderer() = default;
 CudaPathInteractiveRenderer::CudaPathInteractiveRenderer(CudaPathInteractiveRenderer&&) noexcept = default;
 CudaPathInteractiveRenderer& CudaPathInteractiveRenderer::operator=(CudaPathInteractiveRenderer&&) noexcept = default;
 
-void CudaPathInteractiveRenderer::reset(const Scene&, const RenderSettings&) {
+void CudaPathInteractiveRenderer::reset(
+    const Scene&,
+    const RenderSettings&,
+    const InstancedSceneView*) {
     throw std::runtime_error("CUDA path backend is unavailable: renderer was built without CUDA support");
 }
 
@@ -37,7 +40,8 @@ void CudaPathInteractiveRenderer::render_next_frame(
     const Camera&,
     const RenderSettings&,
     const InteractiveFrameState&,
-    Framebuffer&) {
+    Framebuffer&,
+    const InstancedSceneView*) {
     throw std::runtime_error("CUDA path backend is unavailable: renderer was built without CUDA support");
 }
 
@@ -46,7 +50,8 @@ void CudaPathInteractiveRenderer::render_next_frame_to_surface(
     const Camera&,
     const RenderSettings&,
     const InteractiveFrameState&,
-    CudaSurfaceHandle) {
+    CudaSurfaceHandle,
+    const InstancedSceneView*) {
     throw std::runtime_error("CUDA path backend is unavailable: renderer was built without CUDA support");
 }
 

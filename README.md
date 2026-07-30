@@ -120,7 +120,8 @@ SDL 显示层只消费 `RenderFrameOutput`，不需要识别具体渲染器。
 
 编辑器使用精确的场景变更分类驱动后端同步：
 
-- `Geometry`：顶点、变换、可见拓扑；重建并上传 BVH。
+- `Geometry`：顶点或可见拓扑；必要时更新资产与 TLAS。
+- `InstanceTransforms`：mesh/group 世界变换；CUDA 只上传实例矩阵并 refit TLAS。
 - `MaterialBindings`：primitive 到 material 的绑定。
 - `Materials`：材质参数。
 - `Textures`：纹理描述与 texel。
@@ -136,6 +137,9 @@ CUDA 后端使用：
 - 持久 non-blocking stream。
 - 按容量增长并复用的 device buffer。
 - 几何、材质绑定、材质、纹理、灯光与 BVH 的独立缓冲。
+- 每个唯一 asset 一份局部空间 BLAS；可见对象使用独立实例记录与 TLAS。
+- Gizmo、Inspector 和父组拖动只上传实例矩阵/world bounds 并在 GPU 上
+  bottom-up refit TLAS，不展开或重传三角形，也不重建 BLAS。
 - 三角形/球体 emissive primitive 的面积功率 CDF 与 primitive-to-light 映射。
 - 同尺寸 reset 的原地初始化 kernel。
 - Host 侧打包数组容量复用与异步上传。
@@ -166,10 +170,12 @@ CUDA 后端使用：
 
 Performance 面板分别显示 UI FPS、完整原生 spp、GPU 工作模式、内部分辨率、
 quantum/sweep 进度、完整发布状态、GPU trace/resolve/reset/upload 时间、各类累计
-上传字节、分配代次、framebuffer 下载次数及 interop/fallback 状态。
+上传字节、instance upload、TLAS build/refit、BLAS build、分配代次、framebuffer
+下载次数及 interop/fallback 状态。
 
 重场景基准、真实相机与 RTX 5080 结果见
-[CUDA 重场景性能结果](docs/output/cuda-heavy-scene-performance-results.md)。
+[CUDA 重场景性能结果](docs/output/cuda-heavy-scene-performance-results.md)；物体拖动
+实例化结果见 [CUDA 实例化拖动结果](docs/output/cuda-instancing-drag-results.md)。
 
 CUDA Path 不依赖 OptiX 或 RT Core。这里的“降噪”来自 NEE/MIS 降低 Monte
 Carlo 方差；没有引入 OptiX/OIDN 等后处理降噪器。CPU Path 的采样与输出算法保持不变。

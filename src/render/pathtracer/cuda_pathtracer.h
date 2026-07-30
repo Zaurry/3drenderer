@@ -2,6 +2,7 @@
 
 #include "render/interactive/interactive_render_session.h"
 #include "render/renderer.h"
+#include "scene/instanced_scene.h"
 
 #include <cstdint>
 #include <memory>
@@ -22,12 +23,20 @@ struct CudaPathStatistics {
     float trace_milliseconds = 0.0f;
     float reset_milliseconds = 0.0f;
     float upload_milliseconds = 0.0f;
+    float instance_upload_milliseconds = 0.0f;
+    float tlas_refit_milliseconds = 0.0f;
+    float blas_build_milliseconds = 0.0f;
     std::uint64_t geometry_upload_bytes = 0;
     std::uint64_t material_binding_upload_bytes = 0;
     std::uint64_t material_upload_bytes = 0;
     std::uint64_t texture_upload_bytes = 0;
     std::uint64_t lighting_upload_bytes = 0;
     std::uint64_t bvh_upload_bytes = 0;
+    std::uint64_t instance_upload_bytes = 0;
+    std::uint64_t tlas_upload_bytes = 0;
+    std::uint64_t blas_build_count = 0;
+    std::uint64_t tlas_build_count = 0;
+    std::uint64_t tlas_refit_count = 0;
     std::uint64_t allocation_generation = 0;
     std::uint64_t framebuffer_downloads = 0;
     CudaPathWorkMode work_mode = CudaPathWorkMode::FullFrame;
@@ -63,19 +72,24 @@ public:
     CudaPathInteractiveRenderer(const CudaPathInteractiveRenderer&) = delete;
     CudaPathInteractiveRenderer& operator=(const CudaPathInteractiveRenderer&) = delete;
 
-    void reset(const Scene& scene, const RenderSettings& settings);
+    void reset(
+        const Scene& scene,
+        const RenderSettings& settings,
+        const InstancedSceneView* instanced_scene = nullptr);
     void render_next_frame(
         const Scene& scene,
         const Camera& camera,
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state,
-        Framebuffer& target);
+        Framebuffer& target,
+        const InstancedSceneView* instanced_scene = nullptr);
     void render_next_frame_to_surface(
         const Scene& scene,
         const Camera& camera,
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state,
-        CudaSurfaceHandle surface);
+        CudaSurfaceHandle surface,
+        const InstancedSceneView* instanced_scene = nullptr);
     void download_current_frame(Framebuffer& target);
     int accumulated_samples() const;
     CudaStreamHandle stream_handle() const;

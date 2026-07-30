@@ -25,6 +25,25 @@ void PathInteractiveSession::reset(const Scene& scene, const RenderSettings& set
     reset_accumulation(settings.width, settings.height);
 }
 
+void PathInteractiveSession::reset_instanced(
+    const Scene& scene,
+    const RenderSettings& settings,
+    const InstancedSceneView& instanced_scene) {
+    requested_backend_ = settings.path.backend;
+    active_backend_ = resolve_path_backend(settings.path.backend);
+    if (active_backend_ != ExecutionBackend::Cuda) {
+        reset(scene, settings);
+        return;
+    }
+    if (!cuda_renderer_) {
+        cuda_renderer_ = std::make_unique<CudaPathInteractiveRenderer>();
+    }
+    cuda_renderer_->reset(scene, settings, &instanced_scene);
+    accumulated_samples_ = 0;
+    width_ = settings.width;
+    height_ = settings.height;
+}
+
 void PathInteractiveSession::render_next_frame(
     const Scene& scene,
     const Camera& camera,
@@ -74,14 +93,43 @@ void PathInteractiveSession::render_next_frame(
     ++accumulated_samples_;
 }
 
+void PathInteractiveSession::render_next_frame_instanced(
+    const Scene& scene,
+    const InstancedSceneView& instanced_scene,
+    const Camera& camera,
+    const RenderSettings& settings,
+    const InteractiveFrameState& frame_state,
+    Framebuffer& target) {
+    if (settings.path.backend != requested_backend_) {
+        reset_instanced(scene, settings, instanced_scene);
+    }
+    if (active_backend_ != ExecutionBackend::Cuda || !cuda_renderer_) {
+        render_next_frame(scene, camera, settings, frame_state, target);
+        return;
+    }
+    cuda_renderer_->render_next_frame(
+        scene,
+        camera,
+        settings,
+        frame_state,
+        target,
+        &instanced_scene);
+    update_cuda_frame_state(settings);
+}
+
 void PathInteractiveSession::render_next_frame_to_cuda_surface(
     const Scene& scene,
     const Camera& camera,
     const RenderSettings& settings,
     const InteractiveFrameState& frame_state,
-    CudaSurfaceHandle surface) {
+    CudaSurfaceHandle surface,
+    const InstancedSceneView* instanced_scene) {
     if (settings.path.backend != requested_backend_) {
-        reset(scene, settings);
+        if (instanced_scene) {
+            reset_instanced(scene, settings, *instanced_scene);
+        } else {
+            reset(scene, settings);
+        }
     }
     if (active_backend_ != ExecutionBackend::Cuda || !cuda_renderer_) {
         throw std::logic_error("CUDA surface output requires the active CUDA path backend");
@@ -91,7 +139,8 @@ void PathInteractiveSession::render_next_frame_to_cuda_surface(
         camera,
         settings,
         frame_state,
-        surface);
+        surface,
+        instanced_scene);
     update_cuda_frame_state(settings);
 }
 

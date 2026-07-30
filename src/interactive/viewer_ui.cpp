@@ -227,11 +227,13 @@ SceneChangeSet render_changes_for_subtree(
 
     SceneChangeSet changes = SceneChange::None;
     if (object->type == SceneObjectType::Mesh) {
-        changes |= SceneChange::Geometry;
         if (topology_changed) {
+            changes |= SceneChange::Geometry;
             changes |= SceneChange::MaterialBindings;
             changes |= SceneChange::Materials;
             changes |= SceneChange::Textures;
+        } else {
+            changes |= SceneChange::InstanceTransforms;
         }
     } else if (
         object->type == SceneObjectType::PointLight ||
@@ -535,6 +537,22 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                 cuda_statistics.allocation_generation),
                             static_cast<unsigned long long>(
                                 cuda_statistics.framebuffer_downloads));
+                        ImGui::Text(
+                            "Instances %.3f ms / %.1f KiB  |  TLAS refit %.3f ms",
+                            cuda_statistics.instance_upload_milliseconds,
+                            static_cast<double>(
+                                cuda_statistics.instance_upload_bytes) /
+                                1024.0,
+                            cuda_statistics.tlas_refit_milliseconds);
+                        ImGui::Text(
+                            "BLAS builds %llu (%.3f ms)  |  TLAS builds %llu  refits %llu",
+                            static_cast<unsigned long long>(
+                                cuda_statistics.blas_build_count),
+                            cuda_statistics.blas_build_milliseconds,
+                            static_cast<unsigned long long>(
+                                cuda_statistics.tlas_build_count),
+                            static_cast<unsigned long long>(
+                                cuda_statistics.tlas_refit_count));
                         ImGui::Text(
                             "Upload KiB: geometry %.1f  BVH %.1f  material %.1f  "
                             "binding %.1f  texture %.1f  lighting %.1f",
@@ -1206,21 +1224,22 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
     return actions;
 }
 
-bool ViewerUi::draw_scene_gizmo(ViewerUiState& state,
-                                SceneDocument& document,
-                                const Camera& camera,
-                                const Bounds3& bounds) {
+SceneChangeSet ViewerUi::draw_scene_gizmo(
+    ViewerUiState& state,
+    SceneDocument& document,
+    const Camera& camera,
+    const Bounds3& bounds) {
     SceneObject* active = document.find(state.active_object);
     if (!active || active->locked || state.selected_objects.empty()) {
         state.gizmo_was_using = false;
         state.gizmo_hovered = false;
-        return false;
+        return SceneChange::None;
     }
 
     ImGuiViewport* main_viewport = ImGui::GetMainViewport();
     const ImVec2 display_size = main_viewport->Size;
     if (display_size.x <= 0.0f || display_size.y <= 0.0f) {
-        return false;
+        return SceneChange::None;
     }
     ImGuizmo::BeginFrame();
     ImGuizmo::SetOrthographic(false);
@@ -1242,9 +1261,9 @@ bool ViewerUi::draw_scene_gizmo(ViewerUiState& state,
         ImGuizmo::Manipulate(view.data(), projection.data(), operation, mode, manipulated.data());
     const bool using_gizmo = ImGuizmo::IsUsing();
     state.gizmo_hovered = ImGuizmo::IsOver() || using_gizmo;
+    std::vector<ObjectId> roots;
     if (changed) {
         const Mat4 delta = manipulated * old_active_world.inverse();
-        std::vector<ObjectId> roots;
         for (ObjectId id : state.selected_objects) {
             const SceneObject* object = document.find(id);
             if (!object || object->locked) {
@@ -1267,13 +1286,22 @@ bool ViewerUi::draw_scene_gizmo(ViewerUiState& state,
         for (ObjectId id : roots) {
             document.set_world_matrix(id, delta * document.world_matrix(id));
         }
-        document.rebuild_render_scene();
     }
     if (state.gizmo_was_using && !using_gizmo) {
         document.checkpoint();
     }
     state.gizmo_was_using = using_gizmo;
-    return changed;
+    if (!changed) {
+        return SceneChange::None;
+    }
+    SceneChangeSet changes = SceneChange::None;
+    for (ObjectId id : roots) {
+        changes |= render_changes_for_subtree(
+            document,
+            id,
+            false);
+    }
+    return changes;
 }
 
 void ViewerUi::draw_scene_selection(const ViewerUiState& state,
@@ -1345,9 +1373,11 @@ void ViewerUi::draw_scene_selection(const ViewerUiState& state,
 
 void ViewerUi::draw_point_light_markers(
     const ViewerUiState& state,
-    const Scene& scene,
+    const SceneDocument& document,
     const Camera& camera) const {
-    if (!state.show_point_light_markers || scene.point_lights.empty()) {
+    const auto& point_lights =
+        document.instanced_render_scene().point_lights;
+    if (!state.show_point_light_markers || point_lights.empty()) {
         return;
     }
 
@@ -1385,7 +1415,7 @@ void ViewerUi::draw_point_light_markers(
     };
 
     ImDrawList* draw_list = ImGui::GetBackgroundDrawList(main_viewport);
-    for (const PointLight& light : scene.point_lights) {
+    for (const PointLight& light : point_lights) {
         const auto projected_center = project_to_screen(
             light.position,
             camera,

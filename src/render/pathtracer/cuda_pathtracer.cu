@@ -55,6 +55,14 @@ struct DRay {
     DVec3 direction;
 };
 
+struct DMatrix3x4 {
+    float values[12];
+};
+
+struct DMatrix3x3 {
+    float values[9];
+};
+
 struct DTraversalTriangle {
     DVec3 v0;
     DVec3 edge1;
@@ -115,10 +123,31 @@ struct DDirectionalLight {
 struct DEmissiveLight {
     int primitive_kind;
     int primitive_index;
+    int instance_index;
     int material_id;
     float area;
     float selection_pdf;
     float cumulative_probability;
+};
+
+struct DAsset {
+    int sphere_first;
+    int sphere_count;
+    int triangle_first;
+    int triangle_count;
+    int bvh_root;
+    int bvh_node_count;
+};
+
+struct DInstance {
+    DMatrix3x4 object_to_world;
+    DMatrix3x4 world_to_object;
+    DMatrix3x3 normal_to_world;
+    DVec3 bounds_min;
+    DVec3 bounds_max;
+    int asset_index;
+    int material_offset;
+    float orientation_sign;
 };
 
 struct DCamera {
@@ -154,6 +183,14 @@ struct DScene {
     int emissive_light_count;
     const int* sphere_light_indices;
     const int* triangle_light_indices;
+    const DAsset* assets;
+    int asset_count;
+    const DInstance* instances;
+    int instance_count;
+    const DBvh4Node* tlas_nodes;
+    int tlas_node_count;
+    const int* tlas_primitive_indices;
+    int instanced_mode;
     DVec3 environment;
 };
 
@@ -167,6 +204,7 @@ struct DHit {
     int front_face;
     int primitive_kind;
     int primitive_index;
+    int instance_index;
     float barycentric_u;
     float barycentric_v;
 };
@@ -177,6 +215,7 @@ struct DCompactHit {
     float v;
     int primitive_kind;
     int primitive_index;
+    int instance_index;
 };
 
 struct DSurface {
@@ -249,6 +288,28 @@ __host__ DVec2 to_device(const Vec2& value) {
     return DVec2{value.x(), value.y()};
 }
 
+__host__ DMatrix3x4 to_device_affine(const Mat4& value) {
+    DMatrix3x4 result{};
+    for (int row = 0; row < 3; ++row) {
+        for (int column = 0; column < 4; ++column) {
+            result.values[row * 4 + column] =
+                value(row, column);
+        }
+    }
+    return result;
+}
+
+__host__ DMatrix3x3 to_device_matrix(const Mat3& value) {
+    DMatrix3x3 result{};
+    for (int row = 0; row < 3; ++row) {
+        for (int column = 0; column < 3; ++column) {
+            result.values[row * 3 + column] =
+                value(row, column);
+        }
+    }
+    return result;
+}
+
 struct GpuBvhPrimitiveInfo {
     Bounds3 bounds;
     Vec3 centroid = Vec3::Zero();
@@ -280,23 +341,19 @@ float host_bounds_area(const Bounds3& bounds) {
 
 class GpuBvh4Builder {
 public:
-    explicit GpuBvh4Builder(const std::vector<Triangle>& triangles)
-        : triangles_(triangles),
-          primitive_info_(triangles.size()),
-          primitive_indices_(triangles.size()) {
+    explicit GpuBvh4Builder(
+        std::vector<GpuBvhPrimitiveInfo> primitive_info)
+        : primitive_info_(std::move(primitive_info)),
+          primitive_indices_(primitive_info_.size()) {
         std::iota(primitive_indices_.begin(), primitive_indices_.end(), 0);
-        for (std::size_t index = 0; index < triangles.size(); ++index) {
-            primitive_info_[index].bounds = triangles[index].bounds();
-            primitive_info_[index].centroid = triangles[index].centroid();
-        }
     }
 
     GpuBvh4Layout build() {
         GpuBvh4Layout layout;
-        if (triangles_.empty()) {
+        if (primitive_info_.empty()) {
             return layout;
         }
-        binary_nodes_.reserve(triangles_.size() * 2);
+        binary_nodes_.reserve(primitive_info_.size() * 2);
         const int root = build_binary(
             0,
             static_cast<int>(primitive_indices_.size()));
@@ -316,7 +373,6 @@ private:
         int count = 0;
     };
 
-    const std::vector<Triangle>& triangles_;
     std::vector<GpuBvhPrimitiveInfo> primitive_info_;
     std::vector<int> primitive_indices_;
     std::vector<GpuBinaryBvhNode> binary_nodes_;
@@ -505,7 +561,29 @@ private:
 };
 
 GpuBvh4Layout build_gpu_bvh4(const std::vector<Triangle>& triangles) {
-    return GpuBvh4Builder(triangles).build();
+    std::vector<GpuBvhPrimitiveInfo> primitive_info(
+        triangles.size());
+    for (std::size_t index = 0; index < triangles.size(); ++index) {
+        primitive_info[index].bounds = triangles[index].bounds();
+        primitive_info[index].centroid = triangles[index].centroid();
+    }
+    return GpuBvh4Builder(std::move(primitive_info)).build();
+}
+
+GpuBvh4Layout build_gpu_bvh4(
+    const std::vector<Bounds3>& primitive_bounds) {
+    std::vector<GpuBvhPrimitiveInfo> primitive_info(
+        primitive_bounds.size());
+    for (std::size_t index = 0;
+         index < primitive_bounds.size();
+         ++index) {
+        primitive_info[index].bounds = primitive_bounds[index];
+        primitive_info[index].centroid =
+            (primitive_bounds[index].min +
+             primitive_bounds[index].max) *
+            0.5f;
+    }
+    return GpuBvh4Builder(std::move(primitive_info)).build();
 }
 
 __device__ DVec3 v3(float x, float y, float z) {
@@ -562,6 +640,68 @@ __device__ DVec3 normalize(DVec3 value) {
 
 __device__ float max_component(DVec3 value) {
     return fmaxf(value.x, fmaxf(value.y, value.z));
+}
+
+__device__ DVec3 transform_point(
+    const DMatrix3x4& matrix,
+    DVec3 point) {
+    return v3(
+        matrix.values[0] * point.x +
+            matrix.values[1] * point.y +
+            matrix.values[2] * point.z +
+            matrix.values[3],
+        matrix.values[4] * point.x +
+            matrix.values[5] * point.y +
+            matrix.values[6] * point.z +
+            matrix.values[7],
+        matrix.values[8] * point.x +
+            matrix.values[9] * point.y +
+            matrix.values[10] * point.z +
+            matrix.values[11]);
+}
+
+__device__ DVec3 transform_direction(
+    const DMatrix3x4& matrix,
+    DVec3 direction) {
+    return v3(
+        matrix.values[0] * direction.x +
+            matrix.values[1] * direction.y +
+            matrix.values[2] * direction.z,
+        matrix.values[4] * direction.x +
+            matrix.values[5] * direction.y +
+            matrix.values[6] * direction.z,
+        matrix.values[8] * direction.x +
+            matrix.values[9] * direction.y +
+            matrix.values[10] * direction.z);
+}
+
+__device__ DVec3 transform_direction(
+    const DMatrix3x3& matrix,
+    DVec3 direction) {
+    return v3(
+        matrix.values[0] * direction.x +
+            matrix.values[1] * direction.y +
+            matrix.values[2] * direction.z,
+        matrix.values[3] * direction.x +
+            matrix.values[4] * direction.y +
+            matrix.values[5] * direction.z,
+        matrix.values[6] * direction.x +
+            matrix.values[7] * direction.y +
+            matrix.values[8] * direction.z);
+}
+
+__device__ float linear_determinant(
+    const DMatrix3x4& matrix) {
+    return
+        matrix.values[0] *
+            (matrix.values[5] * matrix.values[10] -
+             matrix.values[6] * matrix.values[9]) -
+        matrix.values[1] *
+            (matrix.values[4] * matrix.values[10] -
+             matrix.values[6] * matrix.values[8]) +
+        matrix.values[2] *
+            (matrix.values[4] * matrix.values[9] -
+             matrix.values[5] * matrix.values[8]);
 }
 
 __device__ float power_heuristic(float first_pdf, float second_pdf) {
@@ -793,14 +933,42 @@ __device__ bool intersect_triangle_geometry(
     return true;
 }
 
+__device__ int triangle_material_id(
+    const DScene& scene,
+    int instance_index,
+    int primitive_index) {
+    const int material_slot =
+        scene.triangle_material_ids[primitive_index];
+    return instance_index >= 0
+        ? scene.instances[instance_index].material_offset +
+            material_slot
+        : material_slot;
+}
+
+__device__ int sphere_material_id(
+    const DScene& scene,
+    int instance_index,
+    int primitive_index) {
+    const int material_slot =
+        scene.sphere_material_ids[primitive_index];
+    return instance_index >= 0
+        ? scene.instances[instance_index].material_offset +
+            material_slot
+        : material_slot;
+}
+
 __device__ bool triangle_candidate_visible(
     const DScene& scene,
-    const DRay& ray,
+    const DRay& local_ray,
+    int instance_index,
     int primitive_index,
     float u,
     float v) {
     const int material_id =
-        scene.triangle_material_ids[primitive_index];
+        triangle_material_id(
+            scene,
+            instance_index,
+            primitive_index);
     if (material_id < 0 || material_id >= scene.material_count) {
         return true;
     }
@@ -809,7 +977,13 @@ __device__ bool triangle_candidate_visible(
         const DTraversalTriangle& geometry =
             scene.traversal_triangles[primitive_index];
         const DVec3 outward = cross(geometry.edge1, geometry.edge2);
-        if (dot(ray.direction, outward) >= 0.0f) {
+        const float orientation =
+            instance_index >= 0
+            ? scene.instances[instance_index].orientation_sign
+            : 1.0f;
+        if (orientation *
+                dot(local_ray.direction, outward) >=
+            0.0f) {
             return false;
         }
     }
@@ -832,20 +1006,39 @@ __device__ bool triangle_candidate_visible(
 
 __device__ bool sphere_candidate_visible(
     const DScene& scene,
-    const DRay& ray,
+    const DRay& local_ray,
+    int instance_index,
     int primitive_index,
     float hit_t) {
     const int material_id =
-        scene.sphere_material_ids[primitive_index];
+        sphere_material_id(
+            scene,
+            instance_index,
+            primitive_index);
     if (material_id < 0 || material_id >= scene.material_count) {
         return true;
     }
     const DSphere& sphere = scene.spheres[primitive_index];
     const DVec3 position =
-        add(ray.origin, mul(ray.direction, hit_t));
-    const DVec3 outward =
+        add(
+            local_ray.origin,
+            mul(local_ray.direction, hit_t));
+    const DVec3 local_outward =
         divv(sub(position, sphere.center), sphere.radius);
-    const bool front_face = dot(ray.direction, outward) < 0.0f;
+    const DVec3 outward =
+        instance_index >= 0
+        ? transform_direction(
+            scene.instances[instance_index].normal_to_world,
+            local_outward)
+        : local_outward;
+    const DVec3 world_direction =
+        instance_index >= 0
+        ? transform_direction(
+            scene.instances[instance_index].object_to_world,
+            local_ray.direction)
+        : local_ray.direction;
+    const bool front_face =
+        dot(world_direction, outward) < 0.0f;
     const DMaterial material = scene.materials[material_id];
     if (!material.two_sided && !front_face) {
         return false;
@@ -876,7 +1069,7 @@ __device__ void sort_child_hits(
     }
 }
 
-__device__ bool nearest_visible_hit(
+__device__ bool nearest_visible_hit_flat(
     const DScene& scene,
     const DRay& ray,
     float t_min,
@@ -896,11 +1089,18 @@ __device__ bool nearest_visible_hit(
             sphere_candidate_visible(
                 scene,
                 ray,
+                -1,
                 sphere_index,
                 candidate_t)) {
             found = true;
             closest = candidate_t;
-            hit = DCompactHit{candidate_t, 0.0f, 0.0f, 0, sphere_index};
+            hit = DCompactHit{
+                candidate_t,
+                0.0f,
+                0.0f,
+                0,
+                sphere_index,
+                -1};
         }
     }
 
@@ -939,6 +1139,7 @@ __device__ bool nearest_visible_hit(
                     triangle_candidate_visible(
                         scene,
                         ray,
+                        -1,
                         primitive_index,
                         candidate_u,
                         candidate_v)) {
@@ -949,7 +1150,8 @@ __device__ bool nearest_visible_hit(
                         candidate_u,
                         candidate_v,
                         1,
-                        primitive_index};
+                        primitive_index,
+                        -1};
                 }
             }
             continue;
@@ -996,7 +1198,7 @@ __device__ bool nearest_visible_hit(
     return found;
 }
 
-__device__ bool occluded_scene(
+__device__ bool occluded_scene_flat(
     const DScene& scene,
     const DRay& ray,
     float t_min,
@@ -1015,6 +1217,7 @@ __device__ bool occluded_scene(
             sphere_candidate_visible(
                 scene,
                 ray,
+                -1,
                 sphere_index,
                 candidate_t)) {
             return true;
@@ -1055,6 +1258,7 @@ __device__ bool occluded_scene(
                     triangle_candidate_visible(
                         scene,
                         ray,
+                        -1,
                         primitive_index,
                         candidate_u,
                         candidate_v)) {
@@ -1102,6 +1306,530 @@ __device__ bool occluded_scene(
     return false;
 }
 
+__device__ bool nearest_visible_hit_in_instance(
+    const DScene& scene,
+    const DRay& world_ray,
+    int instance_index,
+    float t_min,
+    float& closest,
+    DCompactHit& hit,
+    int* error_code) {
+    if (instance_index < 0 ||
+        instance_index >= scene.instance_count) {
+        return false;
+    }
+    const DInstance instance = scene.instances[instance_index];
+    if (instance.asset_index < 0 ||
+        instance.asset_index >= scene.asset_count) {
+        if (error_code) {
+            atomicCAS(error_code, 0, 7);
+        }
+        return false;
+    }
+    const DAsset asset = scene.assets[instance.asset_index];
+    const DRay local_ray{
+        transform_point(
+            instance.world_to_object,
+            world_ray.origin),
+        transform_direction(
+            instance.world_to_object,
+            world_ray.direction)};
+    bool found = false;
+    for (int offset = 0; offset < asset.sphere_count; ++offset) {
+        const int primitive_index =
+            asset.sphere_first + offset;
+        float candidate_t = 0.0f;
+        if (intersect_sphere_geometry(
+                scene.spheres[primitive_index],
+                local_ray,
+                t_min,
+                closest,
+                candidate_t) &&
+            sphere_candidate_visible(
+                scene,
+                local_ray,
+                instance_index,
+                primitive_index,
+                candidate_t)) {
+            found = true;
+            closest = candidate_t;
+            hit = DCompactHit{
+                candidate_t,
+                0.0f,
+                0.0f,
+                0,
+                primitive_index,
+                instance_index};
+        }
+    }
+    if (asset.bvh_node_count <= 0 || asset.bvh_root < 0) {
+        return found;
+    }
+
+    const DVec3 ray_inverse =
+        inverse_direction(local_ray.direction);
+    int stack[kBvhStackCapacity];
+    int stack_size = 1;
+    stack[0] = asset.bvh_root;
+    while (stack_size > 0) {
+        const int reference = stack[--stack_size];
+        if (reference < 0) {
+            const int leaf_code = ~reference;
+            const int node_index = leaf_code >> 2;
+            const int slot = leaf_code & 3;
+            const DBvh4Node& leaf_parent =
+                scene.bvh_nodes[node_index];
+            for (int offset = 0;
+                 offset < leaf_parent.counts[slot];
+                 ++offset) {
+                const int primitive_index =
+                    scene.primitive_indices[
+                        leaf_parent.first[slot] + offset];
+                float candidate_t = 0.0f;
+                float candidate_u = 0.0f;
+                float candidate_v = 0.0f;
+                if (intersect_triangle_geometry(
+                        scene.traversal_triangles[
+                            primitive_index],
+                        local_ray,
+                        t_min,
+                        closest,
+                        candidate_t,
+                        candidate_u,
+                        candidate_v) &&
+                    triangle_candidate_visible(
+                        scene,
+                        local_ray,
+                        instance_index,
+                        primitive_index,
+                        candidate_u,
+                        candidate_v)) {
+                    found = true;
+                    closest = candidate_t;
+                    hit = DCompactHit{
+                        candidate_t,
+                        candidate_u,
+                        candidate_v,
+                        1,
+                        primitive_index,
+                        instance_index};
+                }
+            }
+            continue;
+        }
+        const DBvh4Node& node = scene.bvh_nodes[reference];
+        float near_values[4];
+        int hit_slots[4];
+        int hit_count = 0;
+        for (int slot = 0; slot < node.child_count; ++slot) {
+            float entry = 0.0f;
+            if (intersect_bounds(
+                    node.bounds_min[slot],
+                    node.bounds_max[slot],
+                    local_ray,
+                    ray_inverse,
+                    t_min,
+                    closest,
+                    entry)) {
+                near_values[hit_count] = entry;
+                hit_slots[hit_count] = slot;
+                ++hit_count;
+            }
+        }
+        sort_child_hits(near_values, hit_slots, hit_count);
+        for (int index = hit_count - 1; index >= 0; --index) {
+            const int slot = hit_slots[index];
+            if (near_values[index] > closest) {
+                continue;
+            }
+            if (stack_size >= kBvhStackCapacity) {
+                if (error_code) {
+                    atomicCAS(error_code, 0, 5);
+                }
+                return found;
+            }
+            if (node.counts[slot] > 0) {
+                stack[stack_size++] =
+                    ~(reference * 4 + slot);
+            } else if (node.children[slot] >= 0) {
+                stack[stack_size++] = node.children[slot];
+            }
+        }
+    }
+    return found;
+}
+
+__device__ bool nearest_visible_hit_instanced(
+    const DScene& scene,
+    const DRay& ray,
+    float t_min,
+    float t_max,
+    DCompactHit& hit,
+    int* error_code) {
+    if (scene.tlas_node_count <= 0 ||
+        scene.tlas_nodes == nullptr) {
+        bool found = false;
+        float closest = t_max;
+        for (int instance_index = 0;
+             instance_index < scene.instance_count;
+             ++instance_index) {
+            found =
+                nearest_visible_hit_in_instance(
+                    scene,
+                    ray,
+                    instance_index,
+                    t_min,
+                    closest,
+                    hit,
+                    error_code) ||
+                found;
+        }
+        return found;
+    }
+
+    bool found = false;
+    float closest = t_max;
+    const DVec3 ray_inverse = inverse_direction(ray.direction);
+    int stack[kBvhStackCapacity];
+    int stack_size = 1;
+    stack[0] = 0;
+    while (stack_size > 0) {
+        const int reference = stack[--stack_size];
+        if (reference < 0) {
+            const int leaf_code = ~reference;
+            const int node_index = leaf_code >> 2;
+            const int slot = leaf_code & 3;
+            const DBvh4Node& leaf_parent =
+                scene.tlas_nodes[node_index];
+            for (int offset = 0;
+                 offset < leaf_parent.counts[slot];
+                 ++offset) {
+                const int instance_index =
+                    scene.tlas_primitive_indices[
+                        leaf_parent.first[slot] + offset];
+                found =
+                    nearest_visible_hit_in_instance(
+                        scene,
+                        ray,
+                        instance_index,
+                        t_min,
+                        closest,
+                        hit,
+                        error_code) ||
+                    found;
+            }
+            continue;
+        }
+        const DBvh4Node& node = scene.tlas_nodes[reference];
+        float near_values[4];
+        int hit_slots[4];
+        int hit_count = 0;
+        for (int slot = 0; slot < node.child_count; ++slot) {
+            float entry = 0.0f;
+            if (intersect_bounds(
+                    node.bounds_min[slot],
+                    node.bounds_max[slot],
+                    ray,
+                    ray_inverse,
+                    t_min,
+                    closest,
+                    entry)) {
+                near_values[hit_count] = entry;
+                hit_slots[hit_count] = slot;
+                ++hit_count;
+            }
+        }
+        sort_child_hits(near_values, hit_slots, hit_count);
+        for (int index = hit_count - 1; index >= 0; --index) {
+            const int slot = hit_slots[index];
+            if (near_values[index] > closest) {
+                continue;
+            }
+            if (stack_size >= kBvhStackCapacity) {
+                if (error_code) {
+                    atomicCAS(error_code, 0, 6);
+                }
+                return found;
+            }
+            if (node.counts[slot] > 0) {
+                stack[stack_size++] =
+                    ~(reference * 4 + slot);
+            } else if (node.children[slot] >= 0) {
+                stack[stack_size++] = node.children[slot];
+            }
+        }
+    }
+    return found;
+}
+
+__device__ bool occluded_instance(
+    const DScene& scene,
+    const DRay& world_ray,
+    int instance_index,
+    float t_min,
+    float t_max,
+    int* error_code) {
+    if (instance_index < 0 ||
+        instance_index >= scene.instance_count) {
+        return false;
+    }
+    const DInstance instance = scene.instances[instance_index];
+    if (instance.asset_index < 0 ||
+        instance.asset_index >= scene.asset_count) {
+        if (error_code) {
+            atomicCAS(error_code, 0, 7);
+        }
+        return false;
+    }
+    const DAsset asset = scene.assets[instance.asset_index];
+    const DRay local_ray{
+        transform_point(
+            instance.world_to_object,
+            world_ray.origin),
+        transform_direction(
+            instance.world_to_object,
+            world_ray.direction)};
+    for (int offset = 0; offset < asset.sphere_count; ++offset) {
+        const int primitive_index =
+            asset.sphere_first + offset;
+        float candidate_t = 0.0f;
+        if (intersect_sphere_geometry(
+                scene.spheres[primitive_index],
+                local_ray,
+                t_min,
+                t_max,
+                candidate_t) &&
+            sphere_candidate_visible(
+                scene,
+                local_ray,
+                instance_index,
+                primitive_index,
+                candidate_t)) {
+            return true;
+        }
+    }
+    if (asset.bvh_node_count <= 0 || asset.bvh_root < 0) {
+        return false;
+    }
+    const DVec3 ray_inverse =
+        inverse_direction(local_ray.direction);
+    int stack[kBvhStackCapacity];
+    int stack_size = 1;
+    stack[0] = asset.bvh_root;
+    while (stack_size > 0) {
+        const int reference = stack[--stack_size];
+        if (reference < 0) {
+            const int leaf_code = ~reference;
+            const int node_index = leaf_code >> 2;
+            const int slot = leaf_code & 3;
+            const DBvh4Node& leaf_parent =
+                scene.bvh_nodes[node_index];
+            for (int offset = 0;
+                 offset < leaf_parent.counts[slot];
+                 ++offset) {
+                const int primitive_index =
+                    scene.primitive_indices[
+                        leaf_parent.first[slot] + offset];
+                float candidate_t = 0.0f;
+                float candidate_u = 0.0f;
+                float candidate_v = 0.0f;
+                if (intersect_triangle_geometry(
+                        scene.traversal_triangles[
+                            primitive_index],
+                        local_ray,
+                        t_min,
+                        t_max,
+                        candidate_t,
+                        candidate_u,
+                        candidate_v) &&
+                    triangle_candidate_visible(
+                        scene,
+                        local_ray,
+                        instance_index,
+                        primitive_index,
+                        candidate_u,
+                        candidate_v)) {
+                    return true;
+                }
+            }
+            continue;
+        }
+        const DBvh4Node& node = scene.bvh_nodes[reference];
+        float near_values[4];
+        int hit_slots[4];
+        int hit_count = 0;
+        for (int slot = 0; slot < node.child_count; ++slot) {
+            float entry = 0.0f;
+            if (intersect_bounds(
+                    node.bounds_min[slot],
+                    node.bounds_max[slot],
+                    local_ray,
+                    ray_inverse,
+                    t_min,
+                    t_max,
+                    entry)) {
+                near_values[hit_count] = entry;
+                hit_slots[hit_count] = slot;
+                ++hit_count;
+            }
+        }
+        sort_child_hits(near_values, hit_slots, hit_count);
+        for (int index = hit_count - 1; index >= 0; --index) {
+            const int slot = hit_slots[index];
+            if (stack_size >= kBvhStackCapacity) {
+                if (error_code) {
+                    atomicCAS(error_code, 0, 5);
+                }
+                return false;
+            }
+            if (node.counts[slot] > 0) {
+                stack[stack_size++] =
+                    ~(reference * 4 + slot);
+            } else if (node.children[slot] >= 0) {
+                stack[stack_size++] = node.children[slot];
+            }
+        }
+    }
+    return false;
+}
+
+__device__ bool occluded_scene_instanced(
+    const DScene& scene,
+    const DRay& ray,
+    float t_min,
+    float t_max,
+    int* error_code) {
+    if (scene.tlas_node_count <= 0 ||
+        scene.tlas_nodes == nullptr) {
+        for (int instance_index = 0;
+             instance_index < scene.instance_count;
+             ++instance_index) {
+            if (occluded_instance(
+                    scene,
+                    ray,
+                    instance_index,
+                    t_min,
+                    t_max,
+                    error_code)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    const DVec3 ray_inverse = inverse_direction(ray.direction);
+    int stack[kBvhStackCapacity];
+    int stack_size = 1;
+    stack[0] = 0;
+    while (stack_size > 0) {
+        const int reference = stack[--stack_size];
+        if (reference < 0) {
+            const int leaf_code = ~reference;
+            const int node_index = leaf_code >> 2;
+            const int slot = leaf_code & 3;
+            const DBvh4Node& leaf_parent =
+                scene.tlas_nodes[node_index];
+            for (int offset = 0;
+                 offset < leaf_parent.counts[slot];
+                 ++offset) {
+                const int instance_index =
+                    scene.tlas_primitive_indices[
+                        leaf_parent.first[slot] + offset];
+                if (occluded_instance(
+                        scene,
+                        ray,
+                        instance_index,
+                        t_min,
+                        t_max,
+                        error_code)) {
+                    return true;
+                }
+            }
+            continue;
+        }
+        const DBvh4Node& node = scene.tlas_nodes[reference];
+        float near_values[4];
+        int hit_slots[4];
+        int hit_count = 0;
+        for (int slot = 0; slot < node.child_count; ++slot) {
+            float entry = 0.0f;
+            if (intersect_bounds(
+                    node.bounds_min[slot],
+                    node.bounds_max[slot],
+                    ray,
+                    ray_inverse,
+                    t_min,
+                    t_max,
+                    entry)) {
+                near_values[hit_count] = entry;
+                hit_slots[hit_count] = slot;
+                ++hit_count;
+            }
+        }
+        sort_child_hits(near_values, hit_slots, hit_count);
+        for (int index = hit_count - 1; index >= 0; --index) {
+            const int slot = hit_slots[index];
+            if (stack_size >= kBvhStackCapacity) {
+                if (error_code) {
+                    atomicCAS(error_code, 0, 6);
+                }
+                return false;
+            }
+            if (node.counts[slot] > 0) {
+                stack[stack_size++] =
+                    ~(reference * 4 + slot);
+            } else if (node.children[slot] >= 0) {
+                stack[stack_size++] = node.children[slot];
+            }
+        }
+    }
+    return false;
+}
+
+__device__ bool nearest_visible_hit(
+    const DScene& scene,
+    const DRay& ray,
+    float t_min,
+    float t_max,
+    DCompactHit& hit,
+    int* error_code) {
+    return scene.instanced_mode != 0
+        ? nearest_visible_hit_instanced(
+            scene,
+            ray,
+            t_min,
+            t_max,
+            hit,
+            error_code)
+        : nearest_visible_hit_flat(
+            scene,
+            ray,
+            t_min,
+            t_max,
+            hit,
+            error_code);
+}
+
+__device__ bool occluded_scene(
+    const DScene& scene,
+    const DRay& ray,
+    float t_min,
+    float t_max,
+    int* error_code) {
+    return scene.instanced_mode != 0
+        ? occluded_scene_instanced(
+            scene,
+            ray,
+            t_min,
+            t_max,
+            error_code)
+        : occluded_scene_flat(
+            scene,
+            ray,
+            t_min,
+            t_max,
+            error_code);
+}
+
 __device__ void reconstruct_hit(
     const DScene& scene,
     const DRay& ray,
@@ -1112,14 +1840,35 @@ __device__ void reconstruct_hit(
     hit.position = add(ray.origin, mul(ray.direction, compact.t));
     hit.primitive_kind = compact.primitive_kind;
     hit.primitive_index = compact.primitive_index;
+    hit.instance_index = compact.instance_index;
     hit.barycentric_u = compact.u;
     hit.barycentric_v = compact.v;
     if (compact.primitive_kind == 0) {
         const DSphere& sphere = scene.spheres[compact.primitive_index];
-        const DVec3 outward = divv(sub(hit.position, sphere.center), sphere.radius);
+        const DVec3 local_position =
+            compact.instance_index >= 0
+            ? transform_point(
+                scene.instances[compact.instance_index]
+                    .world_to_object,
+                hit.position)
+            : hit.position;
+        const DVec3 local_outward =
+            divv(
+                sub(local_position, sphere.center),
+                sphere.radius);
+        const DVec3 outward =
+            compact.instance_index >= 0
+            ? transform_direction(
+                scene.instances[compact.instance_index]
+                    .normal_to_world,
+                local_outward)
+            : local_outward;
         set_normals(hit, ray, outward, outward);
         hit.uv = DVec2{0.0f, 0.0f};
-        hit.material_id = scene.sphere_material_ids[compact.primitive_index];
+        hit.material_id = sphere_material_id(
+            scene,
+            compact.instance_index,
+            compact.primitive_index);
         return;
     }
 
@@ -1128,23 +1877,40 @@ __device__ void reconstruct_hit(
     const DShadingTriangle& triangle =
         scene.shading_triangles[compact.primitive_index];
     const float w = 1.0f - compact.u - compact.v;
-    const DVec3 geometric =
+    const DVec3 local_geometric =
         normalize(cross(geometry.edge1, geometry.edge2));
-    DVec3 shading = geometric;
+    DVec3 local_shading = local_geometric;
     if (reconstruct_shading &&
         (triangle.normal_mask & 0x7U) == 0x7U) {
-        shading = add(
+        local_shading = add(
             add(
                 mul(triangle.normals[0], w),
                 mul(triangle.normals[1], compact.u)),
             mul(triangle.normals[2], compact.v));
-        if (!usable(shading)) {
-            shading = geometric;
+        if (!usable(local_shading)) {
+            local_shading = local_geometric;
         } else {
-            shading = normalize(shading);
-            if (dot(shading, geometric) < 0.0f) {
-                shading = mul(shading, -1.0f);
+            local_shading = normalize(local_shading);
+            if (dot(local_shading, local_geometric) < 0.0f) {
+                local_shading = mul(local_shading, -1.0f);
             }
+        }
+    }
+    DVec3 geometric = local_geometric;
+    DVec3 shading = local_shading;
+    if (compact.instance_index >= 0) {
+        const DInstance instance =
+            scene.instances[compact.instance_index];
+        geometric = mul(
+            transform_direction(
+                instance.normal_to_world,
+                local_geometric),
+            instance.orientation_sign);
+        shading = transform_direction(
+            instance.normal_to_world,
+            local_shading);
+        if (dot(shading, geometric) < 0.0f) {
+            shading = mul(shading, -1.0f);
         }
     }
     hit.uv = DVec2{
@@ -1155,7 +1921,10 @@ __device__ void reconstruct_hit(
             triangle.uvs[1].y * compact.u +
             triangle.uvs[2].y * compact.v};
     set_normals(hit, ray, geometric, shading);
-    hit.material_id = scene.triangle_material_ids[compact.primitive_index];
+    hit.material_id = triangle_material_id(
+        scene,
+        compact.instance_index,
+        compact.primitive_index);
 }
 
 __device__ int wrap_index(int value, int size) {
@@ -1239,8 +2008,18 @@ __device__ DVec3 bumped_normal(
         scene.traversal_triangles[hit.primitive_index];
     const DShadingTriangle& triangle =
         scene.shading_triangles[hit.primitive_index];
-    const DVec3 edge1 = geometry.edge1;
-    const DVec3 edge2 = geometry.edge2;
+    const DVec3 edge1 =
+        hit.instance_index >= 0
+        ? transform_direction(
+            scene.instances[hit.instance_index].object_to_world,
+            geometry.edge1)
+        : geometry.edge1;
+    const DVec3 edge2 =
+        hit.instance_index >= 0
+        ? transform_direction(
+            scene.instances[hit.instance_index].object_to_world,
+            geometry.edge2)
+        : geometry.edge2;
     const float du1 = triangle.uvs[1].x - triangle.uvs[0].x;
     const float dv1 = triangle.uvs[1].y - triangle.uvs[0].y;
     const float du2 = triangle.uvs[2].x - triangle.uvs[0].x;
@@ -1450,6 +2229,20 @@ __device__ DVec3 direct_lighting(
 }
 
 __device__ int emissive_light_index(const DScene& scene, const DHit& hit) {
+    if (hit.instance_index >= 0) {
+        for (int index = 0;
+             index < scene.emissive_light_count;
+             ++index) {
+            const DEmissiveLight light =
+                scene.emissive_lights[index];
+            if (light.instance_index == hit.instance_index &&
+                light.primitive_kind == hit.primitive_kind &&
+                light.primitive_index == hit.primitive_index) {
+                return index;
+            }
+        }
+        return -1;
+    }
     if (hit.primitive_kind == 0) {
         return hit.primitive_index >= 0 &&
                 hit.primitive_index < scene.sphere_count &&
@@ -1463,6 +2256,19 @@ __device__ int emissive_light_index(const DScene& scene, const DHit& hit) {
             scene.triangle_light_indices != nullptr
         ? scene.triangle_light_indices[hit.primitive_index]
         : -1;
+}
+
+__device__ float sphere_surface_jacobian(
+    const DInstance& instance,
+    DVec3 local_normal) {
+    const float determinant =
+        fabsf(linear_determinant(instance.object_to_world));
+    const DVec3 transformed_normal =
+        transform_direction(
+            instance.normal_to_world,
+            local_normal);
+    return determinant *
+        sqrtf(fmaxf(0.0f, length_squared(transformed_normal)));
 }
 
 __device__ float emissive_light_pdf_for_hit(
@@ -1489,7 +2295,28 @@ __device__ float emissive_light_pdf_for_hit(
     if (!(light_cosine > 0.0f)) {
         return 0.0f;
     }
-    return light.selection_pdf * distance_squared / (light.area * light_cosine);
+    float sampled_area = light.area;
+    if (light.primitive_kind == 0 &&
+        light.instance_index >= 0) {
+        const DInstance instance =
+            scene.instances[light.instance_index];
+        const DSphere sphere =
+            scene.spheres[light.primitive_index];
+        const DVec3 local_position =
+            transform_point(
+                instance.world_to_object,
+                hit.position);
+        const DVec3 local_normal =
+            divv(
+                sub(local_position, sphere.center),
+                sphere.radius);
+        sampled_area *=
+            sphere_surface_jacobian(instance, local_normal);
+    }
+    return sampled_area > 0.0f
+        ? light.selection_pdf * distance_squared /
+            (sampled_area * light_cosine)
+        : 0.0f;
 }
 
 __device__ bool sample_emissive_shadow_task(
@@ -1525,6 +2352,7 @@ __device__ bool sample_emissive_shadow_task(
     DVec3 light_position{};
     DVec3 outward_normal{};
     DVec2 light_uv{0.0f, 0.0f};
+    float sampled_area = light.area;
     if (light.primitive_kind == 0) {
         if (light.primitive_index < 0 ||
             light.primitive_index >= scene.sphere_count) {
@@ -1534,8 +2362,27 @@ __device__ bool sample_emissive_shadow_task(
         const float z = 1.0f - 2.0f * random_float(rng);
         const float radial = sqrtf(fmaxf(0.0f, 1.0f - z * z));
         const float phi = 2.0f * kPi * random_float(rng);
-        outward_normal = v3(radial * cosf(phi), radial * sinf(phi), z);
-        light_position = add(sphere.center, mul(outward_normal, sphere.radius));
+        const DVec3 local_normal =
+            v3(radial * cosf(phi), radial * sinf(phi), z);
+        const DVec3 local_position =
+            add(sphere.center, mul(local_normal, sphere.radius));
+        if (light.instance_index >= 0) {
+            const DInstance instance =
+                scene.instances[light.instance_index];
+            light_position = transform_point(
+                instance.object_to_world,
+                local_position);
+            outward_normal = normalize(
+                transform_direction(
+                    instance.normal_to_world,
+                    local_normal));
+            sampled_area *= sphere_surface_jacobian(
+                instance,
+                local_normal);
+        } else {
+            outward_normal = local_normal;
+            light_position = local_position;
+        }
     } else if (light.primitive_kind == 1) {
         if (light.primitive_index < 0 ||
             light.primitive_index >= scene.triangle_count) {
@@ -1549,13 +2396,28 @@ __device__ bool sample_emissive_shadow_task(
         const float w0 = 1.0f - root;
         const float w1 = root * (1.0f - random_float(rng));
         const float w2 = 1.0f - w0 - w1;
-        light_position = add(
+        const DVec3 local_position = add(
             triangle.v0,
             add(
                 mul(triangle.edge1, w1),
                 mul(triangle.edge2, w2)));
-        outward_normal =
+        const DVec3 local_normal =
             normalize(cross(triangle.edge1, triangle.edge2));
+        if (light.instance_index >= 0) {
+            const DInstance instance =
+                scene.instances[light.instance_index];
+            light_position = transform_point(
+                instance.object_to_world,
+                local_position);
+            outward_normal = normalize(mul(
+                transform_direction(
+                    instance.normal_to_world,
+                    local_normal),
+                instance.orientation_sign));
+        } else {
+            light_position = local_position;
+            outward_normal = local_normal;
+        }
         light_uv = DVec2{
             shading.uvs[0].x * w0 +
                 shading.uvs[1].x * w1 +
@@ -1594,7 +2456,10 @@ __device__ bool sample_emissive_shadow_task(
     }
 
     const float light_pdf =
-        light.selection_pdf * distance_squared / (light.area * light_cosine);
+        sampled_area > 0.0f
+        ? light.selection_pdf * distance_squared /
+            (sampled_area * light_cosine)
+        : 0.0f;
     const float bsdf_pdf = surface_cosine / kPi;
     if (!(light_pdf > 0.0f) || !isfinite(light_pdf)) {
         return false;
@@ -2138,6 +3003,87 @@ __global__ void present_frame_kernel(
     }
 }
 
+__global__ void refit_tlas_kernel(
+    DBvh4Node* nodes,
+    int node_count,
+    const int* primitive_indices,
+    const DInstance* instances,
+    int instance_count,
+    int* error_code) {
+    if (blockIdx.x != 0 || threadIdx.x != 0) {
+        return;
+    }
+    for (int node_index = node_count - 1;
+         node_index >= 0;
+         --node_index) {
+        DBvh4Node& node = nodes[node_index];
+        for (int slot = 0; slot < node.child_count; ++slot) {
+            DVec3 minimum = v3(FLT_MAX, FLT_MAX, FLT_MAX);
+            DVec3 maximum = v3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+            if (node.counts[slot] > 0) {
+                for (int offset = 0;
+                     offset < node.counts[slot];
+                     ++offset) {
+                    const int instance_index =
+                        primitive_indices[
+                            node.first[slot] + offset];
+                    if (instance_index < 0 ||
+                        instance_index >= instance_count) {
+                        if (error_code) {
+                            atomicCAS(error_code, 0, 7);
+                        }
+                        continue;
+                    }
+                    const DInstance instance =
+                        instances[instance_index];
+                    minimum = v3(
+                        fminf(minimum.x, instance.bounds_min.x),
+                        fminf(minimum.y, instance.bounds_min.y),
+                        fminf(minimum.z, instance.bounds_min.z));
+                    maximum = v3(
+                        fmaxf(maximum.x, instance.bounds_max.x),
+                        fmaxf(maximum.y, instance.bounds_max.y),
+                        fmaxf(maximum.z, instance.bounds_max.z));
+                }
+            } else if (node.children[slot] >= 0 &&
+                       node.children[slot] < node_count) {
+                const DBvh4Node& child =
+                    nodes[node.children[slot]];
+                for (int child_slot = 0;
+                     child_slot < child.child_count;
+                     ++child_slot) {
+                    minimum = v3(
+                        fminf(
+                            minimum.x,
+                            child.bounds_min[child_slot].x),
+                        fminf(
+                            minimum.y,
+                            child.bounds_min[child_slot].y),
+                        fminf(
+                            minimum.z,
+                            child.bounds_min[child_slot].z));
+                    maximum = v3(
+                        fmaxf(
+                            maximum.x,
+                            child.bounds_max[child_slot].x),
+                        fmaxf(
+                            maximum.y,
+                            child.bounds_max[child_slot].y),
+                        fmaxf(
+                            maximum.z,
+                            child.bounds_max[child_slot].z));
+                }
+            } else {
+                if (error_code) {
+                    atomicCAS(error_code, 0, 7);
+                }
+            }
+            node.bounds_min[slot] = minimum;
+            node.bounds_max[slot] = maximum;
+        }
+    }
+}
+
 template <typename T>
 class DeviceBuffer {
 public:
@@ -2361,6 +3307,14 @@ public:
         sync(scene, SceneChange::All);
     }
 
+    CudaSceneStorage(
+        const InstancedSceneView& scene,
+        cudaStream_t stream,
+        CudaPathStatistics& statistics)
+        : stream_(stream), statistics_(statistics) {
+        sync(scene, SceneChange::All);
+    }
+
     DScene view() const { return view_; }
 
     void sync(const Scene& scene, SceneChangeSet changes) {
@@ -2576,15 +3530,1014 @@ public:
         view_.emissive_light_count = static_cast<int>(emissive_lights_.size());
         view_.sphere_light_indices = sphere_light_indices_.get();
         view_.triangle_light_indices = triangle_light_indices_.get();
+        view_.assets = nullptr;
+        view_.asset_count = 0;
+        view_.instances = nullptr;
+        view_.instance_count = 0;
+        view_.tlas_nodes = nullptr;
+        view_.tlas_node_count = 0;
+        view_.tlas_primitive_indices = nullptr;
+        view_.instanced_mode = 0;
         view_.environment = to_device(scene.environment);
+        upload_timer_.end(stream_);
+    }
+
+    void sync(
+        const InstancedSceneView& scene,
+        SceneChangeSet changes) {
+        upload_timer_.finish(statistics_.upload_milliseconds);
+        upload_timer_.begin(stream_);
+        const bool rebuild_assets =
+            !same_instanced_asset_layout(scene);
+        const bool rebuild_topology =
+            !rebuild_assets &&
+            (scene.instances.size() != instances_host_.size() ||
+             has_scene_change(changes, SceneChange::Geometry));
+        if (rebuild_assets) {
+            rebuild_instanced_scene(scene);
+        } else {
+            if (has_scene_change(
+                    changes,
+                    SceneChange::Textures)) {
+                update_instanced_textures(scene);
+            }
+            if (rebuild_topology) {
+                rebuild_instanced_topology(scene);
+            } else {
+                if (has_scene_change(
+                        changes,
+                        SceneChange::MaterialBindings) ||
+                    has_scene_change(
+                        changes,
+                        SceneChange::Materials) ||
+                    has_scene_change(
+                        changes,
+                        SceneChange::Textures)) {
+                    update_instanced_materials(scene);
+                }
+                if (has_scene_change(
+                        changes,
+                        SceneChange::InstanceTransforms)) {
+                    update_instanced_transforms(scene);
+                }
+            }
+        }
+        if (!rebuild_assets &&
+            has_scene_change(changes, SceneChange::Lighting)) {
+            update_instanced_lighting(scene);
+        }
+        update_instanced_view(scene.environment);
         upload_timer_.end(stream_);
     }
 
     void update_timing() {
         upload_timer_.update(statistics_.upload_milliseconds);
+        instance_upload_timer_.update(
+            statistics_.instance_upload_milliseconds);
+        tlas_refit_timer_.update(
+            statistics_.tlas_refit_milliseconds);
     }
 
 private:
+    bool same_instanced_asset_layout(
+        const InstancedSceneView& scene) const {
+        if (!instanced_assets_initialized_ ||
+            scene.assets.size() !=
+                asset_ids_host_.size()) {
+            return false;
+        }
+        for (std::size_t index = 0;
+             index < scene.assets.size();
+             ++index) {
+            if (scene.assets[index].asset_id !=
+                    asset_ids_host_[index] ||
+                scene.assets[index].local_scene !=
+                    asset_scenes_host_[index]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static DMaterial pack_material(
+        const Material& material,
+        int texture_base) {
+        const auto texture_id = [texture_base](int id) {
+            return id >= 0 ? texture_base + id : -1;
+        };
+        return DMaterial{
+            static_cast<int>(material.type),
+            to_device(material.base_color),
+            to_device(material.emission),
+            material.roughness,
+            material.ior,
+            material.opacity,
+            material.alpha_cutoff,
+            material.bump_scale,
+            material.two_sided ? 1 : 0,
+            texture_id(material.diffuse_texture_id),
+            texture_id(material.opacity_texture_id),
+            texture_id(material.bump_texture_id)};
+    }
+
+    static DInstance pack_instance(
+        const InstancedSceneInstanceView& instance,
+        int material_offset) {
+        if (!instance.object_to_world.allFinite() ||
+            !instance.world_to_object.allFinite() ||
+            !instance.normal_to_world.allFinite() ||
+            !instance.world_bounds.min.allFinite() ||
+            !instance.world_bounds.max.allFinite()) {
+            throw std::runtime_error(
+                "CUDA instance contains a non-finite transform or bounds");
+        }
+        const float determinant =
+            instance.object_to_world
+                .topLeftCorner<3, 3>()
+                .determinant();
+        if (!std::isfinite(determinant) ||
+            std::abs(determinant) < 1.0e-12f) {
+            throw std::runtime_error(
+                "CUDA instance transform is singular");
+        }
+        return DInstance{
+            to_device_affine(instance.object_to_world),
+            to_device_affine(instance.world_to_object),
+            to_device_matrix(instance.normal_to_world),
+            to_device(instance.world_bounds.min),
+            to_device(instance.world_bounds.max),
+            instance.asset_index,
+            material_offset,
+            determinant < 0.0f ? -1.0f : 1.0f};
+    }
+
+    static bool instance_surface_metric_changed(
+        const DInstance& previous,
+        const DInstance& next) {
+        for (int first_axis = 0; first_axis < 3; ++first_axis) {
+            for (int second_axis = first_axis;
+                 second_axis < 3;
+                 ++second_axis) {
+                float previous_metric = 0.0f;
+                float next_metric = 0.0f;
+                for (int row = 0; row < 3; ++row) {
+                    previous_metric +=
+                        previous.object_to_world.values[
+                            row * 4 + first_axis] *
+                        previous.object_to_world.values[
+                            row * 4 + second_axis];
+                    next_metric +=
+                        next.object_to_world.values[
+                            row * 4 + first_axis] *
+                        next.object_to_world.values[
+                            row * 4 + second_axis];
+                }
+                const float scale = std::max(
+                    1.0f,
+                    std::max(
+                        std::abs(previous_metric),
+                        std::abs(next_metric)));
+                if (std::abs(previous_metric - next_metric) >
+                    1.0e-5f * scale) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    static float emissive_material_weight(
+        const DMaterial& material) {
+        const float energy =
+            material.emission.x * 0.2126f +
+            material.emission.y * 0.7152f +
+            material.emission.z * 0.0722f;
+        if (!(energy > 0.0f) || !std::isfinite(energy) ||
+            (material.opacity_texture_id < 0 &&
+             material.opacity < material.alpha_cutoff)) {
+            return 0.0f;
+        }
+        return energy * (material.two_sided ? 2.0f : 1.0f);
+    }
+
+    float sphere_area_scale(
+        const DInstance& instance) const {
+        const float determinant =
+            std::abs(
+                instance.object_to_world.values[0] *
+                    (instance.object_to_world.values[5] *
+                         instance.object_to_world.values[10] -
+                     instance.object_to_world.values[6] *
+                         instance.object_to_world.values[9]) -
+                instance.object_to_world.values[1] *
+                    (instance.object_to_world.values[4] *
+                         instance.object_to_world.values[10] -
+                     instance.object_to_world.values[6] *
+                         instance.object_to_world.values[8]) +
+                instance.object_to_world.values[2] *
+                    (instance.object_to_world.values[4] *
+                         instance.object_to_world.values[9] -
+                     instance.object_to_world.values[5] *
+                         instance.object_to_world.values[8]));
+        const auto normal_length =
+            [&instance](int column) {
+                const float x =
+                    instance.normal_to_world.values[column];
+                const float y =
+                    instance.normal_to_world.values[3 + column];
+                const float z =
+                    instance.normal_to_world.values[6 + column];
+                return std::sqrt(x * x + y * y + z * z);
+            };
+        return determinant *
+            (normal_length(0) +
+             normal_length(1) +
+             normal_length(2)) /
+            3.0f;
+    }
+
+    float triangle_world_area(
+        const DEmissiveLight& light) const {
+        const DTraversalTriangle& triangle =
+            traversal_triangles_host_[
+                static_cast<std::size_t>(
+                    light.primitive_index)];
+        const DMatrix3x4& transform =
+            instances_host_[
+                static_cast<std::size_t>(
+                    light.instance_index)]
+                .object_to_world;
+        const auto transform_vector =
+            [&transform](DVec3 value) {
+                return Vec3(
+                    transform.values[0] * value.x +
+                        transform.values[1] * value.y +
+                        transform.values[2] * value.z,
+                    transform.values[4] * value.x +
+                        transform.values[5] * value.y +
+                        transform.values[6] * value.z,
+                    transform.values[8] * value.x +
+                        transform.values[9] * value.y +
+                        transform.values[10] * value.z);
+            };
+        return 0.5f *
+            transform_vector(triangle.edge1)
+                .cross(transform_vector(triangle.edge2))
+                .norm();
+    }
+
+    void finalize_instanced_emissive_lights() {
+        std::vector<float> weights;
+        weights.reserve(emissive_lights_host_.size());
+        float total_weight = 0.0f;
+        for (DEmissiveLight& light : emissive_lights_host_) {
+            if (light.primitive_kind == 1) {
+                light.area = triangle_world_area(light);
+            }
+            const float area_for_selection =
+                light.primitive_kind == 0
+                ? light.area *
+                    sphere_area_scale(
+                        instances_host_[
+                            static_cast<std::size_t>(
+                                light.instance_index)])
+                : light.area;
+            const float material_weight =
+                light.material_id >= 0 &&
+                    static_cast<std::size_t>(light.material_id) <
+                        materials_host_.size()
+                ? emissive_material_weight(
+                    materials_host_[
+                        static_cast<std::size_t>(
+                            light.material_id)])
+                : 0.0f;
+            const float weight =
+                area_for_selection * material_weight;
+            weights.push_back(
+                std::isfinite(weight) && weight > 0.0f
+                ? weight
+                : 0.0f);
+            total_weight += weights.back();
+        }
+        if (!(total_weight > 0.0f) ||
+            !std::isfinite(total_weight)) {
+            emissive_lights_host_.clear();
+        } else {
+            float cumulative = 0.0f;
+            for (std::size_t index = 0;
+                 index < emissive_lights_host_.size();
+                 ++index) {
+                const float probability =
+                    weights[index] / total_weight;
+                cumulative += probability;
+                emissive_lights_host_[index].selection_pdf =
+                    probability;
+                emissive_lights_host_[index]
+                    .cumulative_probability =
+                    index + 1 ==
+                            emissive_lights_host_.size()
+                    ? 1.0f
+                    : cumulative;
+            }
+        }
+        sphere_light_indices_host_.clear();
+        triangle_light_indices_host_.clear();
+        statistics_.lighting_upload_bytes +=
+            emissive_lights_.upload(
+                emissive_lights_host_,
+                stream_,
+                statistics_);
+        statistics_.lighting_upload_bytes +=
+            sphere_light_indices_.upload(
+                sphere_light_indices_host_,
+                stream_,
+                statistics_);
+        statistics_.lighting_upload_bytes +=
+            triangle_light_indices_.upload(
+                triangle_light_indices_host_,
+                stream_,
+                statistics_);
+    }
+
+    void rebuild_instanced_emissive_lights(
+        const InstancedSceneView& scene) {
+        emissive_lights_host_.clear();
+        for (std::size_t instance_index = 0;
+             instance_index < scene.instances.size();
+             ++instance_index) {
+            const DInstance& packed_instance =
+                instances_host_[instance_index];
+            if (packed_instance.asset_index < 0 ||
+                static_cast<std::size_t>(
+                    packed_instance.asset_index) >=
+                    assets_host_.size()) {
+                throw std::runtime_error(
+                    "CUDA instance has an invalid asset index");
+            }
+            const DAsset& asset =
+                assets_host_[
+                    static_cast<std::size_t>(
+                        packed_instance.asset_index)];
+            for (int offset = 0;
+                 offset < asset.sphere_count;
+                 ++offset) {
+                const int primitive_index =
+                    asset.sphere_first + offset;
+                const int material_id =
+                    packed_instance.material_offset +
+                    sphere_material_ids_host_[
+                        static_cast<std::size_t>(
+                            primitive_index)];
+                if (material_id < 0 ||
+                    static_cast<std::size_t>(material_id) >=
+                        materials_host_.size() ||
+                    emissive_material_weight(
+                        materials_host_[
+                            static_cast<std::size_t>(
+                                material_id)]) <= 0.0f) {
+                    continue;
+                }
+                const DSphere& sphere =
+                    spheres_host_[
+                        static_cast<std::size_t>(
+                            primitive_index)];
+                emissive_lights_host_.push_back(
+                    DEmissiveLight{
+                        0,
+                        primitive_index,
+                        static_cast<int>(instance_index),
+                        material_id,
+                        4.0f * kPi * sphere.radius *
+                            sphere.radius,
+                        0.0f,
+                        0.0f});
+            }
+            for (int offset = 0;
+                 offset < asset.triangle_count;
+                 ++offset) {
+                const int primitive_index =
+                    asset.triangle_first + offset;
+                const int material_id =
+                    packed_instance.material_offset +
+                    triangle_material_ids_host_[
+                        static_cast<std::size_t>(
+                            primitive_index)];
+                if (material_id < 0 ||
+                    static_cast<std::size_t>(material_id) >=
+                        materials_host_.size() ||
+                    emissive_material_weight(
+                        materials_host_[
+                            static_cast<std::size_t>(
+                                material_id)]) <= 0.0f) {
+                    continue;
+                }
+                emissive_lights_host_.push_back(
+                    DEmissiveLight{
+                        1,
+                        primitive_index,
+                        static_cast<int>(instance_index),
+                        material_id,
+                        0.0f,
+                        0.0f,
+                        0.0f});
+            }
+        }
+        finalize_instanced_emissive_lights();
+    }
+
+    void upload_instanced_lights(
+        const InstancedSceneView& scene) {
+        point_lights_host_.clear();
+        point_lights_host_.reserve(scene.point_lights.size());
+        for (const PointLight& light : scene.point_lights) {
+            point_lights_host_.push_back(
+                DPointLight{
+                    to_device(light.position),
+                    to_device(light.intensity)});
+        }
+        directional_lights_host_.clear();
+        directional_lights_host_.reserve(
+            scene.directional_lights.size());
+        for (const DirectionalLight& light :
+             scene.directional_lights) {
+            directional_lights_host_.push_back(
+                DDirectionalLight{
+                    to_device(light.direction),
+                    to_device(light.radiance)});
+        }
+        statistics_.lighting_upload_bytes +=
+            point_lights_.upload(
+                point_lights_host_,
+                stream_,
+                statistics_);
+        statistics_.lighting_upload_bytes +=
+            directional_lights_.upload(
+                directional_lights_host_,
+                stream_,
+                statistics_);
+    }
+
+    void update_instanced_lighting(
+        const InstancedSceneView& scene) {
+        upload_instanced_lights(scene);
+    }
+
+    void update_instanced_textures(
+        const InstancedSceneView& scene) {
+        textures_host_.clear();
+        texels_host_.clear();
+        asset_texture_bases_host_.clear();
+        asset_texture_bases_host_.reserve(
+            scene.assets.size());
+        for (const InstancedSceneAssetView& asset :
+             scene.assets) {
+            if (!asset.local_scene) {
+                throw std::runtime_error(
+                    "CUDA texture update has no local scene");
+            }
+            asset_texture_bases_host_.push_back(
+                static_cast<int>(textures_host_.size()));
+            for (const ImageTexture& texture :
+                 asset.local_scene->textures) {
+                const int first =
+                    static_cast<int>(texels_host_.size());
+                textures_host_.push_back(
+                    DTexture{
+                        texture.width(),
+                        texture.height(),
+                        first});
+                for (const Color& color :
+                     texture.pixels()) {
+                    texels_host_.push_back(
+                        to_device(color));
+                }
+            }
+        }
+        statistics_.texture_upload_bytes +=
+            textures_.upload(
+                textures_host_,
+                stream_,
+                statistics_);
+        statistics_.texture_upload_bytes +=
+            texels_.upload(
+                texels_host_,
+                stream_,
+                statistics_);
+    }
+
+    void update_instanced_materials(
+        const InstancedSceneView& scene) {
+        if (scene.instances.size() !=
+            instances_host_.size()) {
+            throw std::runtime_error(
+                "CUDA instance material update changed topology");
+        }
+        materials_host_.clear();
+        for (std::size_t index = 0;
+             index < scene.instances.size();
+             ++index) {
+            const InstancedSceneInstanceView& instance =
+                scene.instances[index];
+            if (instance.asset_index < 0 ||
+                static_cast<std::size_t>(
+                    instance.asset_index) >=
+                    asset_texture_bases_host_.size()) {
+                throw std::runtime_error(
+                    "CUDA instance material update references an invalid asset");
+            }
+            const int material_offset =
+                static_cast<int>(materials_host_.size());
+            const int texture_base =
+                asset_texture_bases_host_[
+                    static_cast<std::size_t>(
+                        instance.asset_index)];
+            for (const Material& material :
+                 instance.materials) {
+                materials_host_.push_back(
+                    pack_material(material, texture_base));
+            }
+            instances_host_[index].material_offset =
+                material_offset;
+        }
+        statistics_.material_upload_bytes +=
+            materials_.upload(
+                materials_host_,
+                stream_,
+                statistics_);
+        statistics_.instance_upload_bytes +=
+            instances_.upload(
+                instances_host_,
+                stream_,
+                statistics_);
+        rebuild_instanced_emissive_lights(scene);
+        has_instanced_emissive_candidates_ =
+            !emissive_lights_host_.empty();
+    }
+
+    void rebuild_instanced_topology(
+        const InstancedSceneView& scene) {
+        materials_host_.clear();
+        instances_host_.clear();
+        instances_host_.reserve(scene.instances.size());
+        for (const InstancedSceneInstanceView& instance :
+             scene.instances) {
+            if (instance.asset_index < 0 ||
+                static_cast<std::size_t>(
+                    instance.asset_index) >=
+                    assets_host_.size()) {
+                throw std::runtime_error(
+                    "CUDA instance topology references an invalid asset");
+            }
+            const int material_offset =
+                static_cast<int>(materials_host_.size());
+            const int texture_base =
+                asset_texture_bases_host_[
+                    static_cast<std::size_t>(
+                        instance.asset_index)];
+            for (const Material& material :
+                 instance.materials) {
+                materials_host_.push_back(
+                    pack_material(material, texture_base));
+            }
+            instances_host_.push_back(
+                pack_instance(instance, material_offset));
+        }
+        statistics_.material_upload_bytes +=
+            materials_.upload(
+                materials_host_,
+                stream_,
+                statistics_);
+        statistics_.instance_upload_bytes +=
+            instances_.upload(
+                instances_host_,
+                stream_,
+                statistics_);
+
+        std::vector<Bounds3> instance_bounds;
+        instance_bounds.reserve(scene.instances.size());
+        for (const InstancedSceneInstanceView& instance :
+             scene.instances) {
+            instance_bounds.push_back(
+                instance.world_bounds);
+        }
+        GpuBvh4Layout tlas =
+            build_gpu_bvh4(instance_bounds);
+        tlas_nodes_host_ = std::move(tlas.nodes);
+        tlas_primitive_indices_host_ =
+            std::move(tlas.primitive_indices);
+        statistics_.tlas_upload_bytes +=
+            tlas_nodes_.upload(
+                tlas_nodes_host_,
+                stream_,
+                statistics_);
+        statistics_.tlas_upload_bytes +=
+            tlas_primitive_indices_.upload(
+                tlas_primitive_indices_host_,
+                stream_,
+                statistics_);
+        ++statistics_.tlas_build_count;
+        rebuild_instanced_emissive_lights(scene);
+        has_instanced_emissive_candidates_ =
+            !emissive_lights_host_.empty();
+    }
+
+    void rebuild_instanced_scene(
+        const InstancedSceneView& scene) {
+        const auto blas_started =
+            std::chrono::steady_clock::now();
+        materials_host_.clear();
+        textures_host_.clear();
+        texels_host_.clear();
+        spheres_host_.clear();
+        sphere_material_ids_host_.clear();
+        traversal_triangles_host_.clear();
+        shading_triangles_host_.clear();
+        triangle_material_ids_host_.clear();
+        bvh_nodes_host_.clear();
+        primitive_indices_host_.clear();
+        assets_host_.clear();
+        asset_texture_bases_host_.clear();
+        asset_ids_host_.clear();
+        asset_scenes_host_.clear();
+        asset_texture_bases_host_.reserve(scene.assets.size());
+        asset_ids_host_.reserve(scene.assets.size());
+        asset_scenes_host_.reserve(scene.assets.size());
+        assets_host_.reserve(scene.assets.size());
+
+        for (const InstancedSceneAssetView& asset_view :
+             scene.assets) {
+            if (!asset_view.local_scene) {
+                throw std::runtime_error(
+                    "CUDA instance asset has no local scene");
+            }
+            const Scene& asset_scene = *asset_view.local_scene;
+            asset_ids_host_.push_back(asset_view.asset_id);
+            asset_scenes_host_.push_back(
+                asset_view.local_scene);
+            const int texture_base =
+                static_cast<int>(textures_host_.size());
+            asset_texture_bases_host_.push_back(texture_base);
+            for (const ImageTexture& texture :
+                 asset_scene.textures) {
+                const int first =
+                    static_cast<int>(texels_host_.size());
+                textures_host_.push_back(
+                    DTexture{
+                        texture.width(),
+                        texture.height(),
+                        first});
+                for (const Color& color : texture.pixels()) {
+                    texels_host_.push_back(to_device(color));
+                }
+            }
+
+            DAsset asset{};
+            asset.sphere_first =
+                static_cast<int>(spheres_host_.size());
+            asset.sphere_count =
+                static_cast<int>(asset_scene.spheres.size());
+            for (const Sphere& sphere : asset_scene.spheres) {
+                spheres_host_.push_back(
+                    DSphere{
+                        to_device(sphere.center()),
+                        sphere.radius()});
+                sphere_material_ids_host_.push_back(
+                    sphere.material_id());
+            }
+
+            asset.triangle_first =
+                static_cast<int>(
+                    traversal_triangles_host_.size());
+            asset.triangle_count =
+                static_cast<int>(
+                    asset_scene.triangles.size());
+            for (const Triangle& triangle :
+                 asset_scene.triangles) {
+                const TriangleVertex& first =
+                    triangle.vertex(0);
+                const TriangleVertex& second =
+                    triangle.vertex(1);
+                const TriangleVertex& third =
+                    triangle.vertex(2);
+                traversal_triangles_host_.push_back(
+                    DTraversalTriangle{
+                        to_device(first.position),
+                        to_device(Vec3(
+                            second.position -
+                            first.position)),
+                        to_device(Vec3(
+                            third.position -
+                            first.position))});
+                DShadingTriangle shading{};
+                for (int vertex = 0; vertex < 3; ++vertex) {
+                    const TriangleVertex& source =
+                        triangle.vertex(vertex);
+                    shading.uvs[vertex] =
+                        to_device(source.uv);
+                    shading.normals[vertex] =
+                        to_device(source.normal);
+                    if (source.has_normal) {
+                        shading.normal_mask |=
+                            1U << static_cast<unsigned int>(
+                                vertex);
+                    }
+                }
+                shading_triangles_host_.push_back(shading);
+                triangle_material_ids_host_.push_back(
+                    triangle.material_id());
+            }
+
+            GpuBvh4Layout blas =
+                build_gpu_bvh4(asset_scene.triangles);
+            const int node_offset =
+                static_cast<int>(bvh_nodes_host_.size());
+            const int primitive_offset =
+                static_cast<int>(
+                    primitive_indices_host_.size());
+            for (DBvh4Node& node : blas.nodes) {
+                for (int slot = 0;
+                     slot < node.child_count;
+                     ++slot) {
+                    if (node.children[slot] >= 0) {
+                        node.children[slot] += node_offset;
+                    }
+                    if (node.counts[slot] > 0) {
+                        node.first[slot] +=
+                            primitive_offset;
+                    }
+                }
+            }
+            for (int primitive : blas.primitive_indices) {
+                primitive_indices_host_.push_back(
+                    asset.triangle_first + primitive);
+            }
+            asset.bvh_root = blas.nodes.empty()
+                ? -1
+                : node_offset;
+            asset.bvh_node_count =
+                static_cast<int>(blas.nodes.size());
+            bvh_nodes_host_.insert(
+                bvh_nodes_host_.end(),
+                blas.nodes.begin(),
+                blas.nodes.end());
+            if (!blas.nodes.empty()) {
+                ++statistics_.blas_build_count;
+            }
+            assets_host_.push_back(asset);
+        }
+        const auto blas_finished =
+            std::chrono::steady_clock::now();
+        statistics_.blas_build_milliseconds =
+            std::chrono::duration<float, std::milli>(
+                blas_finished - blas_started).count();
+
+        instances_host_.clear();
+        instances_host_.reserve(scene.instances.size());
+        for (const InstancedSceneInstanceView& instance :
+             scene.instances) {
+            if (instance.asset_index < 0 ||
+                static_cast<std::size_t>(
+                    instance.asset_index) >=
+                    assets_host_.size()) {
+                throw std::runtime_error(
+                    "CUDA instance references an invalid asset");
+            }
+            const int material_offset =
+                static_cast<int>(materials_host_.size());
+            const int texture_base =
+                asset_texture_bases_host_[
+                    static_cast<std::size_t>(
+                        instance.asset_index)];
+            for (const Material& material :
+                 instance.materials) {
+                materials_host_.push_back(
+                    pack_material(material, texture_base));
+            }
+            instances_host_.push_back(
+                pack_instance(instance, material_offset));
+        }
+
+        statistics_.material_upload_bytes +=
+            materials_.upload(
+                materials_host_,
+                stream_,
+                statistics_);
+        statistics_.texture_upload_bytes +=
+            textures_.upload(
+                textures_host_,
+                stream_,
+                statistics_);
+        statistics_.texture_upload_bytes +=
+            texels_.upload(
+                texels_host_,
+                stream_,
+                statistics_);
+        statistics_.geometry_upload_bytes +=
+            spheres_.upload(
+                spheres_host_,
+                stream_,
+                statistics_);
+        statistics_.material_binding_upload_bytes +=
+            sphere_material_ids_.upload(
+                sphere_material_ids_host_,
+                stream_,
+                statistics_);
+        statistics_.geometry_upload_bytes +=
+            traversal_triangles_.upload(
+                traversal_triangles_host_,
+                stream_,
+                statistics_);
+        statistics_.geometry_upload_bytes +=
+            shading_triangles_.upload(
+                shading_triangles_host_,
+                stream_,
+                statistics_);
+        statistics_.material_binding_upload_bytes +=
+            triangle_material_ids_.upload(
+                triangle_material_ids_host_,
+                stream_,
+                statistics_);
+        statistics_.bvh_upload_bytes +=
+            bvh_nodes_.upload(
+                bvh_nodes_host_,
+                stream_,
+                statistics_);
+        statistics_.bvh_upload_bytes +=
+            primitive_indices_.upload(
+                primitive_indices_host_,
+                stream_,
+                statistics_);
+        statistics_.bvh_upload_bytes +=
+            assets_.upload(
+                assets_host_,
+                stream_,
+                statistics_);
+        statistics_.instance_upload_bytes +=
+            instances_.upload(
+                instances_host_,
+                stream_,
+                statistics_);
+
+        std::vector<Bounds3> instance_bounds;
+        instance_bounds.reserve(scene.instances.size());
+        for (const InstancedSceneInstanceView& instance :
+             scene.instances) {
+            instance_bounds.push_back(instance.world_bounds);
+        }
+        GpuBvh4Layout tlas =
+            build_gpu_bvh4(instance_bounds);
+        tlas_nodes_host_ = std::move(tlas.nodes);
+        tlas_primitive_indices_host_ =
+            std::move(tlas.primitive_indices);
+        statistics_.tlas_upload_bytes +=
+            tlas_nodes_.upload(
+                tlas_nodes_host_,
+                stream_,
+                statistics_);
+        statistics_.tlas_upload_bytes +=
+            tlas_primitive_indices_.upload(
+                tlas_primitive_indices_host_,
+                stream_,
+                statistics_);
+        ++statistics_.tlas_build_count;
+
+        has_instanced_emissive_candidates_ = false;
+        rebuild_instanced_emissive_lights(scene);
+        has_instanced_emissive_candidates_ =
+            !emissive_lights_host_.empty();
+        upload_instanced_lights(scene);
+        instanced_assets_initialized_ = true;
+    }
+
+    void update_instanced_transforms(
+        const InstancedSceneView& scene) {
+        if (scene.instances.size() !=
+            instances_host_.size()) {
+            throw std::runtime_error(
+                "CUDA instance topology changed without geometry change");
+        }
+        instance_upload_timer_.finish(
+            statistics_.instance_upload_milliseconds);
+        instance_upload_timer_.begin(stream_);
+        std::vector<unsigned char> emissive_instances(
+            instances_host_.size(),
+            0);
+        for (const DEmissiveLight& light :
+             emissive_lights_host_) {
+            if (light.instance_index >= 0 &&
+                static_cast<std::size_t>(
+                    light.instance_index) <
+                    emissive_instances.size()) {
+                emissive_instances[
+                    static_cast<std::size_t>(
+                        light.instance_index)] = 1;
+            }
+        }
+        bool emissive_area_changed = false;
+        for (std::size_t index = 0;
+             index < scene.instances.size();
+             ++index) {
+            const int material_offset =
+                instances_host_[index].material_offset;
+            const DInstance next =
+                pack_instance(
+                    scene.instances[index],
+                    material_offset);
+            emissive_area_changed =
+                emissive_area_changed ||
+                (emissive_instances[index] != 0 &&
+                 instance_surface_metric_changed(
+                     instances_host_[index],
+                     next));
+            instances_host_[index] = next;
+        }
+        statistics_.instance_upload_bytes +=
+            instances_.upload(
+                instances_host_,
+                stream_,
+                statistics_);
+        instance_upload_timer_.end(stream_);
+
+        if (!tlas_nodes_host_.empty()) {
+            tlas_refit_timer_.finish(
+                statistics_.tlas_refit_milliseconds);
+            tlas_refit_timer_.begin(stream_);
+            refit_tlas_kernel<<<1, 1, 0, stream_>>>(
+                tlas_nodes_.get(),
+                static_cast<int>(tlas_nodes_.size()),
+                tlas_primitive_indices_.get(),
+                instances_.get(),
+                static_cast<int>(instances_.size()),
+                nullptr);
+            check_cuda(
+                cudaGetLastError(),
+                "refit_tlas_kernel launch");
+            tlas_refit_timer_.end(stream_);
+            ++statistics_.tlas_refit_count;
+        }
+        if (has_instanced_emissive_candidates_ &&
+            emissive_area_changed) {
+            finalize_instanced_emissive_lights();
+        }
+    }
+
+    void update_instanced_view(const Color& environment) {
+        view_.materials = materials_.get();
+        view_.material_count =
+            static_cast<int>(materials_.size());
+        view_.textures = textures_.get();
+        view_.texture_count =
+            static_cast<int>(textures_.size());
+        view_.texels = texels_.get();
+        view_.spheres = spheres_.get();
+        view_.sphere_material_ids =
+            sphere_material_ids_.get();
+        view_.sphere_count =
+            static_cast<int>(spheres_.size());
+        view_.traversal_triangles =
+            traversal_triangles_.get();
+        view_.shading_triangles =
+            shading_triangles_.get();
+        view_.triangle_material_ids =
+            triangle_material_ids_.get();
+        view_.triangle_count =
+            static_cast<int>(
+                traversal_triangles_.size());
+        view_.bvh_nodes = bvh_nodes_.get();
+        view_.bvh_node_count =
+            static_cast<int>(bvh_nodes_.size());
+        view_.primitive_indices =
+            primitive_indices_.get();
+        view_.point_lights = point_lights_.get();
+        view_.point_light_count =
+            static_cast<int>(point_lights_.size());
+        view_.directional_lights =
+            directional_lights_.get();
+        view_.directional_light_count =
+            static_cast<int>(
+                directional_lights_.size());
+        view_.emissive_lights =
+            emissive_lights_.get();
+        view_.emissive_light_count =
+            static_cast<int>(
+                emissive_lights_.size());
+        view_.sphere_light_indices = nullptr;
+        view_.triangle_light_indices = nullptr;
+        view_.assets = assets_.get();
+        view_.asset_count =
+            static_cast<int>(assets_.size());
+        view_.instances = instances_.get();
+        view_.instance_count =
+            static_cast<int>(instances_.size());
+        view_.tlas_nodes = tlas_nodes_.get();
+        view_.tlas_node_count =
+            static_cast<int>(tlas_nodes_.size());
+        view_.tlas_primitive_indices =
+            tlas_primitive_indices_.get();
+        view_.instanced_mode = 1;
+        view_.environment = to_device(environment);
+    }
+
     void rebuild_emissive_lights(const Scene& scene) {
         emissive_lights_host_.clear();
         const auto material_weight = [](const Material& material) {
@@ -2656,6 +4609,7 @@ private:
             emissive_lights_host_.push_back(DEmissiveLight{
                 0,
                 static_cast<int>(index),
+                -1,
                 material_id,
                 area,
                 0.0f,
@@ -2685,6 +4639,7 @@ private:
             emissive_lights_host_.push_back(DEmissiveLight{
                 1,
                 static_cast<int>(index),
+                -1,
                 material_id,
                 area,
                 0.0f,
@@ -2738,6 +4693,8 @@ private:
     cudaStream_t stream_ = nullptr;
     CudaPathStatistics& statistics_;
     CudaEventTimer upload_timer_;
+    CudaEventTimer instance_upload_timer_;
+    CudaEventTimer tlas_refit_timer_;
     DeviceBuffer<DMaterial> materials_;
     DeviceBuffer<DTexture> textures_;
     DeviceBuffer<DVec3> texels_;
@@ -2753,6 +4710,10 @@ private:
     DeviceBuffer<DEmissiveLight> emissive_lights_;
     DeviceBuffer<int> sphere_light_indices_;
     DeviceBuffer<int> triangle_light_indices_;
+    DeviceBuffer<DAsset> assets_;
+    DeviceBuffer<DInstance> instances_;
+    DeviceBuffer<DBvh4Node> tlas_nodes_;
+    DeviceBuffer<int> tlas_primitive_indices_;
     std::vector<DMaterial> materials_host_;
     std::vector<DTexture> textures_host_;
     std::vector<DVec3> texels_host_;
@@ -2768,6 +4729,15 @@ private:
     std::vector<DEmissiveLight> emissive_lights_host_;
     std::vector<int> sphere_light_indices_host_;
     std::vector<int> triangle_light_indices_host_;
+    std::vector<DAsset> assets_host_;
+    std::vector<DInstance> instances_host_;
+    std::vector<int> asset_texture_bases_host_;
+    std::vector<std::uint64_t> asset_ids_host_;
+    std::vector<const Scene*> asset_scenes_host_;
+    std::vector<DBvh4Node> tlas_nodes_host_;
+    std::vector<int> tlas_primitive_indices_host_;
+    bool has_instanced_emissive_candidates_ = false;
+    bool instanced_assets_initialized_ = false;
     DScene view_{};
 };
 
@@ -3727,6 +5697,14 @@ private:
             throw std::runtime_error(
                 "CUDA BVH4 traversal stack overflow");
         }
+        if (error == 6) {
+            throw std::runtime_error(
+                "CUDA TLAS traversal stack overflow");
+        }
+        if (error == 7) {
+            throw std::runtime_error(
+                "CUDA instance or TLAS index is invalid");
+        }
         throw std::runtime_error("CUDA wavefront queue count is invalid");
     }
 
@@ -3815,14 +5793,21 @@ public:
         : frame_(statistics_),
           preview_frame_(statistics_, frame_.stream()) {}
 
-    void reset(const Scene& scene, const RenderSettings& settings) {
-        if (!scene_) {
+    void reset(
+        const Scene& scene,
+        const RenderSettings& settings,
+        const InstancedSceneView* instanced_scene) {
+        scene_is_instanced_ = instanced_scene != nullptr;
+        if (instanced_scene) {
+            scene_ = std::make_unique<CudaSceneStorage>(
+                *instanced_scene,
+                frame_.stream(),
+                statistics_);
+        } else {
             scene_ = std::make_unique<CudaSceneStorage>(
                 scene,
                 frame_.stream(),
                 statistics_);
-        } else {
-            scene_->sync(scene, SceneChange::All);
         }
         frame_.reset(
             settings.width,
@@ -3840,8 +5825,15 @@ public:
         const Camera& camera,
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state,
-        Framebuffer& target) {
-        render_next_frame_to_surface(scene, camera, settings, frame_state, 0);
+        Framebuffer& target,
+        const InstancedSceneView* instanced_scene) {
+        render_next_frame_to_surface(
+            scene,
+            camera,
+            settings,
+            frame_state,
+            0,
+            instanced_scene);
         download_current_frame(target);
     }
 
@@ -3850,14 +5842,30 @@ public:
         const Camera& camera,
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state,
-        CudaSurfaceHandle surface) {
-        if (!scene_) {
-            scene_ = std::make_unique<CudaSceneStorage>(
-                scene,
-                frame_.stream(),
-                statistics_);
+        CudaSurfaceHandle surface,
+        const InstancedSceneView* instanced_scene) {
+        const bool wants_instanced = instanced_scene != nullptr;
+        if (!scene_ || wants_instanced != scene_is_instanced_) {
+            scene_is_instanced_ = wants_instanced;
+            scene_ = instanced_scene
+                ? std::make_unique<CudaSceneStorage>(
+                    *instanced_scene,
+                    frame_.stream(),
+                    statistics_)
+                : std::make_unique<CudaSceneStorage>(
+                    scene,
+                    frame_.stream(),
+                    statistics_);
         } else if (frame_state.scene_changes != SceneChange::None) {
-            scene_->sync(scene, frame_state.scene_changes);
+            if (instanced_scene) {
+                scene_->sync(
+                    *instanced_scene,
+                    frame_state.scene_changes);
+            } else {
+                scene_->sync(
+                    scene,
+                    frame_state.scene_changes);
+            }
         }
         const bool reset_accumulation =
             frame_.width() != settings.width ||
@@ -4305,6 +6313,7 @@ private:
     bool native_sweep_published_this_frame_ = false;
     bool host_presentation_initialized_ = false;
     bool automatic_quality_enabled_ = false;
+    bool scene_is_instanced_ = false;
     CudaPathWorkMode last_work_mode_ = CudaPathWorkMode::FullFrame;
     std::chrono::steady_clock::time_point sweep_started_{};
 };
@@ -4315,8 +6324,11 @@ CudaPathInteractiveRenderer::~CudaPathInteractiveRenderer() = default;
 CudaPathInteractiveRenderer::CudaPathInteractiveRenderer(CudaPathInteractiveRenderer&&) noexcept = default;
 CudaPathInteractiveRenderer& CudaPathInteractiveRenderer::operator=(CudaPathInteractiveRenderer&&) noexcept = default;
 
-void CudaPathInteractiveRenderer::reset(const Scene& scene, const RenderSettings& settings) {
-    impl_->reset(scene, settings);
+void CudaPathInteractiveRenderer::reset(
+    const Scene& scene,
+    const RenderSettings& settings,
+    const InstancedSceneView* instanced_scene) {
+    impl_->reset(scene, settings, instanced_scene);
 }
 
 void CudaPathInteractiveRenderer::render_next_frame(
@@ -4324,8 +6336,15 @@ void CudaPathInteractiveRenderer::render_next_frame(
     const Camera& camera,
     const RenderSettings& settings,
     const InteractiveFrameState& frame_state,
-    Framebuffer& target) {
-    impl_->render_next_frame(scene, camera, settings, frame_state, target);
+    Framebuffer& target,
+    const InstancedSceneView* instanced_scene) {
+    impl_->render_next_frame(
+        scene,
+        camera,
+        settings,
+        frame_state,
+        target,
+        instanced_scene);
 }
 
 void CudaPathInteractiveRenderer::render_next_frame_to_surface(
@@ -4333,11 +6352,18 @@ void CudaPathInteractiveRenderer::render_next_frame_to_surface(
     const Camera& camera,
     const RenderSettings& settings,
     const InteractiveFrameState& frame_state,
-    CudaSurfaceHandle surface) {
+    CudaSurfaceHandle surface,
+    const InstancedSceneView* instanced_scene) {
     if (surface == 0) {
         throw std::invalid_argument("CUDA surface output requires a non-zero surface handle");
     }
-    impl_->render_next_frame_to_surface(scene, camera, settings, frame_state, surface);
+    impl_->render_next_frame_to_surface(
+        scene,
+        camera,
+        settings,
+        frame_state,
+        surface,
+        instanced_scene);
 }
 
 void CudaPathInteractiveRenderer::download_current_frame(Framebuffer& target) {

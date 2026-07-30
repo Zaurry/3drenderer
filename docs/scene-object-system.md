@@ -1,6 +1,9 @@
 # 场景对象系统
 
-Viewer 编辑的是 `SceneDocument`，渲染后端消费扁平的 `Scene`。二者分离，使对象层级、身份、历史记录和文件语义不侵入 CPU/CUDA/OpenGL 的热路径。
+Viewer 编辑的是 `SceneDocument`。CPU Path 与 OpenGL 继续消费延迟生成的扁平
+`Scene`；CUDA Path Viewer 直接消费缓存的 `InstancedSceneView`。二者分离，使对象
+层级、身份、历史记录和文件语义不侵入 CPU/OpenGL，同时避免 CUDA 拖动时展开
+数百万三角形。
 
 ## 数据流
 
@@ -14,13 +17,15 @@ SceneDocument
   +-- file/session state
           |
           v
-  rebuild_render_scene()
-          |
-          v
-        Scene
-      /       \
- OpenGL       Path
-           CPU / CUDA
+      /                         \
+     v                           v
+rebuild_render_scene()    instanced_render_scene()
+  (lazy)                    (cached metadata)
+     |                           |
+     v                           v
+   Scene                  asset BLAS + instance TLAS
+  /     \                         |
+OpenGL  CPU Path               CUDA Path
 ```
 
 ## 对象身份与层级
@@ -55,7 +60,7 @@ override 以对象和 material slot 为粒度。生成扁平 `Scene` 时：
 | 相机、选择、命名、locked | `None` |
 | 环境色、点光源、方向光 | `Lighting` |
 | 材质 override | `Materials | MaterialBindings` |
-| mesh/group transform | `Geometry`，若包含 light 还包括 `Lighting` |
+| mesh/group transform | `InstanceTransforms`，若包含 light 还包括 `Lighting` |
 | visible 改变 | 对受影响子树按拓扑分类 |
 | 导入、删除、复制、reparent、undo/redo | `All` |
 
@@ -81,6 +86,7 @@ override 以对象和 material slot 为粒度。生成扁平 `Scene` 时：
 
 - OpenGL backend 根据 `SceneChangeSet` 更新 GL 资源。
 - CPU Path 使用扁平 `Scene` 与 `SceneIntersector`。
-- CUDA Path 将 `Scene` 拆成独立 device buffers，并按变更类别同步。
+- CUDA Path Viewer 使用 asset-local BLAS 与 instance TLAS；只有切换到 CPU/OpenGL
+  或真正需要扁平数据时才延迟生成 `Scene`。
 
 这个边界允许后续增加新的对象组件或渲染后端，而不要求修改显示层或破坏现有对象身份。

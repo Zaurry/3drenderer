@@ -75,8 +75,25 @@ int main(int argc, char** argv) {
         if (std::filesystem::exists(floor)) {
             document.import_path(floor, kWidth, kHeight);
         }
-        document.import_path(source_root / test.asset, kWidth, kHeight);
-        const renderer::Scene& scene = document.render_scene();
+        const std::vector<renderer::ObjectId> imported =
+            document.import_path(
+                source_root / test.asset,
+                kWidth,
+                kHeight);
+        if (imported.empty()) {
+            throw std::runtime_error("benchmark asset did not create an instance");
+        }
+        const renderer::ObjectId moved_object = imported.front();
+        const renderer::Mat4 initial_world =
+            document.world_matrix(moved_object);
+        renderer::Scene scene_placeholder;
+        std::size_t triangle_count = 0;
+        for (const renderer::InstancedSceneAssetView& asset :
+             document.instanced_render_scene().assets) {
+            triangle_count += asset.local_scene
+                ? asset.local_scene->triangles.size()
+                : 0;
+        }
 
         renderer::RenderSettings settings;
         settings.width = kWidth;
@@ -91,7 +108,10 @@ int main(int argc, char** argv) {
             static_cast<float>(kWidth) / static_cast<float>(kHeight));
 
         renderer::CudaPathInteractiveRenderer renderer;
-        renderer.reset(scene, settings);
+        renderer.reset(
+            scene_placeholder,
+            settings,
+            &document.instanced_render_scene());
         renderer::Framebuffer framebuffer(kWidth, kHeight);
         renderer::InteractiveFrameState frame_state;
         frame_state.automatic_interaction_quality = automatic;
@@ -99,15 +119,32 @@ int main(int argc, char** argv) {
         trace_milliseconds.reserve(static_cast<std::size_t>(iterations));
 
         for (int iteration = 0; iteration < iterations; ++iteration) {
+            frame_state.scene_changes =
+                renderer::SceneChange::None;
             frame_state.camera_changed =
                 work_mode == "interaction" || iteration == 0;
+            if (work_mode == "drag") {
+                renderer::Mat4 moved = initial_world;
+                moved(0, 3) +=
+                    0.01f * static_cast<float>(iteration + 1);
+                if (!document.set_world_matrix(
+                        moved_object,
+                        moved)) {
+                    throw std::runtime_error(
+                        "failed to move benchmark instance");
+                }
+                frame_state.scene_changes =
+                    renderer::SceneChange::InstanceTransforms;
+                frame_state.camera_changed = false;
+            }
             const auto wall_start = std::chrono::steady_clock::now();
             renderer.render_next_frame(
-                scene,
+                scene_placeholder,
                 camera,
                 settings,
                 frame_state,
-                framebuffer);
+                framebuffer,
+                &document.instanced_render_scene());
             const auto wall_end = std::chrono::steady_clock::now();
             const renderer::CudaPathStatistics& statistics =
                 renderer.statistics();
@@ -130,6 +167,14 @@ int main(int argc, char** argv) {
                 << (statistics.presentation_updated ? 1 : 0)
                 << " present_ms="
                 << statistics.presentation_milliseconds
+                << " instance_ms="
+                << statistics.instance_upload_milliseconds
+                << " tlas_refit_ms="
+                << statistics.tlas_refit_milliseconds
+                << " blas_builds="
+                << statistics.blas_build_count
+                << " tlas_refits="
+                << statistics.tlas_refit_count
                 << '\n';
         }
 
@@ -137,7 +182,7 @@ int main(int argc, char** argv) {
             << std::fixed << std::setprecision(3)
             << "case=" << test.name
             << " size=" << kWidth << 'x' << kHeight
-            << " triangles=" << scene.triangles.size()
+            << " triangles=" << triangle_count
             << " median_trace_ms=" << median(trace_milliseconds)
             << " upload_ms=" << renderer.statistics().upload_milliseconds
             << " downloads=" << renderer.statistics().framebuffer_downloads

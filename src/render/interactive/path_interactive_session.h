@@ -4,6 +4,7 @@
 #include "render/interactive/interactive_render_session.h"
 #include "render/pathtracer/pathtracer_renderer.h"
 #include "render/pathtracer/cuda_pathtracer.h"
+#include "scene/instanced_scene.h"
 
 #include <memory>
 #include <vector>
@@ -24,7 +25,19 @@ public:
         const Camera& camera,
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state,
-        CudaSurfaceHandle surface);
+        CudaSurfaceHandle surface,
+        const InstancedSceneView* instanced_scene = nullptr);
+    void reset_instanced(
+        const Scene& scene,
+        const RenderSettings& settings,
+        const InstancedSceneView& instanced_scene);
+    void render_next_frame_instanced(
+        const Scene& scene,
+        const InstancedSceneView& instanced_scene,
+        const Camera& camera,
+        const RenderSettings& settings,
+        const InteractiveFrameState& frame_state,
+        Framebuffer& target);
     void download_current_cuda_frame(Framebuffer& target);
 
     int accumulated_samples() const;
