@@ -83,6 +83,105 @@ ImU32 marker_face_color(const Color& color, float shade) {
         ImVec4(shaded.x(), shaded.y(), shaded.z(), 0.88f));
 }
 
+std::optional<Vec3> directional_light_world_direction(
+    const SceneDocument& document,
+    ObjectId id) {
+    const SceneObject* object = document.find(id);
+    if (!object || object->type != SceneObjectType::DirectionalLight) {
+        return std::nullopt;
+    }
+    const Vec3 direction =
+        document.world_matrix(id).topLeftCorner<3, 3>() *
+        Vec3(0.0f, 0.0f, -1.0f);
+    if (!direction.allFinite() || direction.squaredNorm() <= 1.0e-10f) {
+        return std::nullopt;
+    }
+    return direction.normalized();
+}
+
+void draw_outlined_arrow(
+    ImDrawList* draw_list,
+    const ImVec2& start,
+    const ImVec2& end,
+    ImU32 color,
+    float thickness,
+    float head_length) {
+    const ImVec2 delta(end.x - start.x, end.y - start.y);
+    const float length = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+    if (!std::isfinite(length) || length <= head_length + 1.0f) {
+        return;
+    }
+    const ImVec2 forward(delta.x / length, delta.y / length);
+    const ImVec2 side(-forward.y, forward.x);
+    const ImVec2 head_base(
+        end.x - forward.x * head_length,
+        end.y - forward.y * head_length);
+    const float head_half_width = head_length * 0.48f;
+    const ImVec2 left(
+        head_base.x + side.x * head_half_width,
+        head_base.y + side.y * head_half_width);
+    const ImVec2 right(
+        head_base.x - side.x * head_half_width,
+        head_base.y - side.y * head_half_width);
+    constexpr ImU32 outline = IM_COL32(12, 12, 12, 245);
+    draw_list->AddLine(start, head_base, outline, thickness + 4.0f);
+    draw_list->AddTriangleFilled(end, left, right, outline);
+    draw_list->AddLine(start, head_base, color, thickness);
+    const ImVec2 inner_left(
+        end.x + (left.x - end.x) * 0.72f,
+        end.y + (left.y - end.y) * 0.72f);
+    const ImVec2 inner_right(
+        end.x + (right.x - end.x) * 0.72f,
+        end.y + (right.y - end.y) * 0.72f);
+    draw_list->AddTriangleFilled(end, inner_left, inner_right, color);
+}
+
+void draw_direction_label(
+    ImDrawList* draw_list,
+    const ImVec2& anchor,
+    const ImVec2& display_origin,
+    const ImVec2& display_size,
+    const char* text) {
+    const ImVec2 text_size = ImGui::CalcTextSize(text);
+    const ImVec2 padding(8.0f, 5.0f);
+    ImVec2 minimum(anchor.x + 10.0f, anchor.y + 10.0f);
+    const float maximum_x = std::max(
+        display_origin.x + 6.0f,
+        display_origin.x + display_size.x -
+            text_size.x - padding.x * 2.0f - 6.0f);
+    const float maximum_y = std::max(
+        display_origin.y + 6.0f,
+        display_origin.y + display_size.y -
+            text_size.y - padding.y * 2.0f - 6.0f);
+    minimum.x = std::clamp(
+        minimum.x,
+        display_origin.x + 6.0f,
+        maximum_x);
+    minimum.y = std::clamp(
+        minimum.y,
+        display_origin.y + 6.0f,
+        maximum_y);
+    const ImVec2 maximum(
+        minimum.x + text_size.x + padding.x * 2.0f,
+        minimum.y + text_size.y + padding.y * 2.0f);
+    draw_list->AddRectFilled(
+        minimum,
+        maximum,
+        IM_COL32(18, 18, 22, 220),
+        5.0f);
+    draw_list->AddRect(
+        minimum,
+        maximum,
+        IM_COL32(255, 202, 74, 245),
+        5.0f,
+        0,
+        1.5f);
+    draw_list->AddText(
+        ImVec2(minimum.x + padding.x, minimum.y + padding.y),
+        IM_COL32(255, 239, 194, 255),
+        text);
+}
+
 const char* backend_label(PathBackend backend) {
     switch (backend) {
         case PathBackend::Auto:
@@ -988,6 +1087,23 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 }
                 ImGui::EndDisabled();
 
+                if (active->type == SceneObjectType::DirectionalLight) {
+                    ImGui::SeparatorText("Direction");
+                    const auto direction =
+                        directional_light_world_direction(document, active->id);
+                    if (direction) {
+                        ImGui::Text(
+                            "World  X %.3f   Y %.3f   Z %.3f",
+                            direction->x(),
+                            direction->y(),
+                            direction->z());
+                    } else {
+                        ImGui::TextDisabled("World direction unavailable");
+                    }
+                    ImGui::TextWrapped(
+                        "The yellow scene arrows show the direction the light rays travel.");
+                }
+
                 if (active->type == SceneObjectType::Mesh) {
                     const SceneMeshAsset* asset = document.asset_for_object(active->id);
                     if (asset && !asset->local_scene.materials.empty()) {
@@ -1489,6 +1605,195 @@ void ViewerUi::draw_point_light_markers(
             draw_list->AddLine(start, end, bright_outline, 1.25f);
         }
     }
+}
+
+void ViewerUi::draw_directional_light_indicator(
+    const ViewerUiState& state,
+    const SceneDocument& document,
+    const Camera& camera,
+    const Bounds3& bounds) const {
+    if (!is_object_selected(state, state.active_object)) {
+        return;
+    }
+    const SceneObject* active = document.find(state.active_object);
+    const auto direction =
+        directional_light_world_direction(document, state.active_object);
+    if (!active || !active->visible || !direction) {
+        return;
+    }
+
+    ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+    const ImVec2 display_size = main_viewport->Size;
+    const ImVec2 display_origin = main_viewport->Pos;
+    if (!std::isfinite(display_size.x) || !std::isfinite(display_size.y) ||
+        display_size.x <= 0.0f || display_size.y <= 0.0f) {
+        return;
+    }
+    ImVec2 label_region_origin = display_origin;
+    ImVec2 label_region_size = display_size;
+    if (const ImGuiDockNode* central_node =
+            ImGui::DockBuilderGetCentralNode(ImHashStr("RendererDockSpace"));
+        central_node &&
+        central_node->Size.x > 0.0f &&
+        central_node->Size.y > 0.0f) {
+        label_region_origin = central_node->Pos;
+        label_region_size = central_node->Size;
+    }
+
+    const Vec3 center = (bounds.min + bounds.max) * 0.5f;
+    if (!center.allFinite()) {
+        return;
+    }
+    const auto projected_center =
+        project_to_screen(center, camera, display_size, display_origin);
+    if (!projected_center) {
+        return;
+    }
+
+    const float radius = scene_radius(bounds);
+    const float half_length = radius * 0.72f;
+    Vec3 side = camera.right() -
+        direction.value() * camera.right().dot(direction.value());
+    if (!side.allFinite() || side.squaredNorm() <= 1.0e-8f) {
+        side = camera.up() -
+            direction.value() * camera.up().dot(direction.value());
+    }
+    if (side.allFinite() && side.squaredNorm() > 1.0e-8f) {
+        side.normalize();
+    } else {
+        side = Vec3::Zero();
+    }
+
+    const Color light_tint = normalized_marker_color(active->light_color);
+    const Color warm_tint =
+        (light_tint * 0.55f + Color(1.0f, 0.63f, 0.08f) * 0.45f)
+            .cwiseMin(1.0f);
+    const ImU32 color = ImGui::ColorConvertFloat4ToU32(
+        ImVec4(warm_tint.x(), warm_tint.y(), warm_tint.z(), 1.0f));
+    ImDrawList* draw_list = ImGui::GetBackgroundDrawList(main_viewport);
+
+    bool drew_planar_arrow = false;
+    ImVec2 label_anchor = projected_center->screen;
+    constexpr std::array<float, 3> ray_offsets{-1.0f, 0.0f, 1.0f};
+    for (float ray_offset : ray_offsets) {
+        const Vec3 offset = side * (ray_offset * radius * 0.075f);
+        const auto start = project_to_screen(
+            center - direction.value() * half_length + offset,
+            camera,
+            display_size,
+            display_origin);
+        const auto end = project_to_screen(
+            center + direction.value() * half_length + offset,
+            camera,
+            display_size,
+            display_origin);
+        if (!start || !end) {
+            continue;
+        }
+        const float screen_dx = end->screen.x - start->screen.x;
+        const float screen_dy = end->screen.y - start->screen.y;
+        const float screen_length =
+            std::sqrt(screen_dx * screen_dx + screen_dy * screen_dy);
+        if (!std::isfinite(screen_length) || screen_length < 42.0f) {
+            continue;
+        }
+        const bool center_ray = ray_offset == 0.0f;
+        draw_outlined_arrow(
+            draw_list,
+            start->screen,
+            end->screen,
+            color,
+            center_ray ? 4.0f : 2.0f,
+            center_ray ? 19.0f : 13.0f);
+        if (center_ray) {
+            label_anchor = ImVec2(
+                start->screen.x + screen_dx * 0.58f,
+                start->screen.y + screen_dy * 0.58f);
+            draw_list->AddCircleFilled(
+                start->screen,
+                9.0f,
+                IM_COL32(12, 12, 12, 245));
+            draw_list->AddCircleFilled(start->screen, 6.0f, color);
+            constexpr float two_pi = 6.28318530717958647692f;
+            for (int spoke = 0; spoke < 8; ++spoke) {
+                const float angle =
+                    static_cast<float>(spoke) * (two_pi / 8.0f);
+                const ImVec2 spoke_start(
+                    start->screen.x + std::cos(angle) * 10.5f,
+                    start->screen.y + std::sin(angle) * 10.5f);
+                const ImVec2 spoke_end(
+                    start->screen.x + std::cos(angle) * 15.0f,
+                    start->screen.y + std::sin(angle) * 15.0f);
+                draw_list->AddLine(
+                    spoke_start,
+                    spoke_end,
+                    IM_COL32(12, 12, 12, 245),
+                    4.5f);
+                draw_list->AddLine(spoke_start, spoke_end, color, 2.0f);
+            }
+        }
+        drew_planar_arrow = true;
+    }
+
+    const float view_depth = direction->dot(camera.forward());
+    const char* label = "LIGHT TRAVELS THIS WAY";
+    if (view_depth > 0.35f) {
+        label = "LIGHT TRAVELS INTO SCENE";
+    } else if (view_depth < -0.35f) {
+        label = "LIGHT TRAVELS TOWARD CAMERA";
+    }
+
+    if (!drew_planar_arrow) {
+        constexpr float symbol_radius = 22.0f;
+        draw_list->AddCircleFilled(
+            projected_center->screen,
+            symbol_radius + 3.0f,
+            IM_COL32(12, 12, 12, 235));
+        draw_list->AddCircle(
+            projected_center->screen,
+            symbol_radius,
+            color,
+            0,
+            4.0f);
+        if (view_depth >= 0.0f) {
+            const float arm = symbol_radius * 0.55f;
+            draw_list->AddLine(
+                ImVec2(
+                    projected_center->screen.x - arm,
+                    projected_center->screen.y - arm),
+                ImVec2(
+                    projected_center->screen.x + arm,
+                    projected_center->screen.y + arm),
+                color,
+                4.0f);
+            draw_list->AddLine(
+                ImVec2(
+                    projected_center->screen.x - arm,
+                    projected_center->screen.y + arm),
+                ImVec2(
+                    projected_center->screen.x + arm,
+                    projected_center->screen.y - arm),
+                color,
+                4.0f);
+            label = "LIGHT TRAVELS INTO SCENE";
+        } else {
+            draw_list->AddCircleFilled(
+                projected_center->screen,
+                7.0f,
+                color);
+            label = "LIGHT TRAVELS TOWARD CAMERA";
+        }
+        label_anchor = ImVec2(
+            projected_center->screen.x + symbol_radius,
+            projected_center->screen.y);
+    }
+
+    draw_direction_label(
+        draw_list,
+        label_anchor,
+        label_region_origin,
+        label_region_size,
+        label);
 }
 
 }  // namespace renderer

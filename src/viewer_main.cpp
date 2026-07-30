@@ -1009,6 +1009,11 @@ int main(int argc, char** argv) {
                 ui_state,
                 viewer_scene.document,
                 camera);
+            viewer_ui.draw_directional_light_indicator(
+                ui_state,
+                viewer_scene.document,
+                camera,
+                viewer_scene.bounds);
             viewer_ui.draw_point_light_markers(
                 ui_state,
                 viewer_scene.document,

@@ -126,6 +126,12 @@ public:
         const ViewerUiState& state,
         const SceneDocument& document,
         const Camera& camera) const;
+
+    void draw_directional_light_indicator(
+        const ViewerUiState& state,
+        const SceneDocument& document,
+        const Camera& camera,
+        const Bounds3& scene_bounds) const;
 };
 
 }  // namespace renderer
