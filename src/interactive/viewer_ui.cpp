@@ -510,11 +510,17 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         if (cuda_statistics.work_mode ==
                             CudaPathWorkMode::NativeTile) {
                             ImGui::Text(
-                                "Sweep %.1f%%  |  tile y=%d rows=%d  |  %.3f complete spp/s",
+                                "Sweep %.1f%%  |  y=%d quantum rows=%d  |  %.3f complete spp/s",
                                 cuda_statistics.sweep_progress * 100.0f,
                                 cuda_statistics.tile_y,
                                 cuda_statistics.tile_rows,
                                 cuda_statistics.complete_sweeps_per_second);
+                            ImGui::Text(
+                                "Published this frame: %s  |  resolve %.3f ms",
+                                cuda_statistics.presentation_updated
+                                    ? "yes"
+                                    : "no",
+                                cuda_statistics.presentation_milliseconds);
                         }
                         if (cuda_statistics.traversal_milliseconds > 0.0f ||
                             cuda_statistics.sort_milliseconds > 0.0f) {

@@ -1041,6 +1041,10 @@ int main(int argc, char** argv) {
             std::cout << " interop="
                       << final_statistics.interop_status;
             std::cout << " trace_ms=" << final_statistics.cuda.trace_milliseconds
+                      << " present_ms="
+                      << final_statistics.cuda.presentation_milliseconds
+                      << " published="
+                      << (final_statistics.cuda.presentation_updated ? 1 : 0)
                       << " upload_ms=" << final_statistics.cuda.upload_milliseconds
                       << " allocations="
                       << final_statistics.cuda.allocation_generation

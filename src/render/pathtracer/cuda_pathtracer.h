@@ -37,8 +37,10 @@ struct CudaPathStatistics {
     int tile_rows = 0;
     float sweep_progress = 0.0f;
     float complete_sweeps_per_second = 0.0f;
+    float presentation_milliseconds = 0.0f;
     float traversal_milliseconds = 0.0f;
     float sort_milliseconds = 0.0f;
+    bool presentation_updated = false;
     bool interop_active = false;
     bool fallback_active = false;
 };

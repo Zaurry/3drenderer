@@ -15,11 +15,13 @@
 
 | 场景 | 旧基线 | 当前 | 相对耗时 | 加速 |
 | --- | ---: | ---: | ---: | ---: |
-| Sponza | 217.69 ms | 51.411 ms | 23.62% | 4.23× |
-| San Miguel Low Poly | 492.35 ms | 89.731 ms | 18.23% | 5.49× |
+| Sponza | 217.69 ms | 52.976 ms | 24.34% | 4.11× |
+| San Miguel Low Poly | 492.35 ms | 93.000 ms | 18.89% | 5.29× |
 
 两项均通过 55 ms / 125 ms 目标。基准同时导入保存场景中的 floor，因此
 实际测试三角形数分别为 66,452 和 5,617,453，不低于只统计主 OBJ 的数量。
+相对上一版单 tile 调度的 51.411 / 89.731 ms，全帧基准分别回退 3.04% /
+3.64%，仍在 5% 上限内。
 
 ## 固定相机
 
@@ -40,8 +42,8 @@ cmake --build --preset cuda-release --target cuda_path_benchmark
 
 五次 trace：
 
-- Sponza：51.126、51.454、51.411、51.517、51.124 ms。
-- San Miguel：90.694、88.749、91.070、89.731、88.693 ms。
+- Sponza：53.796、52.690、52.976、52.853、53.543 ms。
+- San Miguel：94.610、93.000、94.543、92.333、91.941 ms。
 
 ## GPU 遍历
 
@@ -96,30 +98,51 @@ framebuffer 下载；interop 路径没有这次下载。
 
 - 恢复 64 bounce 和现有 Russian roulette。
 - accumulation 与 RNG 保持完整原生尺寸。
-- Wavefront arena 按最多 64 行容量分配和捕获 graph。
-- 初始 tile 为 32 行；超过 10 ms 减半，低于 4 ms 连续 8 tile 后加倍，
-  范围 1–64 行。
-- 每次 Viewer 循环只渲染一个 tile，完整 sweep 后才增加 1 spp。
-- interop texture 保持用户输出尺寸；预览先铺满 surface，原生 tile 逐块覆盖。
+- Wavefront arena 只按最多 128 行分配和捕获 graph；总 quantum 为 1–512 行，
+  超过 arena 容量时在同一帧、同一 stream 内拆成连续 graph launch。
+- 百万级三角形初始为 32 行，其余为 64 行。每行成本使用
+  `0.75 × 旧 EMA + 0.25 × 本次毫秒/行`，尾部不足标准批量时不更新 EMA。
+- 下一批限制为上一批的 0.5–2 倍。实测 10/12 ms 控制器无法让 San Miguel
+  达到完整 sweep/s 至少 2 倍，因此生产参数采用约 12 ms 目标、15 ms 硬限制；
+  百万级三角形额外限制到 80 行，避免偶发长批次破坏 UI 延迟。
+- 部分 quantum 仅更新 accumulation/RNG，不写 interop surface。完整 sweep
+  结束时才增加 1 spp，并用一次全屏 resolve 发布统一样本数的结果；下一轮
+  sweep 期间继续显示上一张完整结果。
+- fallback 在部分 sweep 中既不下载也不覆盖 framebuffer；只有预览和完整
+  sweep 发布才下载。如果 interop 中途失败且 host 尚无原生帧，则恢复最后
+  一张完整预览。
 
-保存的 San Miguel session 隐藏运行 18 秒后正常关闭：
+2418×1343 静止阶段测量：
+
+| 场景 | 稳态 quantum | UI 帧/sweep | 60 Hz 完整 spp/s | 对旧 32 行调度 | quantum wall 中位数 | P95 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Sponza | 128 行 | 11 | 5.455 | 3.82× | 9.131 ms | 9.732 ms |
+| San Miguel Low Poly | 约 70–80 行 | 19–20 | 3.077 | 2.15× | 11.116 ms | 15.766 ms |
+
+San Miguel 的 P95 高于计划中的 12 ms，但 UI wall P95 仍低于 20 ms，且满足
+完整 sweep/s 至少 2 倍；严格收紧到 12 ms 会使批量稳定在约 50–60 行并失去
+吞吐验收。单次观测最大值为 17.859 ms，超过硬限制后下一批会立即减半。
+
+当前 interop smoke：
 
 ```text
-viewer mode=path frames=1284 size=2418x1343
-interop=active trace_ms=5.44093 downloads=0
+viewer mode=path frames=300 size=960x540
+interop=active trace_ms=0.2072 present_ms=0.01824 published=1 downloads=0
 ```
 
-该运行包含约 3.2 秒场景上传，整体循环仍超过 60 FPS；稳定渲染阶段余量更高。
+该结果确认完整 sweep 使用全屏 resolve 发布，且 interop 路径保持零下载。
 
 ## 验证
 
 新增合约覆盖：
 
 - 自动交互预览不增加完整 spp。
-- 8 个静止帧后进入 native tile。
-- fallback 只下载刚完成的 tile，未覆盖区域继续保留预览背景。
-- tile sweep 完成后才增加 1 spp。
-- tile 与 full-frame 在同 seed 下输出一致。
+- 自动质量首次启用时即使相机未变化，也会先生成一张完整预览。
+- 8 个静止帧后进入 native quantum。
+- 部分 sweep 不改变 host framebuffer，也不增加 framebuffer 下载次数。
+- 相机在 sweep 中途变化时丢弃旧 sweep，并立即恢复完整预览。
+- sweep 完成后才增加 1 spp，并且只发生一次整帧下载/发布。
+- 分块 sweep 与 full-frame 在同 seed 下逐像素一致。
 - session 中自动交互质量开关 round-trip。
 
 验证命令：

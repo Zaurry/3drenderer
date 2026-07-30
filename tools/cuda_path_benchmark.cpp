@@ -122,8 +122,14 @@ int main(int argc, char** argv) {
                 << " spp=" << renderer.accumulated_samples()
                 << " internal=" << statistics.internal_width
                 << 'x' << statistics.internal_height
-                << " tile_rows=" << statistics.tile_rows
+                << " quantum_rows=" << statistics.tile_rows
                 << " sweep=" << statistics.sweep_progress
+                << " complete_spp_s="
+                << statistics.complete_sweeps_per_second
+                << " published="
+                << (statistics.presentation_updated ? 1 : 0)
+                << " present_ms="
+                << statistics.presentation_milliseconds
                 << '\n';
         }
 

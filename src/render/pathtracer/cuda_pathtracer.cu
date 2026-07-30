@@ -2113,6 +2113,31 @@ __global__ void resolve_frame_kernel(
         : v3(0.0f, 0.0f, 0.0f);
 }
 
+__global__ void present_frame_kernel(
+    const DVec3* accumulation,
+    int width,
+    int height,
+    int sample_count,
+    cudaSurfaceObject_t output_surface) {
+    const int pixel_count = width * height;
+    const int first = blockIdx.x * blockDim.x + threadIdx.x;
+    const int stride = blockDim.x * gridDim.x;
+    for (int index = first; index < pixel_count; index += stride) {
+        const DVec3 color = sample_count > 0
+            ? divv(
+                accumulation[index],
+                static_cast<float>(sample_count))
+            : v3(0.0f, 0.0f, 0.0f);
+        const float4 output =
+            make_float4(color.x, color.y, color.z, 1.0f);
+        surf2Dwrite(
+            output,
+            output_surface,
+            (index % width) * static_cast<int>(sizeof(float4)),
+            index / width);
+    }
+}
+
 template <typename T>
 class DeviceBuffer {
 public:
@@ -2869,11 +2894,97 @@ public:
             output_width,
             output_height,
             output_surface,
-            false);
+            false,
+            true);
+    }
+
+    void render_region_quantum(
+        const DScene& scene,
+        const Camera& camera,
+        int pixel_offset,
+        int pixel_count,
+        int max_bounces,
+        int output_width,
+        int output_height) {
+        if (pixel_count <= 0) {
+            throw std::invalid_argument(
+                "CUDA wavefront quantum must contain pixels");
+        }
+        const int chunk_capacity = static_cast<int>(
+            std::min<std::size_t>(
+                wavefront_capacity_pixels_,
+                static_cast<std::size_t>(INT_MAX)));
+        if (chunk_capacity <= 0) {
+            throw std::logic_error(
+                "CUDA wavefront quantum arena is empty");
+        }
+        update_trace_timing();
+        const bool record_timing = !trace_timer_.pending();
+        if (record_timing) {
+            trace_timer_.begin(stream_);
+        }
+        int submitted = 0;
+        while (submitted < pixel_count) {
+            const int chunk =
+                std::min(chunk_capacity, pixel_count - submitted);
+            render_work(
+                scene,
+                camera,
+                1,
+                pixel_offset + submitted,
+                chunk,
+                max_bounces,
+                output_width,
+                output_height,
+                0,
+                false,
+                false);
+            submitted += chunk;
+        }
+        if (record_timing) {
+            trace_timer_.end(stream_);
+        }
     }
 
     void complete_sample() {
         ++samples_;
+    }
+
+    void present_surface(cudaSurfaceObject_t output_surface) {
+        if (output_surface == 0) {
+            throw std::invalid_argument(
+                "CUDA frame presentation requires a surface");
+        }
+        if (samples_ <= 0) {
+            throw std::logic_error(
+                "CUDA frame presentation requires a completed sample");
+        }
+        update_presentation_timing();
+        const bool record_timing = !presentation_timer_.pending();
+        if (record_timing) {
+            presentation_timer_.begin(stream_);
+        }
+        const int pixel_count =
+            static_cast<int>(accumulation_.size());
+        const int capacity_blocks =
+            (pixel_count + kThreadsPerBlock - 1) / kThreadsPerBlock;
+        const int block_count = occupancy_grid_size(
+            reinterpret_cast<void*>(present_frame_kernel),
+            capacity_blocks);
+        present_frame_kernel<<<
+            block_count,
+            kThreadsPerBlock,
+            0,
+            stream_>>>(
+                accumulation_.get(),
+                width_,
+                height_,
+                samples_,
+                output_surface);
+        check_cuda(cudaGetLastError(), "present_frame_kernel launch");
+        if (record_timing) {
+            presentation_timer_.end(stream_);
+        }
     }
 
 private:
@@ -2887,7 +2998,8 @@ private:
         int output_width,
         int output_height,
         cudaSurfaceObject_t output_surface,
-        bool completes_sample) {
+        bool completes_sample,
+        bool record_trace = true) {
         if (sample_count <= 0) {
             throw std::invalid_argument(
                 "CUDA wavefront sample batch must be positive");
@@ -2945,8 +3057,11 @@ private:
         check_cuda(
             cudaGetLastError(),
             "update_frame_parameters_kernel launch");
-        trace_timer_.update(statistics_.trace_milliseconds);
-        const bool record_timing = !trace_timer_.pending();
+        if (record_trace) {
+            update_trace_timing();
+        }
+        const bool record_timing =
+            record_trace && !trace_timer_.pending();
         if (record_timing) {
             trace_timer_.begin(stream_);
         }
@@ -3029,14 +3144,42 @@ public:
     int width() const { return width_; }
     int height() const { return height_; }
     int samples() const { return samples_; }
+    std::uint64_t trace_generation() const {
+        return trace_generation_;
+    }
+    float last_trace_milliseconds() const {
+        return last_trace_milliseconds_;
+    }
 
     void update_timings() {
         reset_timer_.update(statistics_.reset_milliseconds);
-        trace_timer_.update(statistics_.trace_milliseconds);
+        update_trace_timing();
+        update_presentation_timing();
         check_completed_error();
     }
 
 private:
+    bool update_trace_timing() {
+        float milliseconds = last_trace_milliseconds_;
+        if (!trace_timer_.update(milliseconds)) {
+            return false;
+        }
+        last_trace_milliseconds_ = milliseconds;
+        statistics_.trace_milliseconds = milliseconds;
+        ++trace_generation_;
+        return true;
+    }
+
+    bool update_presentation_timing() {
+        float milliseconds =
+            statistics_.presentation_milliseconds;
+        if (!presentation_timer_.update(milliseconds)) {
+            return false;
+        }
+        statistics_.presentation_milliseconds = milliseconds;
+        return true;
+    }
+
 #if defined(RENDERER_CUDA_SANITIZER_FALLBACK)
     void launch_sanitizer_fixed_topology(int sample_count) {
         const int capacity =
@@ -3598,6 +3741,9 @@ private:
     int graph_capacity_ = 0;
     CudaEventTimer reset_timer_;
     CudaEventTimer trace_timer_;
+    CudaEventTimer presentation_timer_;
+    float last_trace_milliseconds_ = 0.0f;
+    std::uint64_t trace_generation_ = 0;
     DeviceBuffer<DVec3> accumulation_;
     DeviceBuffer<DVec3> resolved_;
     DeviceBuffer<DPcgState> random_states_;
@@ -3682,7 +3828,10 @@ public:
             settings.width,
             settings.height,
             settings.path.sample_seed_offset);
-        reset_interactive_state(settings.width, settings.height);
+        reset_interactive_state(
+            settings.width,
+            settings.height,
+            scene_->view().triangle_count);
         preview_has_run_ = false;
     }
 
@@ -3720,8 +3869,6 @@ public:
             frame_state.framebuffer_resized ||
             frame_state.reset_requested;
         if (reset_accumulation) {
-            const CudaPathWorkMode previous_work_mode =
-                last_work_mode_;
             frame_.reset(
                 settings.width,
                 settings.height,
@@ -3732,16 +3879,17 @@ public:
                         settings.height)
                     : static_cast<std::size_t>(settings.width) *
                         static_cast<std::size_t>(settings.height));
-            reset_interactive_state(settings.width, settings.height);
-            if (frame_state.automatic_interaction_quality &&
-                automatic_quality_enabled_) {
-                last_work_mode_ = previous_work_mode;
-            }
+            reset_interactive_state(
+                settings.width,
+                settings.height,
+                scene_->view().triangle_count);
             automatic_quality_enabled_ =
                 frame_state.automatic_interaction_quality;
         }
         output_width_ = settings.width;
         output_height_ = settings.height;
+        native_sweep_published_this_frame_ = false;
+        statistics_.presentation_updated = false;
 
         if (!frame_state.automatic_interaction_quality) {
             active_frame_is_preview_ = false;
@@ -3755,6 +3903,7 @@ public:
             statistics_.tile_y = 0;
             statistics_.tile_rows = settings.height;
             statistics_.sweep_progress = 1.0f;
+            statistics_.presentation_updated = true;
             scene_->update_timing();
             return;
         }
@@ -3780,6 +3929,8 @@ public:
             ++idle_frames_;
         }
 
+        frame_.update_timings();
+        preview_frame_.update_timings();
         update_adaptive_work_size();
         if (idle_frames_ < kIdleFramesBeforeNative) {
             render_interaction_preview(
@@ -3787,7 +3938,7 @@ public:
                 settings,
                 static_cast<cudaSurfaceObject_t>(surface));
         } else {
-            render_native_tile(
+            render_native_quantum(
                 camera,
                 settings,
                 static_cast<cudaSurfaceObject_t>(surface));
@@ -3796,7 +3947,7 @@ public:
     }
 
     void download_current_frame(Framebuffer& target) {
-        if (active_frame_is_preview_) {
+        const auto download_preview = [&]() {
             const std::vector<Color> preview =
                 preview_frame_.download_pixels();
             if (target.width() != output_width_ ||
@@ -3820,29 +3971,24 @@ public:
                                 static_cast<std::size_t>(source_x)]);
                 }
             }
+            host_presentation_initialized_ = true;
+        };
+        if (active_frame_is_preview_) {
+            download_preview();
             return;
         }
         if (last_work_mode_ == CudaPathWorkMode::NativeTile &&
-            automatic_quality_enabled_ &&
-            last_native_tile_count_ > 0) {
-            if (target.width() != frame_.width() ||
-                target.height() != frame_.height()) {
-                target.resize(frame_.width(), frame_.height());
-            }
-            const std::vector<Color> tile =
-                frame_.download_region_pixels(
-                    last_native_tile_offset_,
-                    last_native_tile_count_,
-                    last_native_tile_divisor_);
-            for (int index = 0;
-                 index < last_native_tile_count_;
-                 ++index) {
-                const int framebuffer_index =
-                    last_native_tile_offset_ + index;
-                target.set_pixel(
-                    framebuffer_index % frame_.width(),
-                    framebuffer_index / frame_.width(),
-                    tile[static_cast<std::size_t>(index)]);
+            automatic_quality_enabled_) {
+            if (native_sweep_published_this_frame_) {
+                if (target.width() != frame_.width() ||
+                    target.height() != frame_.height()) {
+                    target.resize(frame_.width(), frame_.height());
+                }
+                target.set_pixels(frame_.download_pixels());
+                host_presentation_initialized_ = true;
+            } else if (!host_presentation_initialized_ &&
+                       preview_has_run_) {
+                download_preview();
             }
             return;
         }
@@ -3851,6 +3997,7 @@ public:
             target.resize(frame_.width(), frame_.height());
         }
         target.set_pixels(frame_.download_pixels());
+        host_presentation_initialized_ = true;
     }
 
     int accumulated_samples() const {
@@ -3878,13 +4025,15 @@ public:
 private:
     static constexpr int kIdleFramesBeforeNative = 8;
     static constexpr int kPreviewBounceLimit = 2;
-    static constexpr int kInitialTileRows = 32;
-    static constexpr int kMaximumTileRows = 64;
+    static constexpr int kNativeArenaRows = 128;
+    static constexpr int kMaximumQuantumRows = 512;
+    static constexpr float kNativeTargetMilliseconds = 12.0f;
+    static constexpr float kNativeHardLimitMilliseconds = 15.0f;
 
     static std::size_t native_wavefront_capacity(int width, int height) {
         return static_cast<std::size_t>(width) *
             static_cast<std::size_t>(
-                std::min(height, kMaximumTileRows));
+                std::min(height, kNativeArenaRows));
     }
 
     static int initial_preview_scale_tier(
@@ -3898,77 +4047,137 @@ private:
         return 0;
     }
 
-    void reset_interactive_state(int width, int height) {
+    static int initial_native_quantum_rows(int triangle_count) {
+        return triangle_count >= 1'000'000 ? 32 : 64;
+    }
+
+    void reset_interactive_state(
+        int width,
+        int height,
+        int triangle_count) {
         output_width_ = width;
         output_height_ = height;
-        idle_frames_ = kIdleFramesBeforeNative;
+        idle_frames_ = 0;
         tile_y_ = 0;
-        tile_rows_ = std::min(kInitialTileRows, height);
-        last_native_tile_offset_ = 0;
-        last_native_tile_count_ = 0;
-        last_native_tile_divisor_ = 1;
-        fast_tile_count_ = 0;
+        quantum_rows_ = std::min(
+            initial_native_quantum_rows(triangle_count),
+            height);
+        native_quantum_row_limit_ =
+            triangle_count >= 1'000'000
+            ? 80
+            : kMaximumQuantumRows;
+        last_native_quantum_rows_ = 0;
+        last_native_quantum_was_tail_ = false;
+        native_ms_per_row_ema_ = 0.0f;
+        consumed_native_trace_generation_ =
+            frame_.trace_generation();
+        consumed_preview_trace_generation_ =
+            preview_frame_.trace_generation();
         preview_dirty_ = true;
         active_frame_is_preview_ = false;
+        native_sweep_published_this_frame_ = false;
+        host_presentation_initialized_ = false;
         last_work_mode_ = CudaPathWorkMode::FullFrame;
         sweep_started_ = std::chrono::steady_clock::now();
         statistics_.internal_width = width;
         statistics_.internal_height = height;
         statistics_.tile_y = 0;
-        statistics_.tile_rows = tile_rows_;
+        statistics_.tile_rows = quantum_rows_;
         statistics_.sweep_progress = 0.0f;
         statistics_.complete_sweeps_per_second = 0.0f;
+        statistics_.presentation_updated = false;
     }
 
     void update_adaptive_work_size() {
-        const float elapsed = statistics_.trace_milliseconds;
-        if (!(elapsed > 0.0f) || !std::isfinite(elapsed)) {
+        if (preview_frame_.trace_generation() !=
+            consumed_preview_trace_generation_) {
+            consumed_preview_trace_generation_ =
+                preview_frame_.trace_generation();
+            const float elapsed =
+                preview_frame_.last_trace_milliseconds();
+            if (elapsed > 0.0f && std::isfinite(elapsed)) {
+                preview_trace_ema_ = preview_trace_ema_ > 0.0f
+                    ? preview_trace_ema_ * 0.4f + elapsed * 0.6f
+                    : elapsed;
+                if (preview_trace_ema_ > 12.0f) {
+                    ++slow_preview_frames_;
+                    fast_preview_frames_ = 0;
+                    if (slow_preview_frames_ >= 2 &&
+                        preview_scale_tier_ + 1 <
+                            static_cast<int>(preview_scales_.size())) {
+                        ++preview_scale_tier_;
+                        slow_preview_frames_ = 0;
+                        preview_dirty_ = true;
+                    }
+                } else if (preview_trace_ema_ < 8.0f) {
+                    ++fast_preview_frames_;
+                    slow_preview_frames_ = 0;
+                    if (fast_preview_frames_ >= 30 &&
+                        preview_scale_tier_ > 0) {
+                        --preview_scale_tier_;
+                        fast_preview_frames_ = 0;
+                        preview_dirty_ = true;
+                    }
+                } else {
+                    slow_preview_frames_ = 0;
+                    fast_preview_frames_ = 0;
+                }
+            }
+        }
+
+        if (frame_.trace_generation() ==
+            consumed_native_trace_generation_) {
             return;
         }
-        if (last_work_mode_ == CudaPathWorkMode::InteractionPreview) {
-            preview_trace_ema_ = preview_trace_ema_ > 0.0f
-                ? preview_trace_ema_ * 0.4f + elapsed * 0.6f
-                : elapsed;
-            if (preview_trace_ema_ > 12.0f) {
-                ++slow_preview_frames_;
-                fast_preview_frames_ = 0;
-                if (slow_preview_frames_ >= 2 &&
-                    preview_scale_tier_ + 1 <
-                        static_cast<int>(preview_scales_.size())) {
-                    ++preview_scale_tier_;
-                    slow_preview_frames_ = 0;
-                    preview_dirty_ = true;
-                }
-            } else if (preview_trace_ema_ < 8.0f) {
-                ++fast_preview_frames_;
-                slow_preview_frames_ = 0;
-                if (fast_preview_frames_ >= 30 &&
-                    preview_scale_tier_ > 0) {
-                    --preview_scale_tier_;
-                    fast_preview_frames_ = 0;
-                    preview_dirty_ = true;
-                }
-            } else {
-                slow_preview_frames_ = 0;
-                fast_preview_frames_ = 0;
-            }
-        } else if (last_work_mode_ == CudaPathWorkMode::NativeTile) {
-            if (elapsed > 10.0f && tile_rows_ > 1) {
-                tile_rows_ = std::max(1, tile_rows_ / 2);
-                fast_tile_count_ = 0;
-            } else if (elapsed < 4.0f) {
-                ++fast_tile_count_;
-                if (fast_tile_count_ >= 8 &&
-                    tile_rows_ < kMaximumTileRows) {
-                    tile_rows_ = std::min(
-                        kMaximumTileRows,
-                        tile_rows_ * 2);
-                    fast_tile_count_ = 0;
-                }
-            } else {
-                fast_tile_count_ = 0;
-            }
+        consumed_native_trace_generation_ =
+            frame_.trace_generation();
+        const float elapsed = frame_.last_trace_milliseconds();
+        if (last_native_quantum_rows_ <= 0 ||
+            last_native_quantum_was_tail_ ||
+            !(elapsed > 0.0f) ||
+            !std::isfinite(elapsed)) {
+            return;
         }
+        if (elapsed > kNativeHardLimitMilliseconds) {
+            quantum_rows_ =
+                std::max(1, last_native_quantum_rows_ / 2);
+            return;
+        }
+        const float milliseconds_per_row =
+            elapsed /
+            static_cast<float>(last_native_quantum_rows_);
+        native_ms_per_row_ema_ =
+            native_ms_per_row_ema_ > 0.0f
+            ? native_ms_per_row_ema_ * 0.75f +
+                milliseconds_per_row * 0.25f
+            : milliseconds_per_row;
+        int desired_rows = std::clamp(
+            static_cast<int>(std::lround(
+                kNativeTargetMilliseconds /
+                native_ms_per_row_ema_)),
+            1,
+            native_quantum_row_limit_);
+        if (desired_rows > kNativeArenaRows) {
+            const int chunk_count = std::clamp(
+                static_cast<int>(std::lround(
+                    static_cast<float>(desired_rows) /
+                    static_cast<float>(kNativeArenaRows))),
+                1,
+                std::max(
+                    1,
+                    native_quantum_row_limit_ /
+                        kNativeArenaRows));
+            desired_rows = chunk_count * kNativeArenaRows;
+        }
+        const int minimum_rows =
+            std::max(1, last_native_quantum_rows_ / 2);
+        const int maximum_rows = std::min(
+            native_quantum_row_limit_,
+            last_native_quantum_rows_ * 2);
+        quantum_rows_ = std::clamp(
+            desired_rows,
+            minimum_rows,
+            maximum_rows);
     }
 
     void render_interaction_preview(
@@ -4013,35 +4222,38 @@ private:
         statistics_.tile_y = 0;
         statistics_.tile_rows = preview_height;
         statistics_.sweep_progress = 0.0f;
+        statistics_.presentation_updated = true;
     }
 
-    void render_native_tile(
+    void render_native_quantum(
         const Camera& camera,
         const RenderSettings& settings,
         cudaSurfaceObject_t surface) {
         const int rows = std::min(
-            tile_rows_,
+            quantum_rows_,
             settings.height - tile_y_);
-        last_native_tile_offset_ =
-            tile_y_ * settings.width;
-        last_native_tile_count_ =
-            rows * settings.width;
-        last_native_tile_divisor_ =
-            frame_.samples() + 1;
-        frame_.render_region(
+        last_native_quantum_rows_ = rows;
+        last_native_quantum_was_tail_ =
+            rows < quantum_rows_;
+        frame_.render_region_quantum(
             scene_->view(),
             camera,
-            last_native_tile_offset_,
-            last_native_tile_count_,
+            tile_y_ * settings.width,
+            rows * settings.width,
             kMaxPathBounces,
             settings.width,
-            settings.height,
-            surface);
+            settings.height);
+        frame_.synchronize_and_check_errors();
         active_frame_is_preview_ = false;
         last_work_mode_ = CudaPathWorkMode::NativeTile;
         tile_y_ += rows;
         if (tile_y_ >= settings.height) {
             frame_.complete_sample();
+            if (surface != 0) {
+                frame_.present_surface(surface);
+            }
+            native_sweep_published_this_frame_ = true;
+            statistics_.presentation_updated = true;
             tile_y_ = 0;
             const auto completed_at = std::chrono::steady_clock::now();
             const float seconds =
@@ -4075,19 +4287,23 @@ private:
     int preview_scale_tier_ = 0;
     int slow_preview_frames_ = 0;
     int fast_preview_frames_ = 0;
-    int fast_tile_count_ = 0;
     int idle_frames_ = kIdleFramesBeforeNative;
     int tile_y_ = 0;
-    int tile_rows_ = kInitialTileRows;
-    int last_native_tile_offset_ = 0;
-    int last_native_tile_count_ = 0;
-    int last_native_tile_divisor_ = 1;
+    int quantum_rows_ = 64;
+    int native_quantum_row_limit_ = kMaximumQuantumRows;
+    int last_native_quantum_rows_ = 0;
     int output_width_ = 1;
     int output_height_ = 1;
     float preview_trace_ema_ = 0.0f;
+    float native_ms_per_row_ema_ = 0.0f;
+    std::uint64_t consumed_native_trace_generation_ = 0;
+    std::uint64_t consumed_preview_trace_generation_ = 0;
     bool preview_dirty_ = true;
     bool preview_has_run_ = false;
     bool active_frame_is_preview_ = false;
+    bool last_native_quantum_was_tail_ = false;
+    bool native_sweep_published_this_frame_ = false;
+    bool host_presentation_initialized_ = false;
     bool automatic_quality_enabled_ = false;
     CudaPathWorkMode last_work_mode_ = CudaPathWorkMode::FullFrame;
     std::chrono::steady_clock::time_point sweep_started_{};

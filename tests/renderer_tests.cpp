@@ -2576,10 +2576,10 @@ void test_cuda_pathtracer_auto_interaction_preview_and_native_tiles_when_availab
         renderer::Vec3::Zero(),
         renderer::Vec3::UnitY(),
         45.0f,
-        0.25f);
+        1.0f / 6.0f);
     renderer::RenderSettings settings;
     settings.width = 16;
-    settings.height = 64;
+    settings.height = 96;
     settings.path.backend = renderer::PathBackend::Cuda;
     settings.path.sample_seed_offset = 91;
 
@@ -2594,6 +2594,24 @@ void test_cuda_pathtracer_auto_interaction_preview_and_native_tiles_when_availab
         full_state,
         reference_frame);
     RENDER_CHECK(reference.accumulated_samples() == 1);
+
+    renderer::PathInteractiveSession automatic_first_frame;
+    renderer::Framebuffer first_frame(settings.width, settings.height);
+    renderer::InteractiveFrameState first_frame_state;
+    first_frame_state.automatic_interaction_quality = true;
+    automatic_first_frame.reset(scene, settings);
+    automatic_first_frame.render_next_frame(
+        scene,
+        camera,
+        settings,
+        first_frame_state,
+        first_frame);
+    RENDER_CHECK(automatic_first_frame.accumulated_samples() == 0);
+    RENDER_CHECK(
+        automatic_first_frame.cuda_statistics()->work_mode ==
+        renderer::CudaPathWorkMode::InteractionPreview);
+    RENDER_CHECK(
+        automatic_first_frame.cuda_statistics()->presentation_updated);
 
     renderer::PathInteractiveSession automatic;
     renderer::Framebuffer automatic_frame(settings.width, settings.height);
@@ -2611,8 +2629,74 @@ void test_cuda_pathtracer_auto_interaction_preview_and_native_tiles_when_availab
     RENDER_CHECK(
         automatic.cuda_statistics()->work_mode ==
         renderer::CudaPathWorkMode::InteractionPreview);
-    const renderer::Color preview_bottom =
-        automatic_frame.pixel(8, settings.height - 1);
+    interaction_state.camera_changed = false;
+    for (int frame = 0; frame < 7; ++frame) {
+        automatic.render_next_frame(
+            scene,
+            camera,
+            settings,
+            interaction_state,
+            automatic_frame);
+    }
+    std::vector<renderer::Color> preview_pixels;
+    preview_pixels.reserve(
+        static_cast<std::size_t>(settings.width) *
+        static_cast<std::size_t>(settings.height));
+    for (int y = 0; y < settings.height; ++y) {
+        for (int x = 0; x < settings.width; ++x) {
+            preview_pixels.push_back(
+                automatic_frame.pixel(x, y));
+        }
+    }
+    const std::uint64_t preview_downloads =
+        automatic.cuda_statistics()->framebuffer_downloads;
+
+    automatic.render_next_frame(
+        scene,
+        camera,
+        settings,
+        interaction_state,
+        automatic_frame);
+    RENDER_CHECK(automatic.accumulated_samples() == 0);
+    const renderer::CudaPathStatistics partial_tile =
+        *automatic.cuda_statistics();
+    RENDER_CHECK(
+        partial_tile.work_mode == renderer::CudaPathWorkMode::NativeTile);
+    RENDER_CHECK(partial_tile.internal_width == settings.width);
+    RENDER_CHECK(partial_tile.tile_rows == 64);
+    RENDER_CHECK(nearly_equal(
+        partial_tile.sweep_progress,
+        2.0f / 3.0f));
+    RENDER_CHECK(!partial_tile.presentation_updated);
+    RENDER_CHECK(
+        partial_tile.framebuffer_downloads ==
+        preview_downloads);
+    for (int y = 0; y < settings.height; ++y) {
+        for (int x = 0; x < settings.width; ++x) {
+            const std::size_t index =
+                static_cast<std::size_t>(y) *
+                    static_cast<std::size_t>(settings.width) +
+                static_cast<std::size_t>(x);
+            RENDER_CHECK(
+                (automatic_frame.pixel(x, y) -
+                 preview_pixels[index]).norm() <
+                1.0e-6f);
+        }
+    }
+
+    interaction_state.camera_changed = true;
+    automatic.render_next_frame(
+        scene,
+        camera,
+        settings,
+        interaction_state,
+        automatic_frame);
+    RENDER_CHECK(automatic.accumulated_samples() == 0);
+    RENDER_CHECK(
+        automatic.cuda_statistics()->work_mode ==
+        renderer::CudaPathWorkMode::InteractionPreview);
+    RENDER_CHECK(
+        automatic.cuda_statistics()->presentation_updated);
 
     interaction_state.camera_changed = false;
     for (int frame = 0; frame < 8; ++frame) {
@@ -2624,18 +2708,8 @@ void test_cuda_pathtracer_auto_interaction_preview_and_native_tiles_when_availab
             automatic_frame);
     }
     RENDER_CHECK(automatic.accumulated_samples() == 0);
-    const renderer::CudaPathStatistics partial_tile =
-        *automatic.cuda_statistics();
-    RENDER_CHECK(
-        partial_tile.work_mode == renderer::CudaPathWorkMode::NativeTile);
-    RENDER_CHECK(partial_tile.internal_width == settings.width);
-    RENDER_CHECK(partial_tile.tile_rows == 32);
-    RENDER_CHECK(nearly_equal(partial_tile.sweep_progress, 0.5f));
-    RENDER_CHECK(
-        (automatic_frame.pixel(8, settings.height - 1) -
-         preview_bottom).norm() <
-        1.0e-6f);
-
+    const std::uint64_t reset_preview_downloads =
+        automatic.cuda_statistics()->framebuffer_downloads;
     automatic.render_next_frame(
         scene,
         camera,
@@ -2646,6 +2720,10 @@ void test_cuda_pathtracer_auto_interaction_preview_and_native_tiles_when_availab
     const renderer::CudaPathStatistics completed_tile =
         *automatic.cuda_statistics();
     RENDER_CHECK(completed_tile.sweep_progress == 0.0f);
+    RENDER_CHECK(completed_tile.presentation_updated);
+    RENDER_CHECK(
+        completed_tile.framebuffer_downloads ==
+        reset_preview_downloads + 1);
     RENDER_CHECK(framebuffer_colors_are_finite(automatic_frame));
     for (int y = 0; y < settings.height; ++y) {
         for (int x = 0; x < settings.width; ++x) {

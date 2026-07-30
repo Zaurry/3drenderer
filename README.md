@@ -157,13 +157,16 @@ CUDA 后端使用：
 - Viewer 默认启用 `Auto interaction quality`：相机/场景交互使用自适应
   100%/75%/50%/25% 内部分辨率与最多 2 个 shading bounce；连续静止 8 帧后
   恢复原生 64-bounce 累积。
-- 原生累积按 1–64 行水平 tile 调度，每次 Viewer 循环只提交一个 GPU work
-  quantum；完整 sweep 后才增加 1 spp。低分辨率预览会放大写入完整 interop
-  surface，原生 tile 随后逐块覆盖。
+- 原生累积按自适应水平 work quantum 调度：Wavefront arena 固定容纳最多
+  128 行，总 quantum 为 1–512 行，较大的工作在同一 stream 内拆成连续 graph
+  launch。只有完整 sweep 结束后才增加 1 spp 并全屏 resolve；中间批次不写
+  interop surface，因此画面保持上一张完整结果，不再出现自上而下的扫描边界。
+- fallback 同样只在预览或完整 sweep 发布时下载 framebuffer；部分 sweep 不下载、
+  不覆盖当前显示。
 
 Performance 面板分别显示 UI FPS、完整原生 spp、GPU 工作模式、内部分辨率、
-tile/sweep 进度、GPU trace/reset/upload 时间、各类累计上传字节、分配代次、
-framebuffer 下载次数及 interop/fallback 状态。
+quantum/sweep 进度、完整发布状态、GPU trace/resolve/reset/upload 时间、各类累计
+上传字节、分配代次、framebuffer 下载次数及 interop/fallback 状态。
 
 重场景基准、真实相机与 RTX 5080 结果见
 [CUDA 重场景性能结果](docs/output/cuda-heavy-scene-performance-results.md)。
