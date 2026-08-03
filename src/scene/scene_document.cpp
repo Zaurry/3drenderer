@@ -1,6 +1,7 @@
 #include "scene/scene_document.h"
 
 #include "scene/scene_asset_loader.h"
+#include "scene/gltf_loader.h"
 
 #include <Eigen/Geometry>
 #include <nlohmann/json.hpp>
@@ -21,6 +22,63 @@ constexpr float kPi = 3.14159265358979323846f;
 constexpr float kMinimumScale = 1.0e-6f;
 constexpr int kMaximumHierarchyDepth = 1024;
 constexpr std::size_t kMaximumHistory = 256;
+
+constexpr int Material::* kMaterialTextureIds[] = {
+    &Material::diffuse_texture_id,
+    &Material::opacity_texture_id,
+    &Material::bump_texture_id,
+    &Material::base_color_texture_id,
+    &Material::metallic_roughness_texture_id,
+    &Material::normal_texture_id,
+    &Material::occlusion_texture_id,
+    &Material::emissive_texture_id,
+    &Material::specular_texture_id,
+    &Material::specular_color_texture_id,
+    &Material::specular_glossiness_texture_id,
+};
+
+int append_unique_texture(
+    std::vector<ImageTexture>& textures,
+    const ImageTexture& texture) {
+    const auto found = std::find_if(
+        textures.begin(),
+        textures.end(),
+        [&texture](const ImageTexture& candidate) {
+            return candidate.same_resource_view(texture);
+        });
+    if (found != textures.end()) {
+        return static_cast<int>(std::distance(textures.begin(), found));
+    }
+    const int id = static_cast<int>(textures.size());
+    textures.push_back(texture);
+    return id;
+}
+
+std::vector<int> append_unique_textures(
+    std::vector<ImageTexture>& textures,
+    const std::vector<ImageTexture>& local_textures) {
+    std::vector<int> remap;
+    remap.reserve(local_textures.size());
+    for (const ImageTexture& texture : local_textures) {
+        remap.push_back(append_unique_texture(textures, texture));
+    }
+    return remap;
+}
+
+void remap_material_textures(
+    Material& material,
+    const std::vector<int>& texture_remap) {
+    for (int Material::* field : kMaterialTextureIds) {
+        int& texture_id = material.*field;
+        if (texture_id < 0) {
+            continue;
+        }
+        if (static_cast<std::size_t>(texture_id) >= texture_remap.size()) {
+            throw std::runtime_error("material texture index is out of range");
+        }
+        texture_id = texture_remap[static_cast<std::size_t>(texture_id)];
+    }
+}
 
 Vec3 transform_point(const Mat4& matrix, const Vec3& point) {
     const Vec4 transformed = matrix * Vec4(point.x(), point.y(), point.z(), 1.0f);
@@ -55,6 +113,10 @@ std::string object_type_name(SceneObjectType type) {
             return "point_light";
         case SceneObjectType::DirectionalLight:
             return "directional_light";
+        case SceneObjectType::SpotLight:
+            return "spot_light";
+        case SceneObjectType::Camera:
+            return "camera";
     }
     return "group";
 }
@@ -72,6 +134,12 @@ SceneObjectType parse_object_type(const std::string& value) {
     if (value == "directional_light") {
         return SceneObjectType::DirectionalLight;
     }
+    if (value == "spot_light") {
+        return SceneObjectType::SpotLight;
+    }
+    if (value == "camera") {
+        return SceneObjectType::Camera;
+    }
     throw std::runtime_error("unknown scene object type: " + value);
 }
 
@@ -85,6 +153,8 @@ std::string material_type_name(MaterialType type) {
             return "dielectric";
         case MaterialType::Emissive:
             return "emissive";
+        case MaterialType::Pbr:
+            return "pbr";
     }
     return "diffuse";
 }
@@ -102,6 +172,9 @@ MaterialType parse_material_type(const std::string& value) {
     if (value == "emissive") {
         return MaterialType::Emissive;
     }
+    if (value == "pbr") {
+        return MaterialType::Pbr;
+    }
     throw std::runtime_error("unknown material type: " + value);
 }
 
@@ -111,6 +184,7 @@ bool valid_material_type(MaterialType type) {
         case MaterialType::Metal:
         case MaterialType::Dielectric:
         case MaterialType::Emissive:
+        case MaterialType::Pbr:
             return true;
     }
     return false;
@@ -125,6 +199,9 @@ bool valid_material_override(const SceneMaterialOverride& material_override) {
         std::isfinite(material_override.roughness) &&
         material_override.roughness >= 0.0f &&
         material_override.roughness <= 1.0f &&
+        std::isfinite(material_override.metallic) &&
+        material_override.metallic >= 0.0f &&
+        material_override.metallic <= 1.0f &&
         std::isfinite(material_override.ior) &&
         material_override.ior > 0.0f &&
         std::isfinite(material_override.opacity) &&
@@ -133,7 +210,11 @@ bool valid_material_override(const SceneMaterialOverride& material_override) {
         std::isfinite(material_override.alpha_cutoff) &&
         material_override.alpha_cutoff >= 0.0f &&
         material_override.alpha_cutoff <= 1.0f &&
-        std::isfinite(material_override.bump_scale);
+        std::isfinite(material_override.bump_scale) &&
+        std::isfinite(material_override.normal_scale) &&
+        std::isfinite(material_override.occlusion_strength) &&
+        material_override.occlusion_strength >= 0.0f &&
+        material_override.occlusion_strength <= 1.0f;
 }
 
 SceneMaterialOverride material_override_from_source(
@@ -145,14 +226,23 @@ SceneMaterialOverride material_override_from_source(
     result.base_color = material.base_color;
     result.emission = material.emission;
     result.roughness = material.roughness;
+    result.metallic = material.metallic;
     result.ior = material.ior;
     result.opacity = material.opacity;
     result.alpha_cutoff = material.alpha_cutoff;
     result.bump_scale = material.bump_scale;
+    result.normal_scale = material.normal_scale;
+    result.occlusion_strength = material.occlusion_strength;
+    result.alpha_mode = material.alpha_mode;
     result.two_sided = material.two_sided;
     result.use_diffuse_texture = material.diffuse_texture_id >= 0;
     result.use_opacity_texture = material.opacity_texture_id >= 0;
     result.use_bump_texture = material.bump_texture_id >= 0;
+    result.use_base_color_texture = material.base_color_texture_id >= 0;
+    result.use_metallic_roughness_texture = material.metallic_roughness_texture_id >= 0;
+    result.use_normal_texture = material.normal_texture_id >= 0;
+    result.use_occlusion_texture = material.occlusion_texture_id >= 0;
+    result.use_emissive_texture = material.emissive_texture_id >= 0;
     return result;
 }
 
@@ -163,10 +253,18 @@ void apply_material_override(
     material.base_color = material_override.base_color;
     material.emission = material_override.emission;
     material.roughness = material_override.roughness;
+    material.metallic = material_override.metallic;
+    if (material.pbr_workflow == PbrWorkflow::SpecularGlossiness &&
+        material_override.type == MaterialType::Pbr) {
+        material.glossiness = 1.0f - material_override.roughness;
+    }
     material.ior = material_override.ior;
     material.opacity = material_override.opacity;
     material.alpha_cutoff = material_override.alpha_cutoff;
     material.bump_scale = material_override.bump_scale;
+    material.normal_scale = material_override.normal_scale;
+    material.occlusion_strength = material_override.occlusion_strength;
+    material.alpha_mode = material_override.alpha_mode;
     material.two_sided = material_override.two_sided;
     if (!material_override.use_diffuse_texture) {
         material.diffuse_texture_id = -1;
@@ -176,6 +274,21 @@ void apply_material_override(
     }
     if (!material_override.use_bump_texture) {
         material.bump_texture_id = -1;
+    }
+    if (!material_override.use_base_color_texture) {
+        material.base_color_texture_id = -1;
+    }
+    if (!material_override.use_metallic_roughness_texture) {
+        material.metallic_roughness_texture_id = -1;
+    }
+    if (!material_override.use_normal_texture) {
+        material.normal_texture_id = -1;
+    }
+    if (!material_override.use_occlusion_texture) {
+        material.occlusion_texture_id = -1;
+    }
+    if (!material_override.use_emissive_texture) {
+        material.emissive_texture_id = -1;
     }
 }
 
@@ -203,12 +316,58 @@ std::filesystem::path normalized_absolute(const std::filesystem::path& path) {
     return (error ? std::filesystem::absolute(path) : canonical).lexically_normal();
 }
 
-bool obj_extension(const std::filesystem::path& path) {
+std::string lowercase_extension(const std::filesystem::path& path) {
     std::string extension = path.extension().string();
     std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));
     });
-    return extension == ".obj";
+    return extension;
+}
+
+std::string alpha_mode_name(AlphaMode mode) {
+    switch (mode) {
+        case AlphaMode::Opaque:
+            return "opaque";
+        case AlphaMode::Mask:
+            return "mask";
+        case AlphaMode::Blend:
+            return "blend";
+    }
+    return "opaque";
+}
+
+AlphaMode parse_alpha_mode(const std::string& value) {
+    if (value == "opaque") {
+        return AlphaMode::Opaque;
+    }
+    if (value == "mask") {
+        return AlphaMode::Mask;
+    }
+    if (value == "blend") {
+        return AlphaMode::Blend;
+    }
+    throw std::runtime_error("unknown alpha mode: " + value);
+}
+
+const char* camera_projection_name(SceneCameraProjection projection) {
+    return projection == SceneCameraProjection::Orthographic
+        ? "orthographic"
+        : "perspective";
+}
+
+SceneCameraProjection parse_camera_projection(const std::string& value) {
+    if (value == "perspective") {
+        return SceneCameraProjection::Perspective;
+    }
+    if (value == "orthographic") {
+        return SceneCameraProjection::Orthographic;
+    }
+    throw std::runtime_error("unknown camera projection: " + value);
+}
+
+bool asset_extension(const std::filesystem::path& path) {
+    const std::string extension = lowercase_extension(path);
+    return extension == ".obj" || extension == ".gltf" || extension == ".glb";
 }
 
 }  // namespace
@@ -241,12 +400,21 @@ SceneDocument SceneDocument::from_scene(
     std::string builtin_id) {
     SceneDocument document;
     document.state_.environment = scene.environment;
+    document.state_.environment_map = scene.environment_map;
+    document.state_.environment_path = scene.environment_map
+        ? scene.environment_map->source_path()
+        : std::filesystem::path();
+    document.state_.environment_intensity = scene.environment_intensity;
+    document.state_.environment_rotation_degrees = scene.environment_rotation_degrees;
+    document.state_.environment_background_visible = scene.environment_background_visible;
     std::vector<PointLight> point_lights =
         std::move(scene.point_lights);
     std::vector<DirectionalLight> directional_lights =
         std::move(scene.directional_lights);
+    std::vector<SpotLight> spot_lights = std::move(scene.spot_lights);
     scene.point_lights.clear();
     scene.directional_lights.clear();
+    scene.spot_lights.clear();
     auto asset = std::make_shared<SceneMeshAsset>();
     asset->id = document.next_asset_id_++;
     asset->source_path.clear();
@@ -273,10 +441,21 @@ SceneDocument SceneDocument::from_scene(
     for (std::size_t index = 0;
          index < point_lights.size();
          ++index) {
-        document.create_point_light(
+        const ObjectId light_id = document.create_point_light(
             "Point Light " + std::to_string(index + 1),
             point_lights[index].position,
             point_lights[index].intensity);
+        document.find(light_id)->light_range = point_lights[index].range;
+    }
+    for (std::size_t index = 0; index < spot_lights.size(); ++index) {
+        document.create_spot_light(
+            "Spot Light " + std::to_string(index + 1),
+            spot_lights[index].position,
+            spot_lights[index].direction,
+            spot_lights[index].intensity,
+            spot_lights[index].range,
+            spot_lights[index].inner_cone_radians,
+            spot_lights[index].outer_cone_radians);
     }
     for (std::size_t index = 0;
          index < directional_lights.size();
@@ -392,6 +571,43 @@ ObjectId SceneDocument::create_directional_light(
     return id;
 }
 
+ObjectId SceneDocument::create_spot_light(
+    std::string name,
+    const Vec3& position,
+    const Vec3& direction,
+    const Color& intensity,
+    float range,
+    float inner_cone_radians,
+    float outer_cone_radians,
+    ObjectId parent_id) {
+    const ObjectId id = create_directional_light(
+        std::move(name),
+        direction,
+        intensity,
+        parent_id);
+    SceneObject* object = find(id);
+    object->type = SceneObjectType::SpotLight;
+    object->transform.translation = position;
+    object->light_range = std::max(0.0f, range);
+    object->spot_inner_cone_radians = std::max(0.0f, inner_cone_radians);
+    object->spot_outer_cone_radians = std::clamp(
+        outer_cone_radians,
+        object->spot_inner_cone_radians,
+        kPi * 0.5f);
+    return id;
+}
+
+ObjectId SceneDocument::create_camera(
+    std::string name,
+    SceneCameraProjection projection,
+    ObjectId parent_id) {
+    const ObjectId id = create_group(std::move(name), parent_id);
+    SceneObject* object = find(id);
+    object->type = SceneObjectType::Camera;
+    object->camera_projection = projection;
+    return id;
+}
+
 std::shared_ptr<SceneMeshAsset> SceneDocument::find_asset(AssetId id) const {
     const auto found = std::find_if(
         assets_.begin(),
@@ -403,30 +619,181 @@ std::shared_ptr<SceneMeshAsset> SceneDocument::find_asset(AssetId id) const {
 std::shared_ptr<SceneMeshAsset> SceneDocument::load_asset(
     const std::filesystem::path& path,
     int width,
-    int height) {
+    int height,
+    int source_mesh_index) {
     const std::filesystem::path normalized = normalized_absolute(path);
     for (const auto& asset : assets_) {
         if (!asset->source_path.empty() &&
-            normalized_absolute(asset->source_path) == normalized) {
+            normalized_absolute(asset->source_path) == normalized &&
+            asset->source_mesh_index == source_mesh_index) {
             return asset;
         }
     }
 
-    LoadedScene loaded = load_scene_asset(normalized.string(), width, height);
+    LoadedScene loaded{
+        Scene(),
+        Camera(
+            Vec3(0.0f, 0.0f, 1.0f),
+            Vec3::Zero(),
+            Vec3(0.0f, 1.0f, 0.0f),
+            45.0f,
+            1.0f),
+        Bounds3()};
+    const std::string extension = lowercase_extension(normalized);
+    if (extension == ".gltf" || extension == ".glb") {
+        LoadedGltfScene gltf = load_gltf_scene(normalized, width, height);
+        const int mesh_index = source_mesh_index >= 0 ? source_mesh_index : 0;
+        if (mesh_index < 0 || static_cast<std::size_t>(mesh_index) >= gltf.meshes.size()) {
+            throw std::runtime_error("glTF source mesh index is out of range");
+        }
+        loaded = std::move(gltf.meshes[static_cast<std::size_t>(mesh_index)]);
+        source_mesh_index = mesh_index;
+        for (const std::string& warning : gltf.warnings) {
+            warnings_.push_back(normalized.string() + ": " + warning);
+        }
+    } else {
+        loaded = load_scene_asset(normalized.string(), width, height);
+        source_mesh_index = -1;
+    }
+    return store_loaded_asset(std::move(loaded), normalized, source_mesh_index);
+}
+
+std::shared_ptr<SceneMeshAsset> SceneDocument::store_loaded_asset(
+    LoadedScene loaded,
+    const std::filesystem::path& normalized_path,
+    int source_mesh_index) {
     auto asset = std::make_shared<SceneMeshAsset>();
     asset->id = next_asset_id_++;
-    asset->source_path = normalized;
+    asset->source_path = normalized_path;
+    asset->source_mesh_index = source_mesh_index;
     asset->local_scene = std::move(loaded.scene);
     asset->local_scene.directional_lights.clear();
     asset->local_scene.point_lights.clear();
+    asset->local_scene.spot_lights.clear();
     asset->warnings = std::move(loaded.warnings);
     asset->material_names = std::move(loaded.material_names);
     asset->local_bounds = loaded.bounds;
     assets_.push_back(asset);
     for (const std::string& warning : asset->warnings) {
-        warnings_.push_back(normalized.string() + ": " + warning);
+        warnings_.push_back(normalized_path.string() + ": " + warning);
     }
     return asset;
+}
+
+ObjectId SceneDocument::import_gltf(
+    const std::filesystem::path& path,
+    ObjectId parent_id,
+    int width,
+    int height) {
+    const std::filesystem::path normalized = normalized_absolute(path);
+    LoadedGltfScene loaded = load_gltf_scene(normalized, width, height);
+    std::vector<AssetId> mesh_assets(loaded.meshes.size(), kInvalidAssetId);
+    for (std::size_t mesh_index = 0; mesh_index < loaded.meshes.size(); ++mesh_index) {
+        auto asset = std::make_shared<SceneMeshAsset>();
+        asset->id = next_asset_id_++;
+        asset->source_path = normalized;
+        asset->source_mesh_index = static_cast<int>(mesh_index);
+        asset->local_scene = std::move(loaded.meshes[mesh_index].scene);
+        asset->local_scene.directional_lights.clear();
+        asset->local_scene.point_lights.clear();
+        asset->local_scene.spot_lights.clear();
+        asset->warnings = std::move(loaded.meshes[mesh_index].warnings);
+        asset->material_names = std::move(loaded.meshes[mesh_index].material_names);
+        asset->local_bounds = loaded.meshes[mesh_index].bounds;
+        mesh_assets[mesh_index] = asset->id;
+        for (const std::string& warning : asset->warnings) {
+            warnings_.push_back(normalized.string() + ": " + warning);
+        }
+        assets_.push_back(std::move(asset));
+    }
+
+    const ObjectId root = create_group(path.stem().string(), parent_id);
+    std::vector<ObjectId> node_objects;
+    node_objects.reserve(loaded.nodes.size());
+    for (std::size_t node_index = 0; node_index < loaded.nodes.size(); ++node_index) {
+        const GltfNodeAsset& source = loaded.nodes[node_index];
+        const ObjectId node_parent = source.parent_index >= 0
+            ? node_objects.at(static_cast<std::size_t>(source.parent_index))
+            : root;
+        const ObjectId node_id = create_group(source.name, node_parent);
+        SceneObject* node = find(node_id);
+        if (!decompose_matrix(source.local_transform, node->transform)) {
+            throw std::runtime_error(
+                "glTF node transform cannot be represented as editable TRS: " + source.name);
+        }
+        node_objects.push_back(node_id);
+
+        if (source.mesh_index >= 0) {
+            if (static_cast<std::size_t>(source.mesh_index) >= mesh_assets.size()) {
+                throw std::runtime_error("glTF node mesh index is out of range");
+            }
+            SceneObject mesh;
+            mesh.id = next_object_id_++;
+            mesh.parent_id = node_id;
+            mesh.name = source.name + " Mesh";
+            mesh.type = SceneObjectType::Mesh;
+            mesh.asset_id = mesh_assets[static_cast<std::size_t>(source.mesh_index)];
+            state_.objects.push_back(std::move(mesh));
+        }
+        if (source.camera_index >= 0) {
+            if (static_cast<std::size_t>(source.camera_index) >= loaded.cameras.size()) {
+                throw std::runtime_error("glTF node camera index is out of range");
+            }
+            const GltfCameraAsset& camera_source =
+                loaded.cameras[static_cast<std::size_t>(source.camera_index)];
+            const ObjectId camera_id = create_camera(
+                camera_source.name,
+                camera_source.orthographic
+                    ? SceneCameraProjection::Orthographic
+                    : SceneCameraProjection::Perspective,
+                node_id);
+            SceneObject* camera = find(camera_id);
+            camera->camera_vertical_fov_degrees =
+                camera_source.vertical_fov_radians * (180.0f / kPi);
+            camera->camera_aspect_ratio = camera_source.aspect_ratio;
+            camera->camera_x_magnification = camera_source.x_magnification;
+            camera->camera_y_magnification = camera_source.y_magnification;
+            camera->camera_near_plane = camera_source.near_plane;
+            camera->camera_far_plane = camera_source.far_plane;
+        }
+        switch (source.light_type) {
+            case GltfNodeAsset::LightType::None:
+                break;
+            case GltfNodeAsset::LightType::Directional:
+                create_directional_light(
+                    source.name + " Light",
+                    Vec3(0.0f, 0.0f, -1.0f),
+                    source.light_color * source.light_intensity,
+                    node_id);
+                break;
+            case GltfNodeAsset::LightType::Point: {
+                const ObjectId light_id = create_point_light(
+                    source.name + " Light",
+                    Vec3::Zero(),
+                    source.light_color * source.light_intensity,
+                    node_id);
+                find(light_id)->light_range = source.light_range;
+                break;
+            }
+            case GltfNodeAsset::LightType::Spot:
+                create_spot_light(
+                    source.name + " Light",
+                    Vec3::Zero(),
+                    Vec3(0.0f, 0.0f, -1.0f),
+                    source.light_color * source.light_intensity,
+                    source.light_range,
+                    source.spot_inner_cone_radians,
+                    source.spot_outer_cone_radians,
+                    node_id);
+                break;
+        }
+    }
+    for (const std::string& warning : loaded.warnings) {
+        warnings_.push_back(normalized.string() + ": " + warning);
+    }
+    render_dirty_ = true;
+    instanced_dirty_ = true;
+    return root;
 }
 
 ObjectId SceneDocument::import_obj(
@@ -464,10 +831,15 @@ std::vector<ObjectId> SceneDocument::import_path(
     try {
     std::vector<ObjectId> imported;
     if (std::filesystem::is_regular_file(normalized)) {
-        if (!obj_extension(normalized)) {
-            throw std::runtime_error("asset file is not an OBJ: " + normalized.string());
+        if (!asset_extension(normalized)) {
+            throw std::runtime_error("asset file is not OBJ, glTF, or GLB: " + normalized.string());
         }
-        imported.push_back(import_obj(normalized, kInvalidObjectId, width, height));
+        const std::string extension = lowercase_extension(normalized);
+        if (extension == ".gltf" || extension == ".glb") {
+            imported.push_back(import_gltf(normalized, kInvalidObjectId, width, height));
+        } else {
+            imported.push_back(import_obj(normalized, kInvalidObjectId, width, height));
+        }
     } else if (std::filesystem::is_directory(normalized)) {
         std::vector<std::filesystem::path> files;
         std::error_code error;
@@ -482,7 +854,7 @@ std::vector<ObjectId> SceneDocument::import_path(
             }
             if (iterator->is_symlink(error) && iterator->is_directory(error)) {
                 iterator.disable_recursion_pending();
-            } else if (iterator->is_regular_file(error) && obj_extension(iterator->path())) {
+            } else if (iterator->is_regular_file(error) && asset_extension(iterator->path())) {
                 files.push_back(iterator->path());
             }
         }
@@ -491,7 +863,7 @@ std::vector<ObjectId> SceneDocument::import_path(
                 rhs.lexically_relative(normalized).generic_string();
         });
         if (files.empty()) {
-            throw std::runtime_error("asset directory contains no OBJ files: " + normalized.string());
+            throw std::runtime_error("asset directory contains no OBJ, glTF, or GLB files: " + normalized.string());
         }
 
         const ObjectId root = create_group(normalized.filename().string());
@@ -516,14 +888,20 @@ std::vector<ObjectId> SceneDocument::import_path(
                     groups.emplace(key, parent);
                 }
             }
-            imported.push_back(import_obj(file, parent, width, height));
+            const std::string extension = lowercase_extension(file);
+            imported.push_back(
+                extension == ".gltf" || extension == ".glb"
+                    ? import_gltf(file, parent, width, height)
+                    : import_obj(file, parent, width, height));
         }
     } else {
         throw std::runtime_error("asset path is neither a file nor directory: " + normalized.string());
     }
 
     if (std::none_of(state_.objects.begin(), state_.objects.end(), [](const SceneObject& object) {
-            return object.type == SceneObjectType::DirectionalLight;
+            return object.type == SceneObjectType::DirectionalLight ||
+                object.type == SceneObjectType::PointLight ||
+                object.type == SceneObjectType::SpotLight;
         })) {
         create_directional_light(
             "Sun",
@@ -874,9 +1252,14 @@ void SceneDocument::ensure_instanced_scene() const {
 
     InstancedSceneView result;
     result.environment = state_.environment;
+    result.environment_map = state_.environment_map;
+    result.environment_intensity = state_.environment_intensity;
+    result.environment_rotation_degrees = state_.environment_rotation_degrees;
+    result.environment_background_visible = state_.environment_background_visible;
     result.assets.reserve(assets_.size());
     result.instances.reserve(state_.objects.size());
     std::unordered_map<AssetId, int> asset_indices;
+    std::unordered_map<AssetId, std::vector<int>> texture_remaps;
 
     for (const SceneObject& object : state_.objects) {
         if (object.type != SceneObjectType::Mesh) {
@@ -890,6 +1273,9 @@ void SceneDocument::ensure_instanced_scene() const {
         const int asset_index =
             static_cast<int>(result.assets.size());
         asset_indices.emplace(asset->id, asset_index);
+        texture_remaps.emplace(
+            asset->id,
+            append_unique_textures(result.textures, asset->local_scene.textures));
         result.assets.push_back(
             InstancedSceneAssetView{
                 asset->id,
@@ -906,7 +1292,8 @@ void SceneDocument::ensure_instanced_scene() const {
             result.point_lights.push_back(
                 PointLight{
                     transform_point(world, Vec3::Zero()),
-                    object.light_color});
+                    object.light_color,
+                    object.light_range});
             continue;
         }
         if (object.type == SceneObjectType::DirectionalLight) {
@@ -915,6 +1302,18 @@ void SceneDocument::ensure_instanced_scene() const {
                  Vec3(0.0f, 0.0f, -1.0f)).normalized();
             result.directional_lights.push_back(
                 DirectionalLight{direction, object.light_color});
+            continue;
+        }
+        if (object.type == SceneObjectType::SpotLight) {
+            const Vec3 direction =
+                (world.topLeftCorner<3, 3>() * Vec3(0.0f, 0.0f, -1.0f)).normalized();
+            result.spot_lights.push_back(SpotLight{
+                transform_point(world, Vec3::Zero()),
+                direction,
+                object.light_color,
+                object.light_range,
+                object.spot_inner_cone_radians,
+                object.spot_outer_cone_radians});
             continue;
         }
         if (object.type != SceneObjectType::Mesh) {
@@ -937,6 +1336,9 @@ void SceneDocument::ensure_instanced_scene() const {
         instance.world_bounds =
             transform_bounds(asset->local_bounds, world);
         instance.materials = asset->local_scene.materials;
+        for (Material& material : instance.materials) {
+            remap_material_textures(material, texture_remaps.at(asset->id));
+        }
         for (const SceneMaterialOverride& material_override :
              object.material_overrides) {
             if (material_override.material_slot >=
@@ -962,29 +1364,29 @@ const InstancedSceneView& SceneDocument::instanced_render_scene() const {
 bool SceneDocument::rebuild_render_scene() {
     Scene result;
     result.environment = state_.environment;
+    result.environment_map = state_.environment_map;
+    result.environment_intensity = state_.environment_intensity;
+    result.environment_rotation_degrees = state_.environment_rotation_degrees;
+    result.environment_background_visible = state_.environment_background_visible;
     Bounds3 bounds;
-    std::unordered_map<AssetId, int> texture_bases;
+    std::unordered_map<AssetId, std::vector<int>> texture_remaps;
     std::unordered_map<AssetId, int> default_material_bases;
 
-    const auto ensure_texture_base =
-        [&result, &texture_bases](const SceneMeshAsset& asset) {
-            const auto found = texture_bases.find(asset.id);
-            if (found != texture_bases.end()) {
+    const auto ensure_texture_remap =
+        [&result, &texture_remaps](const SceneMeshAsset& asset) -> const std::vector<int>& {
+            const auto found = texture_remaps.find(asset.id);
+            if (found != texture_remaps.end()) {
                 return found->second;
             }
-            const int texture_base = static_cast<int>(result.textures.size());
-            result.textures.insert(
-                result.textures.end(),
-                asset.local_scene.textures.begin(),
-                asset.local_scene.textures.end());
-            texture_bases.emplace(asset.id, texture_base);
-            return texture_base;
+            return texture_remaps.emplace(
+                asset.id,
+                append_unique_textures(result.textures, asset.local_scene.textures)).first->second;
         };
     const auto append_materials =
         [&result](
             const SceneMeshAsset& asset,
             const SceneObject* object,
-            int texture_base) {
+            const std::vector<int>& texture_remap) {
             const int material_base = static_cast<int>(result.materials.size());
             for (std::size_t index = 0;
                  index < asset.local_scene.materials.size();
@@ -1001,15 +1403,7 @@ bool SceneDocument::rebuild_render_scene() {
                         apply_material_override(material, *found);
                     }
                 }
-                if (material.diffuse_texture_id >= 0) {
-                    material.diffuse_texture_id += texture_base;
-                }
-                if (material.opacity_texture_id >= 0) {
-                    material.opacity_texture_id += texture_base;
-                }
-                if (material.bump_texture_id >= 0) {
-                    material.bump_texture_id += texture_base;
-                }
+                remap_material_textures(material, texture_remap);
                 result.materials.push_back(material);
             }
             return material_base;
@@ -1024,22 +1418,24 @@ bool SceneDocument::rebuild_render_scene() {
         if (!asset) {
             continue;
         }
-        const int texture_base = ensure_texture_base(*asset);
+        const std::vector<int>& texture_remap = ensure_texture_remap(*asset);
         int material_base = 0;
         if (object.material_overrides.empty()) {
             const auto found = default_material_bases.find(asset->id);
             if (found == default_material_bases.end()) {
-                material_base = append_materials(*asset, nullptr, texture_base);
+                material_base = append_materials(*asset, nullptr, texture_remap);
                 default_material_bases.emplace(asset->id, material_base);
             } else {
                 material_base = found->second;
             }
         } else {
-            material_base = append_materials(*asset, &object, texture_base);
+            material_base = append_materials(*asset, &object, texture_remap);
         }
 
         const Mat4 world = world_matrix(object.id);
-        const Mat3 normal_matrix = world.topLeftCorner<3, 3>().inverse().transpose();
+        const Mat3 linear = world.topLeftCorner<3, 3>();
+        const Mat3 normal_matrix = linear.inverse().transpose();
+        const float orientation_sign = linear.determinant() < 0.0f ? -1.0f : 1.0f;
         for (const Triangle& triangle : asset->local_scene.triangles) {
             TriangleVertex vertices[3];
             for (int index = 0; index < 3; ++index) {
@@ -1048,6 +1444,17 @@ bool SceneDocument::rebuild_render_scene() {
                 vertices[index].position = transform_point(world, source.position);
                 if (source.has_normal) {
                     vertices[index].normal = (normal_matrix * source.normal).normalized();
+                }
+                if (source.has_tangent) {
+                    const Vec3 transformed_tangent = linear * source.tangent.head<3>();
+                    vertices[index].has_tangent = usable_direction(transformed_tangent);
+                    vertices[index].tangent = vertices[index].has_tangent
+                        ? Vec4(
+                              transformed_tangent.normalized().x(),
+                              transformed_tangent.normalized().y(),
+                              transformed_tangent.normalized().z(),
+                              source.tangent.w() * orientation_sign)
+                        : Vec4::Zero();
                 }
                 bounds.expand(vertices[index].position);
             }
@@ -1066,12 +1473,25 @@ bool SceneDocument::rebuild_render_scene() {
         const Mat4 world = world_matrix(object.id);
         if (object.type == SceneObjectType::PointLight) {
             result.point_lights.push_back(
-                PointLight{transform_point(world, Vec3::Zero()), object.light_color});
+                PointLight{
+                    transform_point(world, Vec3::Zero()),
+                    object.light_color,
+                    object.light_range});
         } else if (object.type == SceneObjectType::DirectionalLight) {
             const Vec3 direction =
                 (world.topLeftCorner<3, 3>() * Vec3(0.0f, 0.0f, -1.0f)).normalized();
             result.directional_lights.push_back(
                 DirectionalLight{direction, object.light_color});
+        } else if (object.type == SceneObjectType::SpotLight) {
+            const Vec3 direction =
+                (world.topLeftCorner<3, 3>() * Vec3(0.0f, 0.0f, -1.0f)).normalized();
+            result.spot_lights.push_back(SpotLight{
+                transform_point(world, Vec3::Zero()),
+                direction,
+                object.light_color,
+                object.light_range,
+                object.spot_inner_cone_radians,
+                object.spot_outer_cone_radians});
         }
     }
 
@@ -1094,6 +1514,62 @@ Color& SceneDocument::environment() {
 
 const Color& SceneDocument::environment() const {
     return state_.environment;
+}
+
+void SceneDocument::set_environment_map(const std::filesystem::path& path) {
+    const auto loaded = EnvironmentMap::load(path);
+    if (!state_.environment_map) {
+        state_.environment = Color::Ones();
+    }
+    state_.environment_map = loaded;
+    state_.environment_path = loaded->source_path();
+    render_dirty_ = true;
+    instanced_dirty_ = true;
+}
+
+void SceneDocument::clear_environment_map() {
+    state_.environment_map.reset();
+    state_.environment_path.clear();
+    render_dirty_ = true;
+    instanced_dirty_ = true;
+}
+
+const std::shared_ptr<const EnvironmentMap>& SceneDocument::environment_map() const {
+    return state_.environment_map;
+}
+
+const std::filesystem::path& SceneDocument::environment_path() const {
+    return state_.environment_path;
+}
+
+float& SceneDocument::environment_intensity() {
+    render_dirty_ = true;
+    instanced_dirty_ = true;
+    return state_.environment_intensity;
+}
+
+float SceneDocument::environment_intensity() const {
+    return state_.environment_intensity;
+}
+
+float& SceneDocument::environment_rotation_degrees() {
+    render_dirty_ = true;
+    instanced_dirty_ = true;
+    return state_.environment_rotation_degrees;
+}
+
+float SceneDocument::environment_rotation_degrees() const {
+    return state_.environment_rotation_degrees;
+}
+
+bool& SceneDocument::environment_background_visible() {
+    render_dirty_ = true;
+    instanced_dirty_ = true;
+    return state_.environment_background_visible;
+}
+
+bool SceneDocument::environment_background_visible() const {
+    return state_.environment_background_visible;
 }
 
 void SceneDocument::checkpoint() {
@@ -1186,8 +1662,28 @@ nlohmann::json SceneDocument::serialize_document(
         }
     }
     nlohmann::json root;
-    root["version"] = 2;
-    root["environment"] = vec3_json(state_.environment);
+    root["version"] = 3;
+    nlohmann::json environment{
+        {"color", vec3_json(state_.environment)},
+        {"intensity", state_.environment_intensity},
+        {"rotation_degrees", state_.environment_rotation_degrees},
+        {"background_visible", state_.environment_background_visible},
+    };
+    if (!state_.environment_path.empty()) {
+        std::filesystem::path stored = state_.environment_path;
+        if (session_snapshot) {
+            stored = normalized_absolute(stored);
+        } else {
+            std::error_code error;
+            const std::filesystem::path relative =
+                std::filesystem::relative(stored, base, error);
+            if (!error) {
+                stored = relative;
+            }
+        }
+        environment["path"] = stored.generic_string();
+    }
+    root["environment"] = std::move(environment);
     root["assets"] = nlohmann::json::array();
     for (const auto& asset : assets_) {
         if (!referenced_asset_ids.contains(asset->id)) {
@@ -1197,9 +1693,12 @@ nlohmann::json SceneDocument::serialize_document(
             nlohmann::json source;
             if (!asset->source_path.empty()) {
                 source = {
-                    {"kind", "obj"},
+                    {"kind", asset->source_mesh_index >= 0 ? "gltf" : "obj"},
                     {"path", normalized_absolute(asset->source_path).generic_string()},
                 };
+                if (asset->source_mesh_index >= 0) {
+                    source["mesh_index"] = asset->source_mesh_index;
+                }
             } else if (!asset->builtin_id.empty()) {
                 source = {
                     {"kind", "builtin"},
@@ -1225,6 +1724,8 @@ nlohmann::json SceneDocument::serialize_document(
             root["assets"].push_back({
                 {"id", asset->id},
                 {"path", stored.generic_string()},
+                {"kind", asset->source_mesh_index >= 0 ? "gltf" : "obj"},
+                {"mesh_index", asset->source_mesh_index},
             });
         }
     }
@@ -1242,6 +1743,16 @@ nlohmann::json SceneDocument::serialize_document(
             {"locked", object.locked},
             {"asset", object.asset_id},
             {"light_color", vec3_json(object.light_color)},
+            {"light_range", object.light_range},
+            {"spot_inner_cone_radians", object.spot_inner_cone_radians},
+            {"spot_outer_cone_radians", object.spot_outer_cone_radians},
+            {"camera_projection", camera_projection_name(object.camera_projection)},
+            {"camera_vertical_fov_degrees", object.camera_vertical_fov_degrees},
+            {"camera_aspect_ratio", object.camera_aspect_ratio},
+            {"camera_x_magnification", object.camera_x_magnification},
+            {"camera_y_magnification", object.camera_y_magnification},
+            {"camera_near_plane", object.camera_near_plane},
+            {"camera_far_plane", object.camera_far_plane},
         };
         if (!object.material_overrides.empty()) {
             object_entry["material_overrides"] = nlohmann::json::array();
@@ -1260,14 +1771,23 @@ nlohmann::json SceneDocument::serialize_document(
                     {"base_color", vec3_json(material_override_value.base_color)},
                     {"emission", vec3_json(material_override_value.emission)},
                     {"roughness", material_override_value.roughness},
+                    {"metallic", material_override_value.metallic},
                     {"ior", material_override_value.ior},
                     {"opacity", material_override_value.opacity},
                     {"alpha_cutoff", material_override_value.alpha_cutoff},
                     {"bump_scale", material_override_value.bump_scale},
+                    {"normal_scale", material_override_value.normal_scale},
+                    {"occlusion_strength", material_override_value.occlusion_strength},
+                    {"alpha_mode", alpha_mode_name(material_override_value.alpha_mode)},
                     {"two_sided", material_override_value.two_sided},
                     {"use_diffuse_texture", material_override_value.use_diffuse_texture},
                     {"use_opacity_texture", material_override_value.use_opacity_texture},
                     {"use_bump_texture", material_override_value.use_bump_texture},
+                    {"use_base_color_texture", material_override_value.use_base_color_texture},
+                    {"use_metallic_roughness_texture", material_override_value.use_metallic_roughness_texture},
+                    {"use_normal_texture", material_override_value.use_normal_texture},
+                    {"use_occlusion_texture", material_override_value.use_occlusion_texture},
+                    {"use_emissive_texture", material_override_value.use_emissive_texture},
                 });
             }
         }
@@ -1328,7 +1848,7 @@ SceneDocument SceneDocument::deserialize_document(
     int height,
     bool session_snapshot) {
     const int version = root.value("version", 0);
-    if (version != 1 && version != 2) {
+    if (version < 1 || version > 3) {
         throw std::runtime_error("unsupported scene file version");
     }
 
@@ -1338,7 +1858,42 @@ SceneDocument SceneDocument::deserialize_document(
         : document_path;
     document.state_.objects.clear();
     document.assets_.clear();
-    document.state_.environment = parse_vec3(root.at("environment"), "environment");
+    if (version >= 3) {
+        const auto& environment = root.at("environment");
+        document.state_.environment = parse_vec3(environment.at("color"), "environment.color");
+        document.state_.environment_intensity = environment.value("intensity", 1.0f);
+        document.state_.environment_rotation_degrees = environment.value("rotation_degrees", 0.0f);
+        document.state_.environment_background_visible =
+            environment.value("background_visible", true);
+        if (!std::isfinite(document.state_.environment_intensity) ||
+            document.state_.environment_intensity < 0.0f ||
+            !std::isfinite(document.state_.environment_rotation_degrees)) {
+            throw std::runtime_error("scene environment settings are invalid");
+        }
+        if (environment.contains("path")) {
+            std::filesystem::path environment_path =
+                environment.at("path").get<std::string>();
+            if (!session_snapshot && environment_path.is_relative()) {
+                environment_path = document_path.parent_path() / environment_path;
+            }
+            document.state_.environment_path = normalized_absolute(environment_path);
+            if (std::filesystem::exists(document.state_.environment_path)) {
+                try {
+                    document.state_.environment_map =
+                        EnvironmentMap::load(document.state_.environment_path);
+                } catch (const std::exception& error) {
+                    document.warnings_.push_back(
+                        "failed to restore environment '" +
+                        document.state_.environment_path.string() + "': " + error.what());
+                }
+            } else {
+                document.warnings_.push_back(
+                    "missing environment: " + document.state_.environment_path.string());
+            }
+        }
+    } else {
+        document.state_.environment = parse_vec3(root.at("environment"), "environment");
+    }
     std::unordered_set<AssetId> referenced_asset_ids;
     for (const auto& object_json : root.at("objects")) {
         if (object_json.at("type").get<std::string>() != "mesh") {
@@ -1352,6 +1907,44 @@ SceneDocument SceneDocument::deserialize_document(
     }
     std::unordered_map<AssetId, AssetId> asset_ids;
     std::unordered_set<AssetId> stored_asset_ids;
+    std::unordered_map<std::wstring, LoadedGltfScene> restored_gltf_sources;
+    const auto load_restored_asset =
+        [&document, &restored_gltf_sources, width, height](
+            const std::filesystem::path& source_path,
+            int source_mesh_index) -> std::shared_ptr<SceneMeshAsset> {
+            const std::filesystem::path normalized = normalized_absolute(source_path);
+            const std::string extension = lowercase_extension(normalized);
+            if (extension != ".gltf" && extension != ".glb") {
+                return document.load_asset(normalized, width, height, -1);
+            }
+            const int mesh_index = source_mesh_index >= 0 ? source_mesh_index : 0;
+            for (const auto& existing : document.assets_) {
+                if (!existing->source_path.empty() &&
+                    normalized_absolute(existing->source_path) == normalized &&
+                    existing->source_mesh_index == mesh_index) {
+                    return existing;
+                }
+            }
+            const std::wstring cache_key = normalized.generic_wstring();
+            auto found = restored_gltf_sources.find(cache_key);
+            if (found == restored_gltf_sources.end()) {
+                LoadedGltfScene loaded = load_gltf_scene(normalized, width, height);
+                for (const std::string& warning : loaded.warnings) {
+                    document.warnings_.push_back(normalized.string() + ": " + warning);
+                }
+                found = restored_gltf_sources.emplace(
+                    cache_key,
+                    std::move(loaded)).first;
+            }
+            if (mesh_index < 0 ||
+                static_cast<std::size_t>(mesh_index) >= found->second.meshes.size()) {
+                throw std::runtime_error("glTF source mesh index is out of range");
+            }
+            return document.store_loaded_asset(
+                std::move(found->second.meshes[static_cast<std::size_t>(mesh_index)]),
+                normalized,
+                mesh_index);
+        };
     for (const auto& asset_json : root.at("assets")) {
         const AssetId stored_id = asset_json.at("id").get<AssetId>();
         if (stored_id == kInvalidAssetId ||
@@ -1394,7 +1987,7 @@ SceneDocument SceneDocument::deserialize_document(
                 asset_ids[stored_id] = asset->id;
                 continue;
             }
-            if (kind != "obj") {
+            if (kind != "obj" && kind != "gltf") {
                 document.warnings_.push_back(
                     "unknown session asset source kind: " + kind);
                 continue;
@@ -1407,7 +2000,12 @@ SceneDocument SceneDocument::deserialize_document(
                 continue;
             }
             try {
-                const auto asset = document.load_asset(asset_path, width, height);
+                const int source_mesh_index = kind == "gltf"
+                    ? source.value("mesh_index", 0)
+                    : -1;
+                const auto asset = load_restored_asset(
+                    asset_path,
+                    source_mesh_index);
                 asset_ids[stored_id] = asset->id;
             } catch (const std::exception& error) {
                 document.warnings_.push_back(
@@ -1430,7 +2028,12 @@ SceneDocument SceneDocument::deserialize_document(
             asset_ids[stored_id] = missing_asset->id;
             continue;
         }
-        const auto asset = document.load_asset(asset_path, width, height);
+        const int source_mesh_index = version >= 3
+            ? asset_json.value("mesh_index", -1)
+            : -1;
+        const auto asset = load_restored_asset(
+            asset_path,
+            source_mesh_index);
         asset_ids[stored_id] = asset->id;
     }
     std::unordered_set<ObjectId> object_ids;
@@ -1464,6 +2067,22 @@ SceneDocument SceneDocument::deserialize_document(
         }
         object.asset_id = mapped == asset_ids.end() ? kInvalidAssetId : mapped->second;
         object.light_color = parse_vec3(object_json.at("light_color"), "light_color");
+        if (version >= 3) {
+            object.light_range = object_json.value("light_range", 0.0f);
+            object.spot_inner_cone_radians =
+                object_json.value("spot_inner_cone_radians", 0.0f);
+            object.spot_outer_cone_radians =
+                object_json.value("spot_outer_cone_radians", kPi * 0.25f);
+            object.camera_projection = parse_camera_projection(
+                object_json.value("camera_projection", std::string("perspective")));
+            object.camera_vertical_fov_degrees =
+                object_json.value("camera_vertical_fov_degrees", 45.0f);
+            object.camera_aspect_ratio = object_json.value("camera_aspect_ratio", 0.0f);
+            object.camera_x_magnification = object_json.value("camera_x_magnification", 1.0f);
+            object.camera_y_magnification = object_json.value("camera_y_magnification", 1.0f);
+            object.camera_near_plane = object_json.value("camera_near_plane", 0.01f);
+            object.camera_far_plane = object_json.value("camera_far_plane", 1000.0f);
+        }
         if (version >= 2 && object_json.contains("material_overrides")) {
             std::unordered_set<std::uint32_t> material_slots;
             for (const auto& override_json :
@@ -1484,6 +2103,8 @@ SceneDocument SceneDocument::deserialize_document(
                     parse_vec3(override_json.at("emission"), "emission");
                 material_override_value.roughness =
                     override_json.at("roughness").get<float>();
+                material_override_value.metallic =
+                    override_json.value("metallic", 0.0f);
                 material_override_value.ior =
                     override_json.at("ior").get<float>();
                 material_override_value.opacity =
@@ -1492,6 +2113,12 @@ SceneDocument SceneDocument::deserialize_document(
                     override_json.at("alpha_cutoff").get<float>();
                 material_override_value.bump_scale =
                     override_json.at("bump_scale").get<float>();
+                material_override_value.normal_scale =
+                    override_json.value("normal_scale", 1.0f);
+                material_override_value.occlusion_strength =
+                    override_json.value("occlusion_strength", 1.0f);
+                material_override_value.alpha_mode = parse_alpha_mode(
+                    override_json.value("alpha_mode", std::string("opaque")));
                 material_override_value.two_sided =
                     override_json.value("two_sided", true);
                 material_override_value.use_diffuse_texture =
@@ -1500,6 +2127,16 @@ SceneDocument SceneDocument::deserialize_document(
                     override_json.value("use_opacity_texture", true);
                 material_override_value.use_bump_texture =
                     override_json.value("use_bump_texture", true);
+                material_override_value.use_base_color_texture =
+                    override_json.value("use_base_color_texture", true);
+                material_override_value.use_metallic_roughness_texture =
+                    override_json.value("use_metallic_roughness_texture", true);
+                material_override_value.use_normal_texture =
+                    override_json.value("use_normal_texture", true);
+                material_override_value.use_occlusion_texture =
+                    override_json.value("use_occlusion_texture", true);
+                material_override_value.use_emissive_texture =
+                    override_json.value("use_emissive_texture", true);
                 if (!valid_material_override(material_override_value)) {
                     throw std::runtime_error(
                         "scene object has an invalid material override");

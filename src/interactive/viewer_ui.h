@@ -11,6 +11,7 @@
 #include "scene/scene.h"
 #include "scene/scene_document.h"
 
+#include <array>
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -44,6 +45,7 @@ struct ViewerUiState {
     bool gizmo_hovered = false;
     ObjectId material_editor_object = kInvalidObjectId;
     std::size_t selected_material_slot = 0;
+    std::array<char, 160> scene_filter{};
     std::string scene_status;
 };
 
@@ -79,7 +81,9 @@ struct ViewerUiActions {
     bool open_scene_requested = false;
     bool save_scene_requested = false;
     bool save_scene_as_requested = false;
+    bool load_environment_requested = false;
     ObjectId focus_object = kInvalidObjectId;
+    ObjectId look_through_camera = kInvalidObjectId;
 
     bool resets_path_accumulation() const {
         return mode_changed ||

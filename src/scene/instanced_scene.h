@@ -30,9 +30,15 @@ struct InstancedSceneInstanceView {
 struct InstancedSceneView {
     std::vector<InstancedSceneAssetView> assets;
     std::vector<InstancedSceneInstanceView> instances;
+    std::vector<ImageTexture> textures;
     std::vector<PointLight> point_lights;
     std::vector<DirectionalLight> directional_lights;
+    std::vector<SpotLight> spot_lights;
     Color environment = Color(0.02f, 0.03f, 0.05f);
+    std::shared_ptr<const EnvironmentMap> environment_map;
+    float environment_intensity = 1.0f;
+    float environment_rotation_degrees = 0.0f;
+    bool environment_background_visible = true;
 };
 
 }  // namespace renderer

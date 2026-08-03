@@ -24,9 +24,12 @@
 #include "render/pathtracer/pathtracer_renderer.h"
 #include "render/pathtracer/cuda_pathtracer.h"
 #include "render/pathtracer/path_backend.h"
+#include "render/pbr.h"
 #include "render/scene_intersector.h"
 #include "sampling/sampler.h"
 #include "scene/camera.h"
+#include "scene/environment.h"
+#include "scene/gltf_loader.h"
 #include "scene/material.h"
 #include "scene/material_evaluator.h"
 #include "scene/obj_loader.h"
@@ -41,6 +44,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -532,6 +536,28 @@ void test_orbit_camera_controller_horizontal_drag_tracks_scene_direction() {
     const float after_x = controller.camera().eye().x();
 
     RENDER_CHECK(after_x < before_x);
+}
+
+void test_orbit_camera_controller_pan_moves_in_camera_plane() {
+    renderer::Bounds3 bounds(renderer::Vec3(-1, 0, -1), renderer::Vec3(1, 2, 1));
+    renderer::OrbitCameraController controller(bounds, 1.5f);
+    controller.set_vertical_fov_degrees(60.0f);
+    controller.set_distance(4.0f);
+    const renderer::Camera before = controller.camera();
+    constexpr float delta_x = 80.0f;
+    constexpr float delta_y = 40.0f;
+    constexpr float viewport_height = 800.0f;
+    const float world_units_per_pixel =
+        controller.distance() * before.viewport_height() / viewport_height;
+    const renderer::Vec3 expected_translation =
+        (-delta_x * before.right() + delta_y * before.up()) * world_units_per_pixel;
+
+    controller.pan(delta_x, delta_y, viewport_height);
+    const renderer::Camera after = controller.camera();
+
+    RENDER_CHECK((after.eye() - before.eye() - expected_translation).norm() < 1e-5f);
+    RENDER_CHECK((after.forward() - before.forward()).norm() < 1e-5f);
+    RENDER_CHECK(nearly_equal(controller.distance(), 4.0f));
 }
 
 void test_free_camera_controller_looks_and_clamps_pitch() {
@@ -3908,7 +3934,7 @@ void test_scene_document_material_overrides_are_per_object_and_roundtrip() {
         std::ifstream input(scene_path);
         input >> saved_json;
     }
-    RENDER_CHECK(saved_json.at("version").get<int>() == 2);
+    RENDER_CHECK(saved_json.at("version").get<int>() == 3);
     std::size_t objects_with_overrides = 0;
     for (const auto& object_json : saved_json.at("objects")) {
         if (object_json.contains("material_overrides")) {
@@ -3957,6 +3983,11 @@ void test_scene_document_material_overrides_are_per_object_and_roundtrip() {
 
     nlohmann::json version_one_json = saved_json;
     version_one_json["version"] = 1;
+    version_one_json["environment"] = saved_json["environment"]["color"];
+    for (auto& asset_json : version_one_json["assets"]) {
+        asset_json.erase("kind");
+        asset_json.erase("mesh_index");
+    }
     for (auto& object_json : version_one_json["objects"]) {
         object_json.erase("material_overrides");
     }
@@ -4359,7 +4390,551 @@ void test_viewer_session_omits_and_skips_unreferenced_assets() {
     std::filesystem::remove_all(directory);
 }
 
+void test_environment_map_sampling_sh_and_document_roundtrip() {
+    const renderer::Color constant(1.5f, 0.75f, 0.25f);
+    std::vector<renderer::Color> pixels(64U * 32U, constant);
+    const auto environment = std::make_shared<const renderer::EnvironmentMap>(
+        64,
+        32,
+        std::move(pixels));
+
+    const std::array<renderer::Vec3, 4> directions{
+        renderer::Vec3(1.0f, 0.2f, 0.3f).normalized(),
+        renderer::Vec3(-0.4f, 0.8f, 0.1f).normalized(),
+        renderer::Vec3(0.1f, -0.7f, -0.9f).normalized(),
+        renderer::Vec3(-0.6f, -0.2f, 0.75f).normalized()};
+    for (const renderer::Vec3& direction : directions) {
+        const renderer::Vec2 uv = renderer::EnvironmentMap::direction_to_uv(direction);
+        const renderer::Vec3 reconstructed =
+            renderer::EnvironmentMap::uv_to_direction(uv);
+        RENDER_CHECK(direction.dot(reconstructed) > 0.99999f);
+        RENDER_CHECK(environment->sample_direction(direction).isApprox(constant, 1.0e-5f));
+        RENDER_CHECK(nearly_equal(
+            environment->direction_pdf(direction),
+            1.0f / (4.0f * 3.14159265358979323846f),
+            2.0e-5f));
+    }
+    const renderer::EnvironmentMapSample sampled = environment->sample(0.37f, 0.2f, 0.8f);
+    RENDER_CHECK(sampled.direction.allFinite());
+    RENDER_CHECK(sampled.radiance.isApprox(constant, 1.0e-5f));
+    RENDER_CHECK(sampled.pdf > 0.0f);
+    const renderer::Color irradiance =
+        environment->diffuse_irradiance(renderer::Vec3::UnitY());
+    RENDER_CHECK((irradiance - constant * 3.14159265358979323846f)
+        .cwiseAbs().maxCoeff() < 0.03f);
+    const renderer::Color rotated = renderer::environment_radiance(
+        renderer::Color::Ones(),
+        environment,
+        2.0f,
+        90.0f,
+        renderer::Vec3::UnitX());
+    RENDER_CHECK(rotated.isApprox(constant * 2.0f, 1.0e-5f));
+
+    bool rejected_layout = false;
+    try {
+        static_cast<void>(renderer::EnvironmentMap(
+            3,
+            2,
+            std::vector<renderer::Color>(6, renderer::Color::Ones())));
+    } catch (const std::invalid_argument&) {
+        rejected_layout = true;
+    }
+    RENDER_CHECK(rejected_layout);
+
+    const std::filesystem::path directory = "test_environment_document";
+    const std::filesystem::path image_path = directory / "environment.ppm";
+    const std::filesystem::path scene_path = directory / "environment.rscene";
+    std::filesystem::remove_all(directory);
+    std::filesystem::create_directories(directory);
+    {
+        std::ofstream output(image_path, std::ios::binary);
+        output << "P6\n4 2\n255\n";
+        const std::array<unsigned char, 24> image_pixels{
+            255, 128, 64, 255, 128, 64, 255, 128, 64, 255, 128, 64,
+            255, 128, 64, 255, 128, 64, 255, 128, 64, 255, 128, 64};
+        output.write(
+            reinterpret_cast<const char*>(image_pixels.data()),
+            static_cast<std::streamsize>(image_pixels.size()));
+    }
+    renderer::SceneDocument document;
+    document.set_environment_map(image_path);
+    const renderer::Color decoded =
+        document.environment_map()->sample_direction(renderer::Vec3::UnitX());
+    RENDER_CHECK(nearly_equal(decoded.x(), 1.0f, 1.0e-6f));
+    RENDER_CHECK(nearly_equal(decoded.y(), 0.2158605f, 1.0e-5f));
+    RENDER_CHECK(nearly_equal(decoded.z(), 0.0512695f, 1.0e-5f));
+    document.environment_intensity() = 1.75f;
+    document.environment_rotation_degrees() = -35.0f;
+    document.environment_background_visible() = false;
+    document.save(scene_path);
+    renderer::SceneDocument restored =
+        renderer::SceneDocument::load(scene_path, 64, 64);
+    RENDER_CHECK(restored.environment_map() != nullptr);
+    RENDER_CHECK(nearly_equal(restored.environment_intensity(), 1.75f));
+    RENDER_CHECK(nearly_equal(restored.environment_rotation_degrees(), -35.0f));
+    RENDER_CHECK(!restored.environment_background_visible());
+    RENDER_CHECK(restored.render_scene().environment_map != nullptr);
+    std::filesystem::remove_all(directory);
+}
+
+void test_pbr_sampling_pdf_and_texture_sampler_contracts() {
+    const renderer::Color base_color(0.8f, 0.35f, 0.12f);
+    constexpr float metallic = 0.4f;
+    const renderer::PbrSurface surface{
+        base_color * (1.0f - metallic),
+        renderer::Color::Constant(0.04f) * (1.0f - metallic) +
+            base_color * metallic,
+        renderer::Color::Ones(),
+        renderer::Color::Constant(0.04f),
+        renderer::Color::Ones(),
+        0.45f,
+        true};
+    const renderer::PbrSample sampled = renderer::sample_pbr(
+        surface,
+        renderer::Vec3::UnitZ(),
+        renderer::Vec3::UnitZ(),
+        0.1f,
+        0.37f,
+        0.81f);
+    RENDER_CHECK(sampled.valid);
+    RENDER_CHECK(sampled.direction.allFinite());
+    RENDER_CHECK(sampled.weight.allFinite());
+    RENDER_CHECK(sampled.pdf > 0.0f);
+    const renderer::PbrEvaluation evaluated = renderer::evaluate_pbr(
+        surface,
+        renderer::Vec3::UnitZ(),
+        renderer::Vec3::UnitZ(),
+        sampled.direction);
+    RENDER_CHECK(evaluated.brdf.allFinite());
+    RENDER_CHECK(nearly_equal(evaluated.pdf, sampled.pdf, 1.0e-5f));
+
+    renderer::ImageTexture texture(
+        2,
+        1,
+        std::vector<renderer::Color>{
+            renderer::Color(1.0f, 0.0f, 0.0f),
+            renderer::Color(0.0f, 1.0f, 0.0f)});
+    texture.set_sampler(
+        renderer::TextureWrap::ClampToEdge,
+        renderer::TextureWrap::ClampToEdge,
+        renderer::TextureFilter::Nearest,
+        renderer::TextureFilter::Nearest);
+    RENDER_CHECK(texture.sample(renderer::Vec2(-0.25f, 0.5f)).x() > 0.99f);
+    RENDER_CHECK(texture.sample(renderer::Vec2(1.25f, 0.5f)).y() > 0.99f);
+    texture.set_sampler(
+        renderer::TextureWrap::MirroredRepeat,
+        renderer::TextureWrap::ClampToEdge,
+        renderer::TextureFilter::Nearest,
+        renderer::TextureFilter::Nearest);
+    RENDER_CHECK(texture.sample(renderer::Vec2(1.25f, 0.5f)).y() > 0.99f);
+
+    renderer::Scene alpha_scene;
+    renderer::Material alpha_material;
+    alpha_material.type = renderer::MaterialType::Pbr;
+    alpha_material.alpha_mode = renderer::AlphaMode::Mask;
+    alpha_material.opacity = 0.8f;
+    renderer::HitRecord alpha_hit;
+    alpha_hit.vertex_alpha = 0.25f;
+    RENDER_CHECK(nearly_equal(
+        renderer::sample_material_opacity(alpha_scene, alpha_material, alpha_hit),
+        0.2f));
+    alpha_material.alpha_mode = renderer::AlphaMode::Opaque;
+    RENDER_CHECK(nearly_equal(
+        renderer::sample_material_opacity(alpha_scene, alpha_material, alpha_hit),
+        1.0f));
+}
+
+void test_gltf_static_scene_import_and_flattening() {
+    const std::filesystem::path directory = "test_gltf_static_scene";
+    const std::filesystem::path gltf_path = directory / "scene.gltf";
+    const std::filesystem::path binary_path = directory / "mesh.bin";
+    std::filesystem::remove_all(directory);
+    std::filesystem::create_directories(directory);
+    const std::array<float, 9> positions{
+        0.0f, 0.0f, 0.0f,
+        1.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f};
+    const std::array<float, 9> normals{
+        0.0f, 0.0f, 1.0f,
+        0.0f, 0.0f, 1.0f,
+        0.0f, 0.0f, 1.0f};
+    const std::array<float, 6> uvs{0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f};
+    const std::array<std::uint16_t, 3> indices{0, 1, 2};
+    {
+        std::ofstream output(binary_path, std::ios::binary);
+        output.write(reinterpret_cast<const char*>(positions.data()), sizeof(positions));
+        output.write(reinterpret_cast<const char*>(normals.data()), sizeof(normals));
+        output.write(reinterpret_cast<const char*>(uvs.data()), sizeof(uvs));
+        output.write(reinterpret_cast<const char*>(indices.data()), sizeof(indices));
+    }
+    nlohmann::json gltf{
+        {"asset", {{"version", "2.0"}}},
+        {"extensionsUsed", {"KHR_lights_punctual"}},
+        {"extensions", {{"KHR_lights_punctual", {{"lights", {
+            {{"type", "spot"}, {"color", {1.0, 0.5, 0.25}}, {"intensity", 12.0},
+             {"range", 5.0},
+             {"spot", {{"innerConeAngle", 0.1}, {"outerConeAngle", 0.5}}}}
+        }}}}}},
+        {"scene", 0},
+        {"scenes", {{{"nodes", {0}}}}},
+        {"nodes", {
+            {{"name", "Root"}, {"children", {1, 2, 3}}},
+            {{"name", "Left"}, {"mesh", 0}, {"translation", {-1.0, 0.0, 0.0}}},
+            {{"name", "Right"}, {"mesh", 0}, {"translation", {1.0, 0.0, 0.0}}},
+            {{"name", "CameraLight"}, {"camera", 0},
+             {"translation", {0.0, 0.0, 3.0}},
+             {"extensions", {{"KHR_lights_punctual", {{"light", 0}}}}}}
+        }},
+        {"cameras", {{{"name", "MainCamera"}, {"type", "perspective"},
+            {"perspective", {{"yfov", 0.7}, {"znear", 0.1}}}}}},
+        {"materials", {{{"name", "PBR"}, {"doubleSided", false},
+            {"alphaMode", "MASK"}, {"alphaCutoff", 0.35},
+            {"pbrMetallicRoughness", {
+                {"baseColorFactor", {0.8, 0.4, 0.2, 0.9}},
+                {"metallicFactor", 0.7}, {"roughnessFactor", 0.25}}}}}},
+        {"meshes", {{{"name", "SharedTriangle"}, {"primitives", {{
+            {"attributes", {{"POSITION", 0}, {"NORMAL", 1}, {"TEXCOORD_0", 2}}},
+            {"indices", 3}, {"material", 0}
+        }}}}}},
+        {"buffers", {{{"uri", "mesh.bin"}, {"byteLength", 102}}}},
+        {"bufferViews", {
+            {{"buffer", 0}, {"byteOffset", 0}, {"byteLength", 36}},
+            {{"buffer", 0}, {"byteOffset", 36}, {"byteLength", 36}},
+            {{"buffer", 0}, {"byteOffset", 72}, {"byteLength", 24}},
+            {{"buffer", 0}, {"byteOffset", 96}, {"byteLength", 6}}
+        }},
+        {"accessors", {
+            {{"bufferView", 0}, {"componentType", 5126}, {"count", 3}, {"type", "VEC3"},
+             {"min", {0.0, 0.0, 0.0}}, {"max", {1.0, 1.0, 0.0}}},
+            {{"bufferView", 1}, {"componentType", 5126}, {"count", 3}, {"type", "VEC3"}},
+            {{"bufferView", 2}, {"componentType", 5126}, {"count", 3}, {"type", "VEC2"}},
+            {{"bufferView", 3}, {"componentType", 5123}, {"count", 3}, {"type", "SCALAR"}}
+        }}
+    };
+    {
+        std::ofstream output(gltf_path);
+        output << gltf.dump(2) << '\n';
+    }
+
+    const renderer::LoadedGltfScene loaded =
+        renderer::load_gltf_scene(gltf_path, 320, 200);
+    RENDER_CHECK(loaded.meshes.size() == 1);
+    RENDER_CHECK(loaded.nodes.size() == 4);
+    RENDER_CHECK(loaded.cameras.size() == 1);
+    RENDER_CHECK(loaded.nodes[1].mesh_index == 0);
+    RENDER_CHECK(loaded.nodes[2].mesh_index == 0);
+    RENDER_CHECK(loaded.nodes[3].light_type == renderer::GltfNodeAsset::LightType::Spot);
+    const renderer::Material& material = loaded.meshes[0].scene.materials[0];
+    RENDER_CHECK(material.type == renderer::MaterialType::Pbr);
+    RENDER_CHECK(nearly_equal(material.metallic, 0.7f));
+    RENDER_CHECK(nearly_equal(material.roughness, 0.25f));
+    RENDER_CHECK(material.alpha_mode == renderer::AlphaMode::Mask);
+    RENDER_CHECK(!material.two_sided);
+
+    const renderer::LoadedScene flattened =
+        renderer::load_scene_asset(gltf_path.string(), 320, 200);
+    RENDER_CHECK(flattened.scene.triangles.size() == 2);
+    RENDER_CHECK(flattened.scene.spot_lights.size() == 1);
+    RENDER_CHECK(nearly_equal(flattened.scene.spot_lights[0].range, 5.0f));
+    RENDER_CHECK(flattened.bounds.min.x() < -0.99f);
+    RENDER_CHECK(flattened.bounds.max.x() > 1.99f);
+    RENDER_CHECK(flattened.camera.eye().z() > 2.9f);
+
+    renderer::SceneDocument document;
+    const std::vector<renderer::ObjectId> imported =
+        document.import_path(gltf_path, 320, 200);
+    RENDER_CHECK(!imported.empty());
+    RENDER_CHECK(document.assets().size() == 1);
+    const std::size_t camera_count = static_cast<std::size_t>(std::count_if(
+        document.objects().begin(),
+        document.objects().end(),
+        [](const renderer::SceneObject& object) {
+            return object.type == renderer::SceneObjectType::Camera;
+        }));
+    const std::size_t spot_count = static_cast<std::size_t>(std::count_if(
+        document.objects().begin(),
+        document.objects().end(),
+        [](const renderer::SceneObject& object) {
+            return object.type == renderer::SceneObjectType::SpotLight;
+        }));
+    RENDER_CHECK(camera_count == 1);
+    RENDER_CHECK(spot_count == 1);
+    const auto imported_spot = std::find_if(
+        document.objects().begin(),
+        document.objects().end(),
+        [](const renderer::SceneObject& object) {
+            return object.type == renderer::SceneObjectType::SpotLight;
+        });
+    RENDER_CHECK(imported_spot != document.objects().end());
+    RENDER_CHECK(nearly_equal(imported_spot->light_range, 5.0f));
+    std::filesystem::remove_all(directory);
+}
+
+void test_gltf_texture_origin_sharing_and_material_extensions() {
+    const std::filesystem::path directory = "test_gltf_pbr_extensions";
+    const std::filesystem::path gltf_path = directory / "scene.gltf";
+    const std::filesystem::path required_transmission_path =
+        directory / "required_transmission.gltf";
+    const std::filesystem::path binary_path = directory / "mesh.bin";
+    std::filesystem::remove_all(directory);
+    std::filesystem::create_directories(directory);
+
+    renderer::ImageTexture bottom_left_texture(
+        2,
+        2,
+        std::vector<renderer::Color>{
+            renderer::Color(1.0f, 0.0f, 0.0f),
+            renderer::Color(0.0f, 1.0f, 0.0f),
+            renderer::Color(0.0f, 0.0f, 1.0f),
+            renderer::Color(1.0f, 1.0f, 1.0f)},
+        renderer::TextureUvOrigin::BottomLeft);
+    bottom_left_texture.set_sampler(
+        renderer::TextureWrap::ClampToEdge,
+        renderer::TextureWrap::ClampToEdge,
+        renderer::TextureFilter::Nearest,
+        renderer::TextureFilter::Nearest);
+    RENDER_CHECK(
+        bottom_left_texture.sample(renderer::Vec2(0.0f, 0.0f)).z() > 0.99f);
+
+    renderer::Scene normal_scene;
+    normal_scene.textures.emplace_back(
+        2,
+        2,
+        std::vector<renderer::Color>{
+            renderer::Color(0.5f, 0.5f, 1.0f),
+            renderer::Color(1.0f, 0.5f, 0.5f),
+            renderer::Color(0.5f, 1.0f, 0.5f),
+            renderer::Color(0.5f, 0.5f, 1.0f)},
+        renderer::TextureUvOrigin::TopLeft);
+    normal_scene.textures[0].set_sampler(
+        renderer::TextureWrap::ClampToEdge,
+        renderer::TextureWrap::ClampToEdge,
+        renderer::TextureFilter::Nearest,
+        renderer::TextureFilter::Nearest);
+    renderer::Material normal_material;
+    normal_material.type = renderer::MaterialType::Pbr;
+    normal_material.normal_texture_id = 0;
+    normal_material.normal_texture_transform.offset = renderer::Vec2(0.5f, 0.0f);
+    renderer::HitRecord normal_hit;
+    normal_hit.uv = renderer::Vec2::Zero();
+    normal_hit.vertex_color = renderer::Color::Ones();
+    normal_hit.vertex_alpha = 1.0f;
+    normal_hit.geometric_normal = renderer::Vec3::UnitZ();
+    normal_hit.shading_normal = renderer::Vec3::UnitZ();
+    normal_hit.tangent = renderer::Vec3::UnitX();
+    normal_hit.bitangent = renderer::Vec3::UnitY();
+    normal_hit.has_valid_uv_basis = true;
+    const renderer::SurfaceMaterialSample normal_surface =
+        renderer::evaluate_surface_material(
+            normal_scene,
+            normal_material,
+            normal_hit);
+    RENDER_CHECK(normal_surface.shading_normal.x() > 0.99f);
+
+    const std::array<float, 9> positions{
+        0.0f, 0.0f, 0.0f,
+        1.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f};
+    const std::array<float, 9> normals{
+        0.0f, 0.0f, 1.0f,
+        0.0f, 0.0f, 1.0f,
+        0.0f, 0.0f, 1.0f};
+    const std::array<float, 6> uvs{0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f};
+    const std::array<std::uint16_t, 3> indices{0, 1, 2};
+    {
+        std::ofstream output(binary_path, std::ios::binary);
+        output.write(reinterpret_cast<const char*>(positions.data()), sizeof(positions));
+        output.write(reinterpret_cast<const char*>(normals.data()), sizeof(normals));
+        output.write(reinterpret_cast<const char*>(uvs.data()), sizeof(uvs));
+        output.write(reinterpret_cast<const char*>(indices.data()), sizeof(indices));
+    }
+
+    constexpr const char* image_uri =
+        "data:image/png;base64,"
+        "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAAXNSR0IArs4c6QAAAARnQU1B"
+        "AACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAbSURBVBhXY/jPwODA8J+hgYGB4f+B"
+        "/////wcAOSUIeujznm4AAAAASUVORK5CYII=";
+    nlohmann::json gltf{
+        {"asset", {{"version", "2.0"}}},
+        {"extensionsUsed", {
+            "KHR_texture_transform",
+            "KHR_materials_pbrSpecularGlossiness",
+            "KHR_materials_specular",
+            "KHR_materials_ior",
+            "KHR_materials_emissive_strength",
+            "KHR_materials_transmission"}},
+        {"extensionsRequired", {"KHR_materials_pbrSpecularGlossiness"}},
+        {"scene", 0},
+        {"scenes", {{{"nodes", {0, 1}}}}},
+        {"nodes", {
+            {{"name", "SpecGloss"}, {"mesh", 0}},
+            {{"name", "MetalRough"}, {"mesh", 1}, {"translation", {1.5, 0.0, 0.0}}}}},
+        {"images", {{{"uri", image_uri}}}},
+        {"samplers", {{{"magFilter", 9728}, {"minFilter", 9728},
+            {"wrapS", 33071}, {"wrapT", 33071}}}},
+        {"textures", {
+            {{"sampler", 0}, {"source", 0}},
+            {{"sampler", 0}, {"source", 0}}}},
+        {"materials", {
+            {{"name", "SpecGloss"},
+             {"alphaMode", "BLEND"},
+             {"extensions", {
+                 {"KHR_materials_pbrSpecularGlossiness", {
+                     {"diffuseFactor", {0.5, 0.5, 0.5, 0.8}},
+                     {"diffuseTexture", {
+                         {"index", 0},
+                         {"extensions", {{"KHR_texture_transform", {
+                             {"offset", {0.5, 0.0}}, {"scale", {0.5, 1.0}}}}}}}},
+                     {"specularFactor", {0.2, 0.3, 0.4}},
+                     {"glossinessFactor", 0.7},
+                     {"specularGlossinessTexture", {{"index", 1}}}}}}}},
+            {{"name", "MetalRough"},
+             {"emissiveFactor", {0.1, 0.2, 0.3}},
+             {"pbrMetallicRoughness", {
+                 {"baseColorFactor", {0.8, 0.6, 0.4, 1.0}},
+                 {"metallicFactor", 0.0},
+                 {"roughnessFactor", 0.4}}},
+             {"extensions", {
+                 {"KHR_materials_specular", {
+                     {"specularFactor", 0.5},
+                     {"specularColorFactor", {0.5, 1.0, 0.25}}}},
+                 {"KHR_materials_ior", {{"ior", 2.0}}},
+                 {"KHR_materials_emissive_strength", {{"emissiveStrength", 3.0}}},
+                 {"KHR_materials_transmission", {{"transmissionFactor", 0.75}}}}}}}},
+        {"meshes", {
+            {{"primitives", {{{"attributes", {
+                {"POSITION", 0}, {"NORMAL", 1}, {"TEXCOORD_0", 2}}},
+                {"indices", 3}, {"material", 0}}}}},
+            {{"primitives", {{{"attributes", {
+                {"POSITION", 0}, {"NORMAL", 1}, {"TEXCOORD_0", 2}}},
+                {"indices", 3}, {"material", 1}}}}}}},
+        {"buffers", {{{"uri", "mesh.bin"}, {"byteLength", 102}}}},
+        {"bufferViews", {
+            {{"buffer", 0}, {"byteOffset", 0}, {"byteLength", 36}},
+            {{"buffer", 0}, {"byteOffset", 36}, {"byteLength", 36}},
+            {{"buffer", 0}, {"byteOffset", 72}, {"byteLength", 24}},
+            {{"buffer", 0}, {"byteOffset", 96}, {"byteLength", 6}}}},
+        {"accessors", {
+            {{"bufferView", 0}, {"componentType", 5126}, {"count", 3}, {"type", "VEC3"},
+             {"min", {0.0, 0.0, 0.0}}, {"max", {1.0, 1.0, 0.0}}},
+            {{"bufferView", 1}, {"componentType", 5126}, {"count", 3}, {"type", "VEC3"}},
+            {{"bufferView", 2}, {"componentType", 5126}, {"count", 3}, {"type", "VEC2"}},
+            {{"bufferView", 3}, {"componentType", 5123}, {"count", 3}, {"type", "SCALAR"}}}}
+    };
+    {
+        std::ofstream output(gltf_path);
+        output << gltf.dump(2) << '\n';
+    }
+
+    const renderer::LoadedGltfScene loaded =
+        renderer::load_gltf_scene(gltf_path, 64, 64);
+    RENDER_CHECK(loaded.meshes.size() == 2);
+    RENDER_CHECK(loaded.meshes[0].scene.textures.size() == 2);
+    const renderer::ImageTexture& first_texture = loaded.meshes[0].scene.textures[0];
+    const renderer::ImageTexture& second_texture = loaded.meshes[0].scene.textures[1];
+    RENDER_CHECK(first_texture.uv_origin() == renderer::TextureUvOrigin::TopLeft);
+    RENDER_CHECK(first_texture.shares_pixel_storage_with(second_texture));
+    RENDER_CHECK(first_texture.same_resource_view(second_texture));
+    RENDER_CHECK(first_texture.sample(renderer::Vec2(0.0f, 0.0f)).x() > 0.99f);
+    RENDER_CHECK(nearly_equal(
+        first_texture.sample_alpha(renderer::Vec2(0.0f, 0.0f)),
+        64.0f / 255.0f,
+        1.0e-5f));
+
+    const renderer::Material& spec_gloss = loaded.meshes[0].scene.materials[0];
+    RENDER_CHECK(spec_gloss.pbr_workflow == renderer::PbrWorkflow::SpecularGlossiness);
+    RENDER_CHECK(nearly_equal(spec_gloss.roughness, 0.3f));
+    renderer::HitRecord hit;
+    hit.uv = renderer::Vec2::Zero();
+    hit.vertex_color = renderer::Color::Ones();
+    hit.vertex_alpha = 1.0f;
+    hit.geometric_normal = renderer::Vec3::UnitZ();
+    hit.shading_normal = renderer::Vec3::UnitZ();
+    const renderer::SurfaceMaterialSample spec_gloss_surface =
+        renderer::evaluate_surface_material(
+            loaded.meshes[0].scene,
+            spec_gloss,
+            hit);
+    RENDER_CHECK(spec_gloss_surface.base_color.y() > 0.49f);
+    RENDER_CHECK(spec_gloss_surface.base_color.x() < 1.0e-5f);
+    RENDER_CHECK(nearly_equal(
+        spec_gloss_surface.opacity,
+        0.8f * (128.0f / 255.0f),
+        1.0e-4f));
+    RENDER_CHECK(nearly_equal(spec_gloss_surface.specular_f0.x(), 0.2f, 1.0e-5f));
+    RENDER_CHECK(nearly_equal(spec_gloss_surface.specular_f0.y(), 0.0f, 1.0e-5f));
+    RENDER_CHECK(nearly_equal(
+        spec_gloss_surface.roughness,
+        1.0f - 0.7f * (64.0f / 255.0f),
+        1.0e-4f));
+
+    const renderer::Material& metal_rough = loaded.meshes[1].scene.materials[1];
+    RENDER_CHECK(metal_rough.pbr_workflow == renderer::PbrWorkflow::MetallicRoughness);
+    RENDER_CHECK(nearly_equal(metal_rough.ior, 2.0f));
+    RENDER_CHECK(nearly_equal(metal_rough.specular_factor, 0.5f));
+    RENDER_CHECK(nearly_equal(metal_rough.emission.z(), 0.9f));
+    const renderer::SurfaceMaterialSample metal_rough_surface =
+        renderer::evaluate_surface_material(
+            loaded.meshes[1].scene,
+            metal_rough,
+            hit);
+    RENDER_CHECK(nearly_equal(
+        metal_rough_surface.specular_f0.x(),
+        (1.0f / 9.0f) * 0.5f * 0.5f,
+        1.0e-5f));
+    RENDER_CHECK(std::count_if(
+        loaded.warnings.begin(),
+        loaded.warnings.end(),
+        [](const std::string& warning) {
+            return warning.find("KHR_materials_transmission") != std::string::npos;
+        }) == 1);
+
+    renderer::SceneDocument document;
+    document.import_path(gltf_path, 64, 64);
+    RENDER_CHECK(document.assets().size() == 2);
+    RENDER_CHECK(document.render_scene().textures.size() == 1);
+    RENDER_CHECK(document.instanced_render_scene().textures.size() == 1);
+
+    const std::filesystem::path scene_path = directory / "shared-textures.rscene";
+    document.save(scene_path);
+    renderer::SceneDocument restored =
+        renderer::SceneDocument::load(scene_path, 64, 64);
+    RENDER_CHECK(restored.assets().size() == 2);
+    RENDER_CHECK(restored.assets()[0]->source_mesh_index !=
+                 restored.assets()[1]->source_mesh_index);
+    RENDER_CHECK(!restored.assets()[0]->local_scene.textures.empty());
+    RENDER_CHECK(!restored.assets()[1]->local_scene.textures.empty());
+    RENDER_CHECK(
+        restored.assets()[0]->local_scene.textures[0].shares_pixel_storage_with(
+            restored.assets()[1]->local_scene.textures[0]));
+    RENDER_CHECK(restored.render_scene().textures.size() == 1);
+    RENDER_CHECK(restored.instanced_render_scene().textures.size() == 1);
+
+    nlohmann::json required_transmission = gltf;
+    required_transmission["extensionsRequired"] = {
+        "KHR_materials_pbrSpecularGlossiness",
+        "KHR_materials_transmission"};
+    {
+        std::ofstream output(required_transmission_path);
+        output << required_transmission.dump(2) << '\n';
+    }
+    bool rejected_required_transmission = false;
+    try {
+        (void)renderer::load_gltf_scene(required_transmission_path, 64, 64);
+    } catch (const std::runtime_error& error) {
+        rejected_required_transmission =
+            std::string(error.what()).find("KHR_materials_transmission") != std::string::npos;
+    }
+    RENDER_CHECK(rejected_required_transmission);
+    std::filesystem::remove_all(directory);
+}
+
 int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--gltf-pbr-regression") {
+        test_gltf_texture_origin_sharing_and_material_extensions();
+        std::cout << "renderer_tests: glTF PBR regression passed\n";
+        return 0;
+    }
     if (argc == 2 &&
         std::string(argv[1]) ==
             "--cuda-instancing-sanitizer") {
@@ -4384,6 +4959,7 @@ int main(int argc, char** argv) {
     test_camera_rejects_non_finite_screen_coordinates();
     test_orbit_camera_controller_zoom_and_orbit_change_camera();
     test_orbit_camera_controller_horizontal_drag_tracks_scene_direction();
+    test_orbit_camera_controller_pan_moves_in_camera_plane();
     test_free_camera_controller_looks_and_clamps_pitch();
     test_free_camera_controller_moves_in_camera_and_world_directions();
     test_camera_mode_switch_preserves_pose();
@@ -4469,6 +5045,10 @@ int main(int argc, char** argv) {
     test_scene_document_material_overrides_are_per_object_and_roundtrip();
     test_viewer_session_roundtrip_and_partial_asset_recovery();
     test_viewer_session_omits_and_skips_unreferenced_assets();
+    test_environment_map_sampling_sh_and_document_roundtrip();
+    test_pbr_sampling_pdf_and_texture_sampler_contracts();
+    test_gltf_static_scene_import_and_flattening();
+    test_gltf_texture_origin_sharing_and_material_extensions();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;
 }

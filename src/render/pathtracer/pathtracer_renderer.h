@@ -28,12 +28,22 @@ private:
         const SurfaceMaterialSample& surface,
         PcgRandom& rng,
         Color& attenuation,
-        Ray& scattered) const;
+        Ray& scattered,
+        float& pdf,
+        bool& delta) const;
     Color estimate_direct_lighting(
         const Scene& scene,
         const SceneIntersector& intersector,
         const HitRecord& hit,
-        const SurfaceMaterialSample& surface) const;
+        const SurfaceMaterialSample& surface,
+        const Vec3& outgoing) const;
+    Color estimate_environment_lighting(
+        const Scene& scene,
+        const SceneIntersector& intersector,
+        const HitRecord& hit,
+        const SurfaceMaterialSample& surface,
+        const Vec3& outgoing,
+        PcgRandom& rng) const;
 };
 
 }  // namespace renderer

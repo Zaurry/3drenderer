@@ -3,8 +3,10 @@
 #include "scene/material_evaluator.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 
 namespace renderer {
@@ -21,6 +23,34 @@ constexpr float kOffsetNormalSquaredThreshold = 1e-24f;
 
 bool material_exists(const Scene& scene, int material_id) {
     return material_id >= 0 && static_cast<std::size_t>(material_id) < scene.materials.size();
+}
+
+AlphaMode effective_alpha_mode(const Material& material) {
+    if (material.type == MaterialType::Pbr) {
+        return material.alpha_mode;
+    }
+    return material.opacity_texture_id >= 0 || material.opacity < 1.0f
+        ? AlphaMode::Mask
+        : AlphaMode::Opaque;
+}
+
+float stochastic_visibility_sample(const Ray& ray, const HitRecord& hit) {
+    auto mix = [](std::uint32_t value) {
+        value ^= value >> 16U;
+        value *= 0x7feb352dU;
+        value ^= value >> 15U;
+        value *= 0x846ca68bU;
+        return value ^ (value >> 16U);
+    };
+    std::uint32_t hash = 0x9e3779b9U;
+    for (int axis = 0; axis < 3; ++axis) {
+        hash ^= mix(std::bit_cast<std::uint32_t>(ray.direction[axis]) +
+            static_cast<std::uint32_t>(axis) * 0x85ebca6bU);
+        hash ^= mix(std::bit_cast<std::uint32_t>(hit.position[axis]) +
+            static_cast<std::uint32_t>(axis) * 0xc2b2ae35U);
+    }
+    hash ^= mix(std::bit_cast<std::uint32_t>(hit.t));
+    return static_cast<float>(hash >> 8U) * (1.0f / 16777216.0f);
 }
 
 }  // namespace
@@ -49,8 +79,11 @@ bool SceneIntersector::intersect(
 
         const Material& material = scene_.materials[static_cast<std::size_t>(candidate.material_id)];
         const bool visible_side = material.two_sided || candidate.front_face;
-        const float opacity = sample_material_opacity(scene_, material, candidate.uv);
-        if (visible_side && opacity >= material.alpha_cutoff) {
+        const float opacity = sample_material_opacity(scene_, material, candidate);
+        const AlphaMode alpha_mode = effective_alpha_mode(material);
+        const bool alpha_visible = alpha_mode == AlphaMode::Opaque ||
+            alpha_mode == AlphaMode::Blend || opacity >= material.alpha_cutoff;
+        if (visible_side && alpha_visible) {
             hit = candidate;
             return true;
         }
@@ -65,8 +98,34 @@ bool SceneIntersector::intersect(
 }
 
 bool SceneIntersector::occluded(const Ray& ray, float t_min, float t_max) const {
-    HitRecord hit;
-    return intersect(ray, t_min, t_max, hit);
+    float search_min = t_min;
+    for (int layer = 0; layer < max_transparent_layers; ++layer) {
+        HitRecord candidate;
+        if (!intersect_nearest(ray, search_min, t_max, candidate)) {
+            return false;
+        }
+        if (!material_exists(scene_, candidate.material_id)) {
+            return true;
+        }
+        const Material& material =
+            scene_.materials[static_cast<std::size_t>(candidate.material_id)];
+        const bool visible_side = material.two_sided || candidate.front_face;
+        const float opacity = sample_material_opacity(scene_, material, candidate);
+        const AlphaMode alpha_mode = effective_alpha_mode(material);
+        const bool alpha_visible = alpha_mode == AlphaMode::Opaque ||
+            (alpha_mode == AlphaMode::Mask && opacity >= material.alpha_cutoff) ||
+            (alpha_mode == AlphaMode::Blend &&
+             stochastic_visibility_sample(ray, candidate) < opacity);
+        if (visible_side && alpha_visible) {
+            return true;
+        }
+        const float advanced = std::nextafter(candidate.t, t_max);
+        if (!(advanced > search_min)) {
+            return false;
+        }
+        search_min = advanced;
+    }
+    return false;
 }
 
 bool SceneIntersector::intersect_nearest(

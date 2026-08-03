@@ -70,6 +70,26 @@ void OrbitCameraController::orbit(float delta_x, float delta_y) {
     pitch_ = std::clamp(pitch_ + delta_y * sensitivity, kMinPitch, kMaxPitch);
 }
 
+void OrbitCameraController::pan(
+    float delta_x,
+    float delta_y,
+    float viewport_height_pixels) {
+    if (!std::isfinite(delta_x) ||
+        !std::isfinite(delta_y) ||
+        !std::isfinite(viewport_height_pixels) ||
+        viewport_height_pixels <= 0.0f) {
+        throw std::invalid_argument(
+            "OrbitCameraController pan inputs must be finite and viewport height must be positive");
+    }
+
+    const Camera current_camera = camera();
+    const float world_units_per_pixel =
+        distance_ * current_camera.viewport_height() / viewport_height_pixels;
+    target_ +=
+        (-delta_x * current_camera.right() + delta_y * current_camera.up()) *
+        world_units_per_pixel;
+}
+
 void OrbitCameraController::zoom(float wheel_delta) {
     distance_ *= std::exp(-wheel_delta * 0.12f);
     distance_ = std::max(distance_, kMinDistance);

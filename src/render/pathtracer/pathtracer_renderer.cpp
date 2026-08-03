@@ -3,9 +3,11 @@
 #include "core/timer.h"
 #include "render/pathtracer/cuda_pathtracer.h"
 #include "render/pathtracer/path_backend.h"
+#include "render/pbr.h"
 #include "render/scene_intersector.h"
 #include "sampling/sampler.h"
 #include "scene/material_evaluator.h"
+#include "scene/environment.h"
 
 #include <algorithm>
 #include <atomic>
@@ -37,15 +39,13 @@ float reflectance(float cosine, float refraction_index) {
     return r0 + (1.0f - r0) * std::pow(1.0f - cosine, 5.0f);
 }
 
-Vec3 tangent_to_world(const Vec3& local_direction, const Vec3& normal) {
-    const Vec3 w = normal.normalized();
-    const Vec3 helper = std::abs(w.x()) > 0.9f
-        ? Vec3(0.0f, 1.0f, 0.0f)
-        : Vec3(1.0f, 0.0f, 0.0f);
-    const Vec3 v = w.cross(helper).normalized();
-    const Vec3 u = v.cross(w);
-    return (local_direction.x() * u + local_direction.y() * v + local_direction.z() * w)
-        .normalized();
+float punctual_range_attenuation(float distance, float range) {
+    if (!(range > 0.0f)) {
+        return 1.0f;
+    }
+    const float ratio = distance / range;
+    const float cutoff = std::max(0.0f, 1.0f - ratio * ratio * ratio * ratio);
+    return cutoff * cutoff;
 }
 
 std::uint64_t pixel_seed(int x, int y, int width, std::uint64_t sample_seed_offset) {
@@ -165,11 +165,29 @@ Color PathTracerRenderer::trace_path(
     Color radiance = black();
     Color throughput = Color::Ones();
     Ray current_ray = ray;
+    float previous_bsdf_pdf = 0.0f;
+    bool previous_delta = true;
 
     for (int bounce = 0; bounce < kMaxPathBounces; ++bounce) {
         HitRecord hit;
         if (!intersector.intersect(current_ray, 0.0f, 1.0e30f, hit)) {
-            radiance += throughput.cwiseProduct(scene.environment);
+            if (bounce > 0 || scene.environment_background_visible) {
+                const Color incoming = environment_radiance(
+                    scene.environment,
+                    scene.environment_map,
+                    scene.environment_intensity,
+                    scene.environment_rotation_degrees,
+                    current_ray.direction);
+                const float weight = bounce == 0 || previous_delta
+                    ? 1.0f
+                    : power_heuristic(
+                          previous_bsdf_pdf,
+                          environment_pdf(
+                              scene.environment_map,
+                              scene.environment_rotation_degrees,
+                              current_ray.direction));
+                radiance += throughput.cwiseProduct(incoming) * weight;
+            }
             break;
         }
 
@@ -180,7 +198,18 @@ Color PathTracerRenderer::trace_path(
 
         const Material& material = scene.materials[hit.material_id];
         const SurfaceMaterialSample surface = evaluate_surface_material(scene, material, hit);
-        const Color emitted = material.emission;
+        if (material.type == MaterialType::Pbr &&
+            material.alpha_mode == AlphaMode::Blend &&
+            rng.next_float() >= surface.opacity) {
+            const Vec3 direction = current_ray.direction.normalized();
+            current_ray = Ray(
+                offset_ray_origin(hit.position, hit.geometric_normal, direction),
+                direction);
+            previous_bsdf_pdf = 0.0f;
+            previous_delta = true;
+            continue;
+        }
+        const Color emitted = surface.emission;
         if (material.type == MaterialType::Emissive) {
             radiance += throughput.cwiseProduct(emitted);
             break;
@@ -188,16 +217,43 @@ Color PathTracerRenderer::trace_path(
 
         Color attenuation;
         Ray scattered(hit.position, surface.shading_normal);
-        if (!scatter(current_ray, hit, material, surface, rng, attenuation, scattered)) {
-            radiance += throughput.cwiseProduct(emitted);
+        float bsdf_pdf = 0.0f;
+        bool delta = false;
+        const bool scattered_valid = scatter(
+                current_ray,
+                hit,
+                material,
+                surface,
+                rng,
+                attenuation,
+                scattered,
+                bsdf_pdf,
+                delta);
+
+        Color direct = black();
+        if (material.type != MaterialType::Dielectric) {
+            direct += estimate_direct_lighting(
+                scene,
+                intersector,
+                hit,
+                surface,
+                -current_ray.direction.normalized());
+            direct += estimate_environment_lighting(
+                scene,
+                intersector,
+                hit,
+                surface,
+                -current_ray.direction.normalized(),
+                rng);
+        }
+        radiance += throughput.cwiseProduct(emitted + direct);
+        if (!scattered_valid) {
             break;
         }
 
-        const Color direct = material.type == MaterialType::Diffuse
-            ? estimate_direct_lighting(scene, intersector, hit, surface)
-            : black();
-        radiance += throughput.cwiseProduct(emitted + direct);
         throughput = throughput.cwiseProduct(attenuation);
+        previous_bsdf_pdf = bsdf_pdf;
+        previous_delta = delta;
 
         if (!throughput.allFinite() || throughput.maxCoeff() <= 0.0f) {
             break;
@@ -233,40 +289,11 @@ bool PathTracerRenderer::scatter(
     const SurfaceMaterialSample& surface,
     PcgRandom& rng,
     Color& attenuation,
-    Ray& scattered) const {
+    Ray& scattered,
+    float& pdf,
+    bool& delta) const {
     const Color base_color = surface.base_color;
     const Vec3 shading_normal = surface.shading_normal;
-    if (material.type == MaterialType::Diffuse) {
-        const Vec3 local_direction = cosine_weighted_hemisphere(rng);
-        const Vec3 scatter_direction = tangent_to_world(local_direction, shading_normal);
-        attenuation = base_color;
-        scattered = Ray(
-            offset_ray_origin(hit.position, hit.geometric_normal, scatter_direction),
-            scatter_direction);
-        return true;
-    }
-
-    if (material.type == MaterialType::Metal) {
-        Vec3 scatter_direction = reflect(ray.direction.normalized(), shading_normal);
-        if (material.roughness > 0.0f) {
-            scatter_direction +=
-                std::max(0.0f, material.roughness) * random_in_unit_sphere(rng);
-        }
-        if (!usable_direction(scatter_direction)) {
-            return false;
-        }
-        scatter_direction.normalize();
-        if (scatter_direction.dot(shading_normal) <= 0.0f) {
-            return false;
-        }
-
-        attenuation = base_color;
-        scattered = Ray(
-            offset_ray_origin(hit.position, hit.geometric_normal, scatter_direction),
-            scatter_direction);
-        return true;
-    }
-
     if (material.type == MaterialType::Dielectric) {
         const float refraction_ratio = hit.front_face ? (1.0f / material.ior) : material.ior;
         const Vec3 unit_direction = ray.direction.normalized();
@@ -289,6 +316,37 @@ bool PathTracerRenderer::scatter(
         scattered = Ray(
             offset_ray_origin(hit.position, hit.geometric_normal, unit_scatter),
             unit_scatter);
+        pdf = 1.0f;
+        delta = true;
+        return true;
+    }
+
+    if (material.type == MaterialType::Diffuse ||
+        material.type == MaterialType::Metal ||
+        material.type == MaterialType::Pbr) {
+        const PbrSample sampled = sample_pbr(
+            PbrSurface{
+                surface.diffuse_color,
+                surface.specular_f0,
+                surface.specular_f90,
+                surface.diffuse_fresnel_f0,
+                surface.diffuse_fresnel_f90,
+                surface.roughness,
+                surface.diffuse_fresnel_uses_max},
+            shading_normal,
+            -ray.direction.normalized(),
+            rng.next_float(),
+            rng.next_float(),
+            rng.next_float());
+        if (!sampled.valid) {
+            return false;
+        }
+        attenuation = sampled.weight;
+        pdf = sampled.pdf;
+        delta = false;
+        scattered = Ray(
+            offset_ray_origin(hit.position, hit.geometric_normal, sampled.direction),
+            sampled.direction);
         return true;
     }
 
@@ -299,9 +357,26 @@ Color PathTracerRenderer::estimate_direct_lighting(
     const Scene& scene,
     const SceneIntersector& intersector,
     const HitRecord& hit,
-    const SurfaceMaterialSample& surface) const {
-    constexpr float inverse_pi = 0.31830988618379067154f;
+    const SurfaceMaterialSample& surface,
+    const Vec3& outgoing) const {
     Color direct = black();
+
+    const auto evaluate_light = [&](const Vec3& light_dir, const Color& incoming) {
+        const PbrEvaluation evaluated = evaluate_pbr(
+            PbrSurface{
+                surface.diffuse_color,
+                surface.specular_f0,
+                surface.specular_f90,
+                surface.diffuse_fresnel_f0,
+                surface.diffuse_fresnel_f90,
+                surface.roughness,
+                surface.diffuse_fresnel_uses_max},
+            surface.shading_normal,
+            outgoing,
+            light_dir);
+        return evaluated.brdf.cwiseProduct(incoming) *
+            std::max(0.0f, surface.shading_normal.dot(light_dir));
+    };
 
     for (const DirectionalLight& light : scene.directional_lights) {
         if (!usable_direction(light.direction)) {
@@ -321,7 +396,7 @@ Color PathTracerRenderer::estimate_direct_lighting(
         if (intersector.occluded(shadow_ray, 0.0f, 1.0e30f)) {
             continue;
         }
-        direct += surface.base_color.cwiseProduct(light.radiance) * (n_dot_l * inverse_pi);
+        direct += evaluate_light(light_dir, light.radiance);
     }
 
     for (const PointLight& light : scene.point_lights) {
@@ -331,6 +406,10 @@ Color PathTracerRenderer::estimate_direct_lighting(
             continue;
         }
         const float distance = std::sqrt(distance_squared);
+        const float range_attenuation = punctual_range_attenuation(distance, light.range);
+        if (range_attenuation <= 0.0f) {
+            continue;
+        }
         const Vec3 light_dir = to_light / distance;
         const float n_dot_l = std::max(0.0f, surface.shading_normal.dot(light_dir));
         if (n_dot_l <= 0.0f) {
@@ -342,10 +421,93 @@ Color PathTracerRenderer::estimate_direct_lighting(
         if (intersector.occluded(shadow_ray, 0.0f, distance - 1e-7f)) {
             continue;
         }
-        const Color incoming = light.intensity / distance_squared;
-        direct += surface.base_color.cwiseProduct(incoming) * (n_dot_l * inverse_pi);
+        const Color incoming = light.intensity * (range_attenuation / distance_squared);
+        direct += evaluate_light(light_dir, incoming);
+    }
+
+    for (const SpotLight& light : scene.spot_lights) {
+        const Vec3 to_light = light.position - hit.position;
+        const float distance_squared = to_light.squaredNorm();
+        if (distance_squared <= 1.0e-12f) {
+            continue;
+        }
+        const float distance = std::sqrt(distance_squared);
+        const float range_attenuation = punctual_range_attenuation(distance, light.range);
+        if (range_attenuation <= 0.0f) {
+            continue;
+        }
+        const Vec3 light_dir = to_light / distance;
+        const float cone_cosine = (-light_dir).dot(light.direction.normalized());
+        const float inner = std::cos(light.inner_cone_radians);
+        const float outer = std::cos(light.outer_cone_radians);
+        const float cone = inner <= outer
+            ? (cone_cosine >= outer ? 1.0f : 0.0f)
+            : std::clamp((cone_cosine - outer) / (inner - outer), 0.0f, 1.0f);
+        if (cone <= 0.0f || surface.shading_normal.dot(light_dir) <= 0.0f) {
+            continue;
+        }
+        const Ray shadow_ray(
+            offset_ray_origin(hit.position, hit.geometric_normal, light_dir),
+            light_dir);
+        if (intersector.occluded(shadow_ray, 0.0f, distance - 1.0e-7f)) {
+            continue;
+        }
+        direct += evaluate_light(
+            light_dir,
+            light.intensity * (cone * range_attenuation / distance_squared));
     }
 
     return direct;
+}
+
+Color PathTracerRenderer::estimate_environment_lighting(
+    const Scene& scene,
+    const SceneIntersector& intersector,
+    const HitRecord& hit,
+    const SurfaceMaterialSample& surface,
+    const Vec3& outgoing,
+    PcgRandom& rng) const {
+    if (scene.environment_intensity <= 0.0f ||
+        (!scene.environment_map && scene.environment.maxCoeff() <= 0.0f)) {
+        return Color::Zero();
+    }
+    const float select = rng.next_float();
+    const float jitter_u = rng.next_float();
+    const float jitter_v = scene.environment_map
+        ? rng.next_float()
+        : 0.0f;
+    const EnvironmentMapSample light = sample_environment(
+        scene.environment,
+        scene.environment_map,
+        scene.environment_intensity,
+        scene.environment_rotation_degrees,
+        select,
+        jitter_u,
+        jitter_v);
+    const float cosine = surface.shading_normal.dot(light.direction);
+    if (!(light.pdf > 0.0f) || cosine <= 0.0f || light.radiance.maxCoeff() <= 0.0f) {
+        return Color::Zero();
+    }
+    const Ray shadow_ray(
+        offset_ray_origin(hit.position, hit.geometric_normal, light.direction),
+        light.direction);
+    if (intersector.occluded(shadow_ray, 0.0f, 1.0e30f)) {
+        return Color::Zero();
+    }
+    const PbrEvaluation evaluated = evaluate_pbr(
+        PbrSurface{
+            surface.diffuse_color,
+            surface.specular_f0,
+            surface.specular_f90,
+            surface.diffuse_fresnel_f0,
+            surface.diffuse_fresnel_f90,
+            surface.roughness,
+            surface.diffuse_fresnel_uses_max},
+        surface.shading_normal,
+        outgoing,
+        light.direction);
+    const float weight = power_heuristic(light.pdf, evaluated.pdf);
+    return evaluated.brdf.cwiseProduct(light.radiance) *
+        (cosine * weight * surface.occlusion / light.pdf);
 }
 }  // namespace renderer

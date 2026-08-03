@@ -18,7 +18,8 @@ enum class SceneChange : std::uint32_t {
     Textures = 1U << 3U,
     Lighting = 1U << 4U,
     InstanceTransforms = 1U << 5U,
-    All = (1U << 6U) - 1U,
+    Environment = 1U << 6U,
+    All = (1U << 7U) - 1U,
 };
 
 using SceneChangeSet = SceneChange;

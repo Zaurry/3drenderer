@@ -18,6 +18,8 @@
 
 namespace renderer {
 
+struct LoadedScene;
+
 using ObjectId = std::uint64_t;
 using AssetId = std::uint64_t;
 
@@ -29,7 +31,11 @@ enum class SceneObjectType {
     Mesh,
     PointLight,
     DirectionalLight,
+    SpotLight,
+    Camera,
 };
+
+enum class SceneCameraProjection { Perspective, Orthographic };
 
 struct SceneTransform {
     Vec3 translation = Vec3::Zero();
@@ -44,6 +50,7 @@ struct SceneMeshAsset {
     AssetId id = kInvalidAssetId;
     std::filesystem::path source_path;
     std::string builtin_id;
+    int source_mesh_index = -1;
     Scene local_scene;
     Bounds3 local_bounds;
     std::vector<std::string> warnings;
@@ -56,14 +63,23 @@ struct SceneMaterialOverride {
     Color base_color = Color(0.8f, 0.8f, 0.8f);
     Color emission = Color::Zero();
     float roughness = 0.0f;
+    float metallic = 0.0f;
     float ior = 1.5f;
     float opacity = 1.0f;
     float alpha_cutoff = 0.5f;
     float bump_scale = 1.0f;
+    float normal_scale = 1.0f;
+    float occlusion_strength = 1.0f;
+    AlphaMode alpha_mode = AlphaMode::Opaque;
     bool two_sided = true;
     bool use_diffuse_texture = true;
     bool use_opacity_texture = true;
     bool use_bump_texture = true;
+    bool use_base_color_texture = true;
+    bool use_metallic_roughness_texture = true;
+    bool use_normal_texture = true;
+    bool use_occlusion_texture = true;
+    bool use_emissive_texture = true;
 };
 
 struct SceneObject {
@@ -76,6 +92,16 @@ struct SceneObject {
     bool locked = false;
     AssetId asset_id = kInvalidAssetId;
     Color light_color = Color(25.0f, 25.0f, 25.0f);
+    float light_range = 0.0f;
+    float spot_inner_cone_radians = 0.0f;
+    float spot_outer_cone_radians = 0.7853981634f;
+    SceneCameraProjection camera_projection = SceneCameraProjection::Perspective;
+    float camera_vertical_fov_degrees = 45.0f;
+    float camera_aspect_ratio = 0.0f;
+    float camera_x_magnification = 1.0f;
+    float camera_y_magnification = 1.0f;
+    float camera_near_plane = 0.01f;
+    float camera_far_plane = 1000.0f;
     std::vector<SceneMaterialOverride> material_overrides;
 };
 
@@ -122,6 +148,19 @@ public:
         const Vec3& direction,
         const Color& radiance,
         ObjectId parent_id = kInvalidObjectId);
+    ObjectId create_spot_light(
+        std::string name,
+        const Vec3& position,
+        const Vec3& direction,
+        const Color& intensity,
+        float range,
+        float inner_cone_radians,
+        float outer_cone_radians,
+        ObjectId parent_id = kInvalidObjectId);
+    ObjectId create_camera(
+        std::string name,
+        SceneCameraProjection projection,
+        ObjectId parent_id = kInvalidObjectId);
     ObjectId duplicate_subtree(ObjectId id);
     bool erase_subtree(ObjectId id);
     bool reparent(ObjectId id, ObjectId new_parent_id);
@@ -147,6 +186,16 @@ public:
     bool rebuild_render_scene();
     Color& environment();
     const Color& environment() const;
+    void set_environment_map(const std::filesystem::path& path);
+    void clear_environment_map();
+    const std::shared_ptr<const EnvironmentMap>& environment_map() const;
+    const std::filesystem::path& environment_path() const;
+    float& environment_intensity();
+    float environment_intensity() const;
+    float& environment_rotation_degrees();
+    float environment_rotation_degrees() const;
+    bool& environment_background_visible();
+    bool environment_background_visible() const;
 
     void checkpoint();
     bool undo();
@@ -163,6 +212,11 @@ private:
     struct State {
         std::vector<SceneObject> objects;
         Color environment = Color(0.02f, 0.025f, 0.03f);
+        std::shared_ptr<const EnvironmentMap> environment_map;
+        std::filesystem::path environment_path;
+        float environment_intensity = 1.0f;
+        float environment_rotation_degrees = 0.0f;
+        bool environment_background_visible = true;
     };
 
     State state_;
@@ -184,8 +238,18 @@ private:
     std::shared_ptr<SceneMeshAsset> load_asset(
         const std::filesystem::path& path,
         int width,
-        int height);
+        int height,
+        int source_mesh_index = -1);
+    std::shared_ptr<SceneMeshAsset> store_loaded_asset(
+        LoadedScene loaded,
+        const std::filesystem::path& normalized_path,
+        int source_mesh_index);
     ObjectId import_obj(
+        const std::filesystem::path& path,
+        ObjectId parent_id,
+        int width,
+        int height);
+    ObjectId import_gltf(
         const std::filesystem::path& path,
         ObjectId parent_id,
         int width,

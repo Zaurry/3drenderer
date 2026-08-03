@@ -50,6 +50,13 @@ struct DVec3 {
     float z;
 };
 
+struct DVec4 {
+    float x;
+    float y;
+    float z;
+    float w;
+};
+
 struct DRay {
     DVec3 origin;
     DVec3 direction;
@@ -71,8 +78,15 @@ struct DTraversalTriangle {
 
 struct DShadingTriangle {
     DVec2 uvs[3];
+    DVec2 uv1s[3];
     DVec3 normals[3];
+    DVec4 tangents[3];
+    DVec3 colors[3];
+    float alphas[3];
     unsigned int normal_mask;
+    unsigned int uv1_mask;
+    unsigned int tangent_mask;
+    unsigned int color_mask;
 };
 
 struct DSphere {
@@ -85,20 +99,65 @@ struct DMaterial {
     DVec3 base_color;
     DVec3 emission;
     float roughness;
+    float metallic;
     float ior;
     float opacity;
     float alpha_cutoff;
     float bump_scale;
+    float normal_scale;
+    float occlusion_strength;
+    int alpha_mode;
     int two_sided;
     int diffuse_texture_id;
     int opacity_texture_id;
     int bump_texture_id;
+    int base_color_texture_id;
+    int metallic_roughness_texture_id;
+    int normal_texture_id;
+    int occlusion_texture_id;
+    int emissive_texture_id;
+    DVec4 base_color_texture_transform;
+    DVec4 metallic_roughness_texture_transform;
+    DVec4 normal_texture_transform;
+    DVec4 occlusion_texture_transform;
+    DVec4 emissive_texture_transform;
+    float base_color_texture_rotation;
+    float metallic_roughness_texture_rotation;
+    float normal_texture_rotation;
+    float occlusion_texture_rotation;
+    float emissive_texture_rotation;
+    int base_color_texture_texcoord;
+    int metallic_roughness_texture_texcoord;
+    int normal_texture_texcoord;
+    int occlusion_texture_texcoord;
+    int emissive_texture_texcoord;
+    int pbr_workflow;
+    DVec3 specular_color;
+    float specular_factor;
+    float glossiness;
+    int specular_texture_id;
+    int specular_color_texture_id;
+    int specular_glossiness_texture_id;
+    DVec4 specular_texture_transform;
+    DVec4 specular_color_texture_transform;
+    DVec4 specular_glossiness_texture_transform;
+    float specular_texture_rotation;
+    float specular_color_texture_rotation;
+    float specular_glossiness_texture_rotation;
+    int specular_texture_texcoord;
+    int specular_color_texture_texcoord;
+    int specular_glossiness_texture_texcoord;
 };
 
 struct DTexture {
     int width;
     int height;
     int first_pixel;
+    int first_alpha;
+    int wrap_s;
+    int wrap_t;
+    int nearest;
+    int top_left;
 };
 
 struct DBvh4Node {
@@ -113,11 +172,21 @@ struct DBvh4Node {
 struct DPointLight {
     DVec3 position;
     DVec3 intensity;
+    float range;
 };
 
 struct DDirectionalLight {
     DVec3 direction;
     DVec3 radiance;
+};
+
+struct DSpotLight {
+    DVec3 position;
+    DVec3 direction;
+    DVec3 intensity;
+    float range;
+    float inner_cosine;
+    float outer_cosine;
 };
 
 struct DEmissiveLight {
@@ -162,9 +231,11 @@ struct DCamera {
 struct DScene {
     const DMaterial* materials;
     int material_count;
+    int stochastic_alpha_test;
     const DTexture* textures;
     int texture_count;
     const DVec3* texels;
+    const float* texture_alphas;
     const DSphere* spheres;
     const int* sphere_material_ids;
     int sphere_count;
@@ -179,6 +250,8 @@ struct DScene {
     int point_light_count;
     const DDirectionalLight* directional_lights;
     int directional_light_count;
+    const DSpotLight* spot_lights;
+    int spot_light_count;
     const DEmissiveLight* emissive_lights;
     int emissive_light_count;
     const int* sphere_light_indices;
@@ -192,12 +265,25 @@ struct DScene {
     const int* tlas_primitive_indices;
     int instanced_mode;
     DVec3 environment;
+    const DVec3* environment_texels;
+    const float* environment_pmf;
+    const float* environment_cdf;
+    int environment_width;
+    int environment_height;
+    float environment_intensity;
+    float environment_rotation_radians;
+    int environment_background_visible;
 };
 
 struct DHit {
     float t;
     DVec3 position;
     DVec2 uv;
+    DVec2 uv1;
+    DVec3 vertex_color;
+    float vertex_alpha;
+    DVec4 tangent;
+    int has_tangent;
     DVec3 geometric_normal;
     DVec3 shading_normal;
     int material_id;
@@ -220,7 +306,17 @@ struct DCompactHit {
 
 struct DSurface {
     DVec3 base_color;
+    DVec3 diffuse_color;
+    DVec3 specular_f0;
+    DVec3 specular_f90;
+    DVec3 diffuse_fresnel_f0;
+    DVec3 diffuse_fresnel_f90;
+    int diffuse_fresnel_uses_max;
+    DVec3 emission;
     float opacity;
+    float metallic;
+    float roughness;
+    float occlusion;
     DVec3 shading_normal;
 };
 
@@ -247,6 +343,16 @@ struct DShadingRecord {
     DVec3 geometric_normal;
     DVec3 shading_normal;
     DVec3 base_color;
+    DVec3 diffuse_color;
+    DVec3 specular_f0;
+    DVec3 specular_f90;
+    DVec3 diffuse_fresnel_f0;
+    DVec3 diffuse_fresnel_f90;
+    int diffuse_fresnel_uses_max;
+    DVec3 outgoing;
+    float metallic;
+    float roughness;
+    float occlusion;
     DVec3 throughput;
     int pixel_index;
     int valid;
@@ -286,6 +392,18 @@ __host__ DVec3 to_device(const Vec3& value) {
 
 __host__ DVec2 to_device(const Vec2& value) {
     return DVec2{value.x(), value.y()};
+}
+
+__host__ DVec4 to_device(const Vec4& value) {
+    return DVec4{value.x(), value.y(), value.z(), value.w()};
+}
+
+__host__ DVec4 pack_texture_transform(const TextureTransform& transform) {
+    return DVec4{
+        transform.offset.x(),
+        transform.offset.y(),
+        transform.scale.x(),
+        transform.scale.y()};
 }
 
 __host__ DMatrix3x4 to_device_affine(const Mat4& value) {
@@ -790,19 +908,6 @@ __device__ unsigned long long pixel_seed(
     return seed;
 }
 
-__device__ DVec3 random_in_unit_sphere(DPcgState& rng) {
-    for (int attempt = 0; attempt < 1024; ++attempt) {
-        const DVec3 value = v3(
-            2.0f * random_float(rng) - 1.0f,
-            2.0f * random_float(rng) - 1.0f,
-            2.0f * random_float(rng) - 1.0f);
-        if (length_squared(value) < 1.0f) {
-            return value;
-        }
-    }
-    return v3(0.0f, 0.0f, 0.0f);
-}
-
 __device__ DVec3 cosine_weighted_hemisphere(DPcgState& rng) {
     const float r1 = random_float(rng);
     const float r2 = random_float(rng);
@@ -818,6 +923,34 @@ __device__ float material_opacity(
     const DScene& scene,
     const DMaterial& material,
     DVec2 uv);
+__device__ float material_surface_opacity(
+    const DScene& scene,
+    const DMaterial& material,
+    const DHit& hit);
+
+__device__ unsigned int alpha_hash(unsigned int value) {
+    value ^= value >> 16U;
+    value *= 0x7feb352dU;
+    value ^= value >> 15U;
+    value *= 0x846ca68bU;
+    return value ^ (value >> 16U);
+}
+
+__device__ float candidate_alpha_sample(
+    const DRay& ray,
+    int instance_index,
+    int primitive_index,
+    float u,
+    float v) {
+    unsigned int hash = alpha_hash(static_cast<unsigned int>(primitive_index + 1));
+    hash ^= alpha_hash(static_cast<unsigned int>(instance_index + 2));
+    hash ^= alpha_hash(__float_as_uint(ray.direction.x));
+    hash ^= alpha_hash(__float_as_uint(ray.direction.y));
+    hash ^= alpha_hash(__float_as_uint(ray.direction.z));
+    hash ^= alpha_hash(__float_as_uint(u));
+    hash ^= alpha_hash(__float_as_uint(v));
+    return static_cast<float>(hash >> 8U) * (1.0f / 16777216.0f);
+}
 
 __device__ DVec3 inverse_direction(DVec3 direction) {
     constexpr float epsilon = 1.0e-12f;
@@ -987,21 +1120,44 @@ __device__ bool triangle_candidate_visible(
             return false;
         }
     }
-    if (material.opacity_texture_id < 0) {
-        return material.opacity >= material.alpha_cutoff;
+    const int alpha_mode = material.type == static_cast<int>(MaterialType::Pbr)
+        ? material.alpha_mode
+        : ((material.opacity_texture_id >= 0 || material.opacity < 1.0f)
+              ? static_cast<int>(AlphaMode::Mask)
+              : static_cast<int>(AlphaMode::Opaque));
+    if (alpha_mode == static_cast<int>(AlphaMode::Opaque) ||
+        (alpha_mode == static_cast<int>(AlphaMode::Blend) &&
+         scene.stochastic_alpha_test == 0)) {
+        return true;
     }
     const DShadingTriangle& shading =
         scene.shading_triangles[primitive_index];
     const float w = 1.0f - u - v;
-    const DVec2 uv{
+    DHit opacity_hit{};
+    opacity_hit.uv = DVec2{
         shading.uvs[0].x * w +
             shading.uvs[1].x * u +
             shading.uvs[2].x * v,
         shading.uvs[0].y * w +
             shading.uvs[1].y * u +
             shading.uvs[2].y * v};
-    return material_opacity(scene, material, uv) >=
-        material.alpha_cutoff;
+    opacity_hit.uv1 = (shading.uv1_mask & 0x7U) == 0x7U
+        ? DVec2{
+              shading.uv1s[0].x * w + shading.uv1s[1].x * u + shading.uv1s[2].x * v,
+              shading.uv1s[0].y * w + shading.uv1s[1].y * u + shading.uv1s[2].y * v}
+        : opacity_hit.uv;
+    opacity_hit.vertex_alpha = (shading.color_mask & 0x7U) == 0x7U
+        ? shading.alphas[0] * w + shading.alphas[1] * u + shading.alphas[2] * v
+        : 1.0f;
+    const float opacity = material_surface_opacity(scene, material, opacity_hit);
+    return alpha_mode == static_cast<int>(AlphaMode::Blend)
+        ? candidate_alpha_sample(
+              local_ray,
+              instance_index,
+              primitive_index,
+              u,
+              v) < opacity
+        : opacity >= material.alpha_cutoff;
 }
 
 __device__ bool sphere_candidate_visible(
@@ -1043,11 +1199,29 @@ __device__ bool sphere_candidate_visible(
     if (!material.two_sided && !front_face) {
         return false;
     }
-    if (material.opacity_texture_id < 0) {
-        return material.opacity >= material.alpha_cutoff;
+    const int alpha_mode = material.type == static_cast<int>(MaterialType::Pbr)
+        ? material.alpha_mode
+        : ((material.opacity_texture_id >= 0 || material.opacity < 1.0f)
+              ? static_cast<int>(AlphaMode::Mask)
+              : static_cast<int>(AlphaMode::Opaque));
+    if (alpha_mode == static_cast<int>(AlphaMode::Opaque) ||
+        (alpha_mode == static_cast<int>(AlphaMode::Blend) &&
+         scene.stochastic_alpha_test == 0)) {
+        return true;
     }
-    return material_opacity(scene, material, DVec2{0.0f, 0.0f}) >=
-        material.alpha_cutoff;
+    DHit opacity_hit{};
+    opacity_hit.uv = DVec2{0.0f, 0.0f};
+    opacity_hit.uv1 = opacity_hit.uv;
+    opacity_hit.vertex_alpha = 1.0f;
+    const float opacity = material_surface_opacity(scene, material, opacity_hit);
+    return alpha_mode == static_cast<int>(AlphaMode::Blend)
+        ? candidate_alpha_sample(
+              local_ray,
+              instance_index,
+              primitive_index,
+              hit_t,
+              0.0f) < opacity
+        : opacity >= material.alpha_cutoff;
 }
 
 __device__ void sort_child_hits(
@@ -1815,19 +1989,13 @@ __device__ bool occluded_scene(
     float t_min,
     float t_max,
     int* error_code) {
-    return scene.instanced_mode != 0
+    DScene shadow_scene = scene;
+    shadow_scene.stochastic_alpha_test = 1;
+    return shadow_scene.instanced_mode != 0
         ? occluded_scene_instanced(
-            scene,
-            ray,
-            t_min,
-            t_max,
-            error_code)
+              shadow_scene, ray, t_min, t_max, error_code)
         : occluded_scene_flat(
-            scene,
-            ray,
-            t_min,
-            t_max,
-            error_code);
+              shadow_scene, ray, t_min, t_max, error_code);
 }
 
 __device__ void reconstruct_hit(
@@ -1865,6 +2033,11 @@ __device__ void reconstruct_hit(
             : local_outward;
         set_normals(hit, ray, outward, outward);
         hit.uv = DVec2{0.0f, 0.0f};
+        hit.uv1 = hit.uv;
+        hit.vertex_color = v3(1.0f, 1.0f, 1.0f);
+        hit.vertex_alpha = 1.0f;
+        hit.tangent = DVec4{0.0f, 0.0f, 0.0f, 0.0f};
+        hit.has_tangent = 0;
         hit.material_id = sphere_material_id(
             scene,
             compact.instance_index,
@@ -1920,6 +2093,57 @@ __device__ void reconstruct_hit(
         triangle.uvs[0].y * w +
             triangle.uvs[1].y * compact.u +
             triangle.uvs[2].y * compact.v};
+    if ((triangle.uv1_mask & 0x7U) == 0x7U) {
+        hit.uv1 = DVec2{
+            triangle.uv1s[0].x * w +
+                triangle.uv1s[1].x * compact.u +
+                triangle.uv1s[2].x * compact.v,
+            triangle.uv1s[0].y * w +
+                triangle.uv1s[1].y * compact.u +
+                triangle.uv1s[2].y * compact.v};
+    } else {
+        hit.uv1 = hit.uv;
+    }
+    if ((triangle.color_mask & 0x7U) == 0x7U) {
+        hit.vertex_color = add(
+            add(
+                mul(triangle.colors[0], w),
+                mul(triangle.colors[1], compact.u)),
+            mul(triangle.colors[2], compact.v));
+        hit.vertex_alpha = triangle.alphas[0] * w +
+            triangle.alphas[1] * compact.u +
+            triangle.alphas[2] * compact.v;
+    } else {
+        hit.vertex_color = v3(1.0f, 1.0f, 1.0f);
+        hit.vertex_alpha = 1.0f;
+    }
+    hit.has_tangent = 0;
+    hit.tangent = DVec4{0.0f, 0.0f, 0.0f, 0.0f};
+    if ((triangle.tangent_mask & 0x7U) == 0x7U) {
+        DVec3 local_tangent = add(
+            add(
+                mul(v3(triangle.tangents[0].x, triangle.tangents[0].y, triangle.tangents[0].z), w),
+                mul(v3(triangle.tangents[1].x, triangle.tangents[1].y, triangle.tangents[1].z), compact.u)),
+            mul(v3(triangle.tangents[2].x, triangle.tangents[2].y, triangle.tangents[2].z), compact.v));
+        DVec3 world_tangent = local_tangent;
+        float handedness = triangle.tangents[0].w * w +
+            triangle.tangents[1].w * compact.u +
+            triangle.tangents[2].w * compact.v;
+        if (compact.instance_index >= 0) {
+            const DInstance instance = scene.instances[compact.instance_index];
+            world_tangent = transform_direction(instance.object_to_world, local_tangent);
+            handedness *= instance.orientation_sign;
+        }
+        if (usable(world_tangent)) {
+            world_tangent = normalize(world_tangent);
+            hit.tangent = DVec4{
+                world_tangent.x,
+                world_tangent.y,
+                world_tangent.z,
+                handedness < 0.0f ? -1.0f : 1.0f};
+            hit.has_tangent = 1;
+        }
+    }
     set_normals(hit, ray, geometric, shading);
     hit.material_id = triangle_material_id(
         scene,
@@ -1927,9 +2151,40 @@ __device__ void reconstruct_hit(
         compact.primitive_index);
 }
 
-__device__ int wrap_index(int value, int size) {
+__device__ float addressed_coordinate(float value, int wrap) {
+    if (wrap == static_cast<int>(TextureWrap::ClampToEdge)) {
+        return fminf(fmaxf(value, 0.0f), 1.0f);
+    }
+    if (wrap == static_cast<int>(TextureWrap::MirroredRepeat)) {
+        const float period = value - floorf(value * 0.5f) * 2.0f;
+        return period <= 1.0f ? period : 2.0f - period;
+    }
+    const float repeated = value - floorf(value);
+    return repeated < 0.0f ? repeated + 1.0f : repeated;
+}
+
+__device__ int addressed_index(int value, int size, int wrap) {
+    if (wrap != static_cast<int>(TextureWrap::Repeat)) {
+        return max(0, min(value, size - 1));
+    }
     const int wrapped = value % size;
     return wrapped < 0 ? wrapped + size : wrapped;
+}
+
+__device__ DVec2 transformed_uv(
+    DVec2 uv0,
+    DVec2 uv1,
+    DVec4 transform,
+    float rotation,
+    int texcoord) {
+    DVec2 uv = texcoord == 1 ? uv1 : uv0;
+    uv.x *= transform.z;
+    uv.y *= transform.w;
+    const float cosine = cosf(rotation);
+    const float sine = sinf(rotation);
+    return DVec2{
+        cosine * uv.x - sine * uv.y + transform.x,
+        sine * uv.x + cosine * uv.y + transform.y};
 }
 
 __device__ DVec3 sample_texture(const DScene& scene, int texture_id, DVec2 uv) {
@@ -1940,20 +2195,30 @@ __device__ DVec3 sample_texture(const DScene& scene, int texture_id, DVec2 uv) {
     if (texture.width <= 0 || texture.height <= 0) {
         return v3(1.0f, 0.0f, 1.0f);
     }
-    const float u_floor = floorf(uv.x);
-    const float v_floor = floorf(uv.y);
-    const float u = uv.x - u_floor;
-    const float v = uv.y - v_floor;
+    const float u = addressed_coordinate(uv.x, texture.wrap_s);
+    const float source_v = texture.top_left != 0 ? uv.y : 1.0f - uv.y;
+    const float v = addressed_coordinate(source_v, texture.wrap_t);
+    if (texture.nearest != 0) {
+        const int x = addressed_index(
+            static_cast<int>(floorf(u * static_cast<float>(texture.width))),
+            texture.width,
+            texture.wrap_s);
+        const int y = addressed_index(
+            static_cast<int>(floorf(v * static_cast<float>(texture.height))),
+            texture.height,
+            texture.wrap_t);
+        return scene.texels[texture.first_pixel + y * texture.width + x];
+    }
     const float x = u * static_cast<float>(texture.width) - 0.5f;
-    const float y = (1.0f - v) * static_cast<float>(texture.height) - 0.5f;
+    const float y = v * static_cast<float>(texture.height) - 0.5f;
     const int x0 = static_cast<int>(floorf(x));
     const int y0 = static_cast<int>(floorf(y));
     const float tx = x - static_cast<float>(x0);
     const float ty = y - static_cast<float>(y0);
-    const int ix0 = wrap_index(x0, texture.width);
-    const int ix1 = wrap_index(x0 + 1, texture.width);
-    const int iy0 = wrap_index(y0, texture.height);
-    const int iy1 = wrap_index(y0 + 1, texture.height);
+    const int ix0 = addressed_index(x0, texture.width, texture.wrap_s);
+    const int ix1 = addressed_index(x0 + 1, texture.width, texture.wrap_s);
+    const int iy0 = addressed_index(y0, texture.height, texture.wrap_t);
+    const int iy1 = addressed_index(y0 + 1, texture.height, texture.wrap_t);
     const DVec3 c00 = scene.texels[texture.first_pixel + iy0 * texture.width + ix0];
     const DVec3 c10 = scene.texels[texture.first_pixel + iy0 * texture.width + ix1];
     const DVec3 c01 = scene.texels[texture.first_pixel + iy1 * texture.width + ix0];
@@ -1961,6 +2226,48 @@ __device__ DVec3 sample_texture(const DScene& scene, int texture_id, DVec2 uv) {
     const DVec3 top = add(mul(c00, 1.0f - tx), mul(c10, tx));
     const DVec3 bottom = add(mul(c01, 1.0f - tx), mul(c11, tx));
     return add(mul(top, 1.0f - ty), mul(bottom, ty));
+}
+
+__device__ float sample_texture_alpha(const DScene& scene, int texture_id, DVec2 uv) {
+    if (texture_id < 0 || texture_id >= scene.texture_count ||
+        scene.texture_alphas == nullptr) {
+        return 1.0f;
+    }
+    const DTexture texture = scene.textures[texture_id];
+    if (texture.width <= 0 || texture.height <= 0) {
+        return 1.0f;
+    }
+    const float u = addressed_coordinate(uv.x, texture.wrap_s);
+    const float source_v = texture.top_left != 0 ? uv.y : 1.0f - uv.y;
+    const float v = addressed_coordinate(source_v, texture.wrap_t);
+    if (texture.nearest != 0) {
+        const int x = addressed_index(
+            static_cast<int>(floorf(u * static_cast<float>(texture.width))),
+            texture.width,
+            texture.wrap_s);
+        const int y = addressed_index(
+            static_cast<int>(floorf(v * static_cast<float>(texture.height))),
+            texture.height,
+            texture.wrap_t);
+        return scene.texture_alphas[texture.first_alpha + y * texture.width + x];
+    }
+    const float x = u * static_cast<float>(texture.width) - 0.5f;
+    const float y = v * static_cast<float>(texture.height) - 0.5f;
+    const int x0 = static_cast<int>(floorf(x));
+    const int y0 = static_cast<int>(floorf(y));
+    const float tx = x - static_cast<float>(x0);
+    const float ty = y - static_cast<float>(y0);
+    const int ix0 = addressed_index(x0, texture.width, texture.wrap_s);
+    const int ix1 = addressed_index(x0 + 1, texture.width, texture.wrap_s);
+    const int iy0 = addressed_index(y0, texture.height, texture.wrap_t);
+    const int iy1 = addressed_index(y0 + 1, texture.height, texture.wrap_t);
+    const float a00 = scene.texture_alphas[texture.first_alpha + iy0 * texture.width + ix0];
+    const float a10 = scene.texture_alphas[texture.first_alpha + iy0 * texture.width + ix1];
+    const float a01 = scene.texture_alphas[texture.first_alpha + iy1 * texture.width + ix0];
+    const float a11 = scene.texture_alphas[texture.first_alpha + iy1 * texture.width + ix1];
+    const float top = a00 * (1.0f - tx) + a10 * tx;
+    const float bottom = a01 * (1.0f - tx) + a11 * tx;
+    return top * (1.0f - ty) + bottom * ty;
 }
 
 __device__ float sample_scalar(const DScene& scene, int texture_id, DVec2 uv) {
@@ -1974,6 +2281,152 @@ __device__ float material_opacity(const DScene& scene, const DMaterial& material
         opacity *= sample_scalar(scene, material.opacity_texture_id, uv);
     }
     return fminf(fmaxf(opacity, 0.0f), 1.0f);
+}
+
+__device__ float material_surface_opacity(
+    const DScene& scene,
+    const DMaterial& material,
+    const DHit& hit) {
+    float opacity = material_opacity(scene, material, hit.uv) * hit.vertex_alpha;
+    if (material.base_color_texture_id >= 0 &&
+        material.base_color_texture_id < scene.texture_count) {
+        const DVec2 uv = transformed_uv(
+            hit.uv,
+            hit.uv1,
+            material.base_color_texture_transform,
+            material.base_color_texture_rotation,
+            material.base_color_texture_texcoord);
+        opacity *= sample_texture_alpha(scene, material.base_color_texture_id, uv);
+    }
+    return fminf(fmaxf(opacity, 0.0f), 1.0f);
+}
+
+struct DEnvironmentSample {
+    DVec3 direction;
+    DVec3 radiance;
+    float pdf;
+};
+
+__device__ DVec3 rotate_y(DVec3 direction, float radians) {
+    const float cosine = cosf(radians);
+    const float sine = sinf(radians);
+    return v3(
+        cosine * direction.x + sine * direction.z,
+        direction.y,
+        -sine * direction.x + cosine * direction.z);
+}
+
+__device__ DVec2 environment_uv(DVec3 direction) {
+    direction = normalize(direction);
+    float u = atan2f(direction.z, direction.x) / (2.0f * kPi) + 0.5f;
+    u -= floorf(u);
+    return DVec2{u, acosf(fminf(fmaxf(direction.y, -1.0f), 1.0f)) / kPi};
+}
+
+__device__ DVec3 environment_direction(DVec2 uv) {
+    const float phi = (uv.x - floorf(uv.x) - 0.5f) * 2.0f * kPi;
+    const float theta = fminf(fmaxf(uv.y, 0.0f), 1.0f) * kPi;
+    const float sine = sinf(theta);
+    return v3(cosf(phi) * sine, cosf(theta), sinf(phi) * sine);
+}
+
+__device__ DVec3 sample_environment_map(const DScene& scene, DVec3 local_direction) {
+    if (scene.environment_texels == nullptr || scene.environment_width <= 0 ||
+        scene.environment_height <= 0) {
+        return scene.environment;
+    }
+    const DVec2 uv = environment_uv(local_direction);
+    const float x = uv.x * static_cast<float>(scene.environment_width) - 0.5f;
+    const float y = uv.y * static_cast<float>(scene.environment_height) - 0.5f;
+    const int x0 = static_cast<int>(floorf(x));
+    const int y0 = max(0, min(static_cast<int>(floorf(y)), scene.environment_height - 1));
+    const int y1 = min(y0 + 1, scene.environment_height - 1);
+    const int ix0 = addressed_index(x0, scene.environment_width, static_cast<int>(TextureWrap::Repeat));
+    const int ix1 = addressed_index(x0 + 1, scene.environment_width, static_cast<int>(TextureWrap::Repeat));
+    const float tx = x - floorf(x);
+    const float ty = fminf(fmaxf(y - floorf(y), 0.0f), 1.0f);
+    const DVec3 a = add(
+        mul(scene.environment_texels[y0 * scene.environment_width + ix0], 1.0f - tx),
+        mul(scene.environment_texels[y0 * scene.environment_width + ix1], tx));
+    const DVec3 b = add(
+        mul(scene.environment_texels[y1 * scene.environment_width + ix0], 1.0f - tx),
+        mul(scene.environment_texels[y1 * scene.environment_width + ix1], tx));
+    return add(mul(a, 1.0f - ty), mul(b, ty));
+}
+
+__device__ DVec3 environment_radiance(const DScene& scene, DVec3 world_direction) {
+    const DVec3 local = rotate_y(world_direction, -scene.environment_rotation_radians);
+    const DVec3 radiance = sample_environment_map(scene, local);
+    return mul(
+        scene.environment_texels != nullptr
+            ? product(scene.environment, radiance)
+            : radiance,
+        fmaxf(0.0f, scene.environment_intensity));
+}
+
+__device__ float environment_pdf(const DScene& scene, DVec3 world_direction) {
+    if (scene.environment_pmf == nullptr || scene.environment_width <= 0 ||
+        scene.environment_height <= 0) {
+        return 1.0f / (4.0f * kPi);
+    }
+    const DVec2 uv = environment_uv(
+        rotate_y(world_direction, -scene.environment_rotation_radians));
+    const int x = min(
+        static_cast<int>(uv.x * static_cast<float>(scene.environment_width)),
+        scene.environment_width - 1);
+    const int y = min(
+        static_cast<int>(uv.y * static_cast<float>(scene.environment_height)),
+        scene.environment_height - 1);
+    const float theta0 = kPi * static_cast<float>(y) /
+        static_cast<float>(scene.environment_height);
+    const float theta1 = kPi * static_cast<float>(y + 1) /
+        static_cast<float>(scene.environment_height);
+    const float solid_angle = (2.0f * kPi / static_cast<float>(scene.environment_width)) *
+        (cosf(theta0) - cosf(theta1));
+    return scene.environment_pmf[y * scene.environment_width + x] /
+        fmaxf(solid_angle, 1.0e-20f);
+}
+
+__device__ DEnvironmentSample sample_environment(
+    const DScene& scene,
+    DPcgState& rng) {
+    if (scene.environment_cdf == nullptr || scene.environment_pmf == nullptr ||
+        scene.environment_width <= 0 || scene.environment_height <= 0) {
+        const float y = 1.0f - 2.0f * random_float(rng);
+        const float radius = sqrtf(fmaxf(0.0f, 1.0f - y * y));
+        const float phi = 2.0f * kPi * random_float(rng);
+        const DVec3 direction = v3(radius * cosf(phi), y, radius * sinf(phi));
+        return DEnvironmentSample{
+            direction,
+            environment_radiance(scene, direction),
+            1.0f / (4.0f * kPi)};
+    }
+    const int count = scene.environment_width * scene.environment_height;
+    const float target = fminf(random_float(rng), 0.99999994f);
+    int low = 0;
+    int high = count - 1;
+    while (low < high) {
+        const int middle = low + (high - low) / 2;
+        if (target <= scene.environment_cdf[middle]) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    const int x = low % scene.environment_width;
+    const int y = low / scene.environment_width;
+    const DVec2 uv{
+        (static_cast<float>(x) + random_float(rng)) /
+            static_cast<float>(scene.environment_width),
+        (static_cast<float>(y) + random_float(rng)) /
+            static_cast<float>(scene.environment_height)};
+    const DVec3 direction = rotate_y(
+        environment_direction(uv),
+        scene.environment_rotation_radians);
+    return DEnvironmentSample{
+        direction,
+        environment_radiance(scene, direction),
+        environment_pdf(scene, direction)};
 }
 
 __device__ bool intersect_scene_compact(
@@ -1996,11 +2449,16 @@ __device__ DVec3 bumped_normal(
     const DScene& scene,
     const DMaterial& material,
     const DHit& hit) {
-    if (material.bump_texture_id < 0 || material.bump_texture_id >= scene.texture_count ||
+    const bool normal_map = material.normal_texture_id >= 0 &&
+        material.normal_texture_id < scene.texture_count;
+    const int texture_id = normal_map
+        ? material.normal_texture_id
+        : material.bump_texture_id;
+    if (texture_id < 0 || texture_id >= scene.texture_count ||
         hit.primitive_kind != 1 || !usable(hit.shading_normal)) {
         return hit.shading_normal;
     }
-    const DTexture texture = scene.textures[material.bump_texture_id];
+    const DTexture texture = scene.textures[texture_id];
     if (texture.width <= 0 || texture.height <= 0) {
         return hit.shading_normal;
     }
@@ -2020,10 +2478,24 @@ __device__ DVec3 bumped_normal(
             scene.instances[hit.instance_index].object_to_world,
             geometry.edge2)
         : geometry.edge2;
-    const float du1 = triangle.uvs[1].x - triangle.uvs[0].x;
-    const float dv1 = triangle.uvs[1].y - triangle.uvs[0].y;
-    const float du2 = triangle.uvs[2].x - triangle.uvs[0].x;
-    const float dv2 = triangle.uvs[2].y - triangle.uvs[0].y;
+    DVec2 triangle_uvs[3];
+    for (int vertex = 0; vertex < 3; ++vertex) {
+        const DVec2 uv1 = (triangle.uv1_mask & 0x7U) == 0x7U
+            ? triangle.uv1s[vertex]
+            : triangle.uvs[vertex];
+        triangle_uvs[vertex] = normal_map
+            ? transformed_uv(
+                  triangle.uvs[vertex],
+                  uv1,
+                  material.normal_texture_transform,
+                  material.normal_texture_rotation,
+                  material.normal_texture_texcoord)
+            : triangle.uvs[vertex];
+    }
+    const float du1 = triangle_uvs[1].x - triangle_uvs[0].x;
+    const float dv1 = triangle_uvs[1].y - triangle_uvs[0].y;
+    const float du2 = triangle_uvs[2].x - triangle_uvs[0].x;
+    const float dv2 = triangle_uvs[2].y - triangle_uvs[0].y;
     const float uv_determinant = du1 * dv2 - dv1 * du2;
     if (!isfinite(uv_determinant) || fabsf(uv_determinant) <= 1.0e-12f) {
         return hit.shading_normal;
@@ -2046,12 +2518,38 @@ __device__ DVec3 bumped_normal(
     if (usable(raw_bitangent) && dot(bitangent, raw_bitangent) < 0.0f) {
         bitangent = mul(bitangent, -1.0f);
     }
+    const DVec2 sample_uv = normal_map
+        ? transformed_uv(
+              hit.uv,
+              hit.uv1,
+              material.normal_texture_transform,
+              material.normal_texture_rotation,
+              material.normal_texture_texcoord)
+        : hit.uv;
+    if (normal_map) {
+        DVec3 mapped = sub(
+            mul(sample_texture(scene, texture_id, sample_uv), 2.0f),
+            v3(1.0f, 1.0f, 1.0f));
+        mapped.x *= material.normal_scale;
+        mapped.y *= material.normal_scale;
+        const DVec3 candidate = add(
+            add(mul(tangent, mapped.x), mul(bitangent, mapped.y)),
+            mul(hit.shading_normal, mapped.z));
+        if (!usable(candidate)) {
+            return hit.shading_normal;
+        }
+        DVec3 result = normalize(candidate);
+        if (dot(result, hit.geometric_normal) < 0.0f) {
+            result = mul(result, -1.0f);
+        }
+        return result;
+    }
     const float du = 1.0f / static_cast<float>(texture.width);
     const float dv = 1.0f / static_cast<float>(texture.height);
-    const float left = sample_scalar(scene, material.bump_texture_id, DVec2{hit.uv.x - du, hit.uv.y});
-    const float right = sample_scalar(scene, material.bump_texture_id, DVec2{hit.uv.x + du, hit.uv.y});
-    const float down = sample_scalar(scene, material.bump_texture_id, DVec2{hit.uv.x, hit.uv.y - dv});
-    const float up = sample_scalar(scene, material.bump_texture_id, DVec2{hit.uv.x, hit.uv.y + dv});
+    const float left = sample_scalar(scene, texture_id, DVec2{sample_uv.x - du, sample_uv.y});
+    const float right = sample_scalar(scene, texture_id, DVec2{sample_uv.x + du, sample_uv.y});
+    const float down = sample_scalar(scene, texture_id, DVec2{sample_uv.x, sample_uv.y - dv});
+    const float up = sample_scalar(scene, texture_id, DVec2{sample_uv.x, sample_uv.y + dv});
     const DVec3 gradient = add(
         mul(tangent, (right - left) * 0.5f),
         mul(bitangent, (up - down) * 0.5f));
@@ -2066,18 +2564,175 @@ __device__ DVec3 bumped_normal(
     return result;
 }
 
+__device__ float saturate(float value);
+
 __device__ DSurface evaluate_surface(
     const DScene& scene,
     const DMaterial& material,
     const DHit& hit) {
     DSurface surface{};
-    surface.base_color = material.base_color;
-    if (material.diffuse_texture_id >= 0 && material.diffuse_texture_id < scene.texture_count) {
+    surface.base_color = product(material.base_color, hit.vertex_color);
+    if (material.base_color_texture_id >= 0 &&
+        material.base_color_texture_id < scene.texture_count) {
+        const DVec2 uv = transformed_uv(
+            hit.uv,
+            hit.uv1,
+            material.base_color_texture_transform,
+            material.base_color_texture_rotation,
+            material.base_color_texture_texcoord);
+        surface.base_color = product(
+            surface.base_color,
+            sample_texture(scene, material.base_color_texture_id, uv));
+    } else if (material.diffuse_texture_id >= 0 &&
+               material.diffuse_texture_id < scene.texture_count) {
         surface.base_color = product(
             surface.base_color,
             sample_texture(scene, material.diffuse_texture_id, hit.uv));
     }
-    surface.opacity = material_opacity(scene, material, hit.uv);
+    surface.emission = material.emission;
+    if (material.emissive_texture_id >= 0 &&
+        material.emissive_texture_id < scene.texture_count) {
+        const DVec2 uv = transformed_uv(
+            hit.uv,
+            hit.uv1,
+            material.emissive_texture_transform,
+            material.emissive_texture_rotation,
+            material.emissive_texture_texcoord);
+        surface.emission = product(
+            surface.emission,
+            sample_texture(scene, material.emissive_texture_id, uv));
+    }
+    surface.metallic = material.type == static_cast<int>(MaterialType::Metal)
+        ? 1.0f
+        : fminf(fmaxf(material.metallic, 0.0f), 1.0f);
+    const bool specular_glossiness =
+        material.type == static_cast<int>(MaterialType::Pbr) &&
+        material.pbr_workflow == static_cast<int>(PbrWorkflow::SpecularGlossiness);
+    if (specular_glossiness) {
+        DVec3 specular = v3(
+            fmaxf(material.specular_color.x, 0.0f),
+            fmaxf(material.specular_color.y, 0.0f),
+            fmaxf(material.specular_color.z, 0.0f));
+        float glossiness = saturate(material.glossiness);
+        if (material.specular_glossiness_texture_id >= 0 &&
+            material.specular_glossiness_texture_id < scene.texture_count) {
+            const DVec2 uv = transformed_uv(
+                hit.uv,
+                hit.uv1,
+                material.specular_glossiness_texture_transform,
+                material.specular_glossiness_texture_rotation,
+                material.specular_glossiness_texture_texcoord);
+            specular = product(
+                specular,
+                sample_texture(scene, material.specular_glossiness_texture_id, uv));
+            glossiness *= sample_texture_alpha(
+                scene,
+                material.specular_glossiness_texture_id,
+                uv);
+        }
+        surface.specular_f0 = v3(
+            saturate(specular.x),
+            saturate(specular.y),
+            saturate(specular.z));
+        surface.specular_f90 = v3(1.0f, 1.0f, 1.0f);
+        surface.diffuse_fresnel_f0 = surface.specular_f0;
+        surface.diffuse_fresnel_f90 = surface.specular_f90;
+        surface.diffuse_fresnel_uses_max = 0;
+        surface.diffuse_color = mul(
+            surface.base_color,
+            1.0f - saturate(max_component(surface.specular_f0)));
+        surface.metallic = 0.0f;
+        surface.roughness = fminf(fmaxf(1.0f - glossiness, 0.02f), 1.0f);
+    } else {
+        surface.roughness = material.type == static_cast<int>(MaterialType::Diffuse)
+            ? 1.0f
+            : fminf(fmaxf(material.roughness, 0.02f), 1.0f);
+        if (material.metallic_roughness_texture_id >= 0 &&
+            material.metallic_roughness_texture_id < scene.texture_count) {
+            const DVec2 uv = transformed_uv(
+                hit.uv,
+                hit.uv1,
+                material.metallic_roughness_texture_transform,
+                material.metallic_roughness_texture_rotation,
+                material.metallic_roughness_texture_texcoord);
+            const DVec3 packed = sample_texture(
+                scene,
+                material.metallic_roughness_texture_id,
+                uv);
+            surface.roughness = fminf(fmaxf(surface.roughness * packed.y, 0.02f), 1.0f);
+            surface.metallic = fminf(fmaxf(surface.metallic * packed.z, 0.0f), 1.0f);
+        }
+        float specular_strength = saturate(material.specular_factor);
+        if (material.specular_texture_id >= 0 &&
+            material.specular_texture_id < scene.texture_count) {
+            const DVec2 uv = transformed_uv(
+                hit.uv,
+                hit.uv1,
+                material.specular_texture_transform,
+                material.specular_texture_rotation,
+                material.specular_texture_texcoord);
+            specular_strength *= sample_texture_alpha(
+                scene,
+                material.specular_texture_id,
+                uv);
+        }
+        DVec3 specular_color = v3(
+            fmaxf(material.specular_color.x, 0.0f),
+            fmaxf(material.specular_color.y, 0.0f),
+            fmaxf(material.specular_color.z, 0.0f));
+        if (material.specular_color_texture_id >= 0 &&
+            material.specular_color_texture_id < scene.texture_count) {
+            const DVec2 uv = transformed_uv(
+                hit.uv,
+                hit.uv1,
+                material.specular_color_texture_transform,
+                material.specular_color_texture_rotation,
+                material.specular_color_texture_texcoord);
+            specular_color = product(
+                specular_color,
+                sample_texture(scene, material.specular_color_texture_id, uv));
+        }
+        const float ior = fmaxf(material.ior, 1.0f);
+        const float ratio = (ior - 1.0f) / (ior + 1.0f);
+        const float dielectric_base = ratio * ratio;
+        const DVec3 dielectric_f0 = mul(
+            v3(
+                saturate(specular_color.x * dielectric_base),
+                saturate(specular_color.y * dielectric_base),
+                saturate(specular_color.z * dielectric_base)),
+            specular_strength);
+        const DVec3 dielectric_f90 = v3(
+            specular_strength,
+            specular_strength,
+            specular_strength);
+        surface.specular_f0 = add(
+            mul(dielectric_f0, 1.0f - surface.metallic),
+            mul(surface.base_color, surface.metallic));
+        surface.specular_f90 = add(
+            mul(dielectric_f90, 1.0f - surface.metallic),
+            mul(v3(1.0f, 1.0f, 1.0f), surface.metallic));
+        surface.diffuse_color = mul(surface.base_color, 1.0f - surface.metallic);
+        surface.diffuse_fresnel_f0 = dielectric_f0;
+        surface.diffuse_fresnel_f90 = dielectric_f90;
+        surface.diffuse_fresnel_uses_max = 1;
+    }
+    surface.occlusion = 1.0f;
+    if (material.occlusion_texture_id >= 0 &&
+        material.occlusion_texture_id < scene.texture_count) {
+        const DVec2 uv = transformed_uv(
+            hit.uv,
+            hit.uv1,
+            material.occlusion_texture_transform,
+            material.occlusion_texture_rotation,
+            material.occlusion_texture_texcoord);
+        const float sampled = sample_texture(
+            scene,
+            material.occlusion_texture_id,
+            uv).x;
+        const float strength = fminf(fmaxf(material.occlusion_strength, 0.0f), 1.0f);
+        surface.occlusion = 1.0f + (sampled - 1.0f) * strength;
+    }
+    surface.opacity = material_surface_opacity(scene, material, hit);
     surface.shading_normal = bumped_normal(scene, material, hit);
     return surface;
 }
@@ -2118,6 +2773,154 @@ __device__ DVec3 tangent_to_world(DVec3 local, DVec3 normal) {
     return normalize(add(add(mul(u, local.x), mul(v, local.y)), mul(w, local.z)));
 }
 
+struct DPbrEvaluation {
+    DVec3 brdf;
+    float pdf;
+};
+
+__device__ float saturate(float value) {
+    return fminf(fmaxf(value, 0.0f), 1.0f);
+}
+
+__device__ float punctual_range_attenuation(float distance, float range) {
+    if (!(range > 0.0f)) {
+        return 1.0f;
+    }
+    const float ratio = distance / range;
+    const float squared = ratio * ratio;
+    const float cutoff = fmaxf(0.0f, 1.0f - squared * squared);
+    return cutoff * cutoff;
+}
+
+__device__ DVec3 fresnel_schlick(float cosine, DVec3 f0, DVec3 f90) {
+    const float factor = powf(1.0f - saturate(cosine), 5.0f);
+    return add(f0, mul(sub(f90, f0), factor));
+}
+
+__device__ float ggx_distribution(float n_dot_h, float alpha) {
+    const float alpha_squared = alpha * alpha;
+    const float denominator =
+        n_dot_h * n_dot_h * (alpha_squared - 1.0f) + 1.0f;
+    return alpha_squared / fmaxf(kPi * denominator * denominator, 1.0e-12f);
+}
+
+__device__ float smith_g1(float n_dot_v, float alpha) {
+    if (n_dot_v <= 0.0f) {
+        return 0.0f;
+    }
+    const float tangent_squared = fmaxf(
+        0.0f,
+        (1.0f - n_dot_v * n_dot_v) / fmaxf(n_dot_v * n_dot_v, 1.0e-12f));
+    return 2.0f / (1.0f + sqrtf(1.0f + alpha * alpha * tangent_squared));
+}
+
+__device__ float pbr_specular_probability(const DSurface& surface) {
+    const DVec3 weights = v3(0.2126f, 0.7152f, 0.0722f);
+    const float diffuse_energy = fmaxf(0.0f, dot(surface.diffuse_color, weights));
+    const float specular_energy = fmaxf(0.0f, dot(surface.specular_f0, weights));
+    const float total = diffuse_energy + specular_energy;
+    if (!(total > 0.0f)) {
+        return 0.5f;
+    }
+    return fminf(fmaxf(specular_energy / total, 0.05f), 0.95f);
+}
+
+__device__ DPbrEvaluation evaluate_pbr(
+    const DSurface& surface,
+    DVec3 normal,
+    DVec3 outgoing,
+    DVec3 incoming) {
+    const float n_dot_v = saturate(dot(normal, outgoing));
+    const float n_dot_l = saturate(dot(normal, incoming));
+    if (n_dot_v <= 0.0f || n_dot_l <= 0.0f) {
+        return DPbrEvaluation{v3(0.0f, 0.0f, 0.0f), 0.0f};
+    }
+    const DVec3 half_candidate = add(outgoing, incoming);
+    if (!usable(half_candidate)) {
+        return DPbrEvaluation{v3(0.0f, 0.0f, 0.0f), 0.0f};
+    }
+    const DVec3 half_vector = normalize(half_candidate);
+    const float n_dot_h = saturate(dot(normal, half_vector));
+    const float v_dot_h = saturate(dot(outgoing, half_vector));
+    const float roughness = fminf(fmaxf(surface.roughness, 0.02f), 1.0f);
+    const float alpha = roughness * roughness;
+    const float distribution = ggx_distribution(n_dot_h, alpha);
+    const float geometry = smith_g1(n_dot_v, alpha) * smith_g1(n_dot_l, alpha);
+    const DVec3 fresnel = fresnel_schlick(
+        v_dot_h,
+        surface.specular_f0,
+        surface.specular_f90);
+    const DVec3 diffuse_fresnel = fresnel_schlick(
+        v_dot_h,
+        surface.diffuse_fresnel_f0,
+        surface.diffuse_fresnel_f90);
+    const DVec3 specular = mul(
+        fresnel,
+        distribution * geometry / fmaxf(4.0f * n_dot_v * n_dot_l, 1.0e-12f));
+    const DVec3 diffuse_weight = surface.diffuse_fresnel_uses_max != 0
+        ? v3(
+              1.0f - max_component(diffuse_fresnel),
+              1.0f - max_component(diffuse_fresnel),
+              1.0f - max_component(diffuse_fresnel))
+        : sub(v3(1.0f, 1.0f, 1.0f), diffuse_fresnel);
+    const DVec3 diffuse = mul(
+        product(surface.diffuse_color, diffuse_weight),
+        1.0f / kPi);
+    const float diffuse_pdf = n_dot_l / kPi;
+    const float specular_pdf = distribution * smith_g1(n_dot_v, alpha) /
+        fmaxf(4.0f * n_dot_v, 1.0e-12f);
+    const float probability = pbr_specular_probability(surface);
+    return DPbrEvaluation{
+        add(diffuse, specular),
+        (1.0f - probability) * diffuse_pdf + probability * specular_pdf};
+}
+
+__device__ void tangent_basis(
+    DVec3 normal,
+    DVec3& tangent,
+    DVec3& bitangent) {
+    const DVec3 helper = fabsf(normal.z) < 0.999f
+        ? v3(0.0f, 0.0f, 1.0f)
+        : v3(1.0f, 0.0f, 0.0f);
+    tangent = normalize(cross(helper, normal));
+    bitangent = cross(normal, tangent);
+}
+
+__device__ DVec3 to_local(
+    DVec3 direction,
+    DVec3 tangent,
+    DVec3 bitangent,
+    DVec3 normal) {
+    return v3(dot(direction, tangent), dot(direction, bitangent), dot(direction, normal));
+}
+
+__device__ DVec3 sample_visible_ggx(
+    DVec3 view,
+    float alpha,
+    float u1,
+    float u2) {
+    DVec3 stretched = normalize(v3(alpha * view.x, alpha * view.y, view.z));
+    const float length_xy = stretched.x * stretched.x + stretched.y * stretched.y;
+    const DVec3 tangent1 = length_xy > 1.0e-12f
+        ? divv(v3(-stretched.y, stretched.x, 0.0f), sqrtf(length_xy))
+        : v3(1.0f, 0.0f, 0.0f);
+    const DVec3 tangent2 = cross(stretched, tangent1);
+    const float radius = sqrtf(saturate(u1));
+    const float phi = 2.0f * kPi * saturate(u2);
+    const float t1 = radius * cosf(phi);
+    float t2 = radius * sinf(phi);
+    const float blend = 0.5f * (1.0f + stretched.z);
+    t2 = (1.0f - blend) * sqrtf(fmaxf(0.0f, 1.0f - t1 * t1)) + blend * t2;
+    const float t3 = sqrtf(fmaxf(0.0f, 1.0f - t1 * t1 - t2 * t2));
+    const DVec3 micro_normal = add(
+        add(mul(tangent1, t1), mul(tangent2, t2)),
+        mul(stretched, t3));
+    return normalize(v3(
+        alpha * micro_normal.x,
+        alpha * micro_normal.y,
+        fmaxf(0.0f, micro_normal.z)));
+}
+
 __device__ bool scatter(
     const DRay& ray,
     const DHit& hit,
@@ -2128,30 +2931,51 @@ __device__ bool scatter(
     DRay& scattered,
     float& bsdf_pdf,
     int& was_delta) {
-    if (material.type == static_cast<int>(MaterialType::Diffuse)) {
-        const DVec3 direction = tangent_to_world(cosine_weighted_hemisphere(rng), surface.shading_normal);
-        attenuation = surface.base_color;
+    if (material.type == static_cast<int>(MaterialType::Diffuse) ||
+        material.type == static_cast<int>(MaterialType::Metal) ||
+        material.type == static_cast<int>(MaterialType::Pbr)) {
+        const DVec3 outgoing = normalize(mul(ray.direction, -1.0f));
+        DVec3 tangent;
+        DVec3 bitangent;
+        tangent_basis(surface.shading_normal, tangent, bitangent);
+        DVec3 direction{};
+        if (random_float(rng) < pbr_specular_probability(surface)) {
+            const DVec3 view_local = to_local(
+                outgoing,
+                tangent,
+                bitangent,
+                surface.shading_normal);
+            const DVec3 half_local = sample_visible_ggx(
+                view_local,
+                surface.roughness * surface.roughness,
+                random_float(rng),
+                random_float(rng));
+            const DVec3 half_world = normalize(add(
+                add(
+                    mul(tangent, half_local.x),
+                    mul(bitangent, half_local.y)),
+                mul(surface.shading_normal, half_local.z)));
+            direction = normalize(add(
+                mul(outgoing, -1.0f),
+                mul(half_world, 2.0f * dot(outgoing, half_world))));
+        } else {
+            direction = tangent_to_world(
+                cosine_weighted_hemisphere(rng),
+                surface.shading_normal);
+        }
+        const DPbrEvaluation evaluated = evaluate_pbr(
+            surface,
+            surface.shading_normal,
+            outgoing,
+            direction);
+        const float cosine = fmaxf(0.0f, dot(surface.shading_normal, direction));
+        if (!(evaluated.pdf > 0.0f) || cosine <= 0.0f || !finite(evaluated.brdf)) {
+            return false;
+        }
+        attenuation = mul(evaluated.brdf, cosine / evaluated.pdf);
         scattered = DRay{offset_origin(hit.position, hit.geometric_normal, direction), direction};
-        bsdf_pdf = fmaxf(0.0f, dot(surface.shading_normal, direction)) / kPi;
+        bsdf_pdf = evaluated.pdf;
         was_delta = 0;
-        return true;
-    }
-    if (material.type == static_cast<int>(MaterialType::Metal)) {
-        DVec3 direction = reflect_vector(normalize(ray.direction), surface.shading_normal);
-        if (material.roughness > 0.0f) {
-            direction = add(direction, mul(random_in_unit_sphere(rng), fmaxf(0.0f, material.roughness)));
-        }
-        if (!usable(direction)) {
-            return false;
-        }
-        direction = normalize(direction);
-        if (dot(direction, surface.shading_normal) <= 0.0f) {
-            return false;
-        }
-        attenuation = surface.base_color;
-        scattered = DRay{offset_origin(hit.position, hit.geometric_normal, direction), direction};
-        bsdf_pdf = 0.0f;
-        was_delta = 1;
         return true;
     }
     if (material.type == static_cast<int>(MaterialType::Dielectric)) {
@@ -2177,9 +3001,19 @@ __device__ DVec3 direct_lighting(
     const DScene& scene,
     const DHit& hit,
     const DSurface& surface,
+    DVec3 outgoing,
     int* error_code) {
     DVec3 direct = v3(0.0f, 0.0f, 0.0f);
-    constexpr float inverse_pi = 0.31830988618379067154f;
+    const auto evaluated_contribution = [&](DVec3 direction, DVec3 incoming) {
+        const DPbrEvaluation evaluated = evaluate_pbr(
+            surface,
+            surface.shading_normal,
+            outgoing,
+            direction);
+        return mul(
+            product(evaluated.brdf, incoming),
+            fmaxf(0.0f, dot(surface.shading_normal, direction)));
+    };
     for (int index = 0; index < scene.directional_light_count; ++index) {
         const DDirectionalLight light = scene.directional_lights[index];
         if (!usable(light.direction)) {
@@ -2197,7 +3031,7 @@ __device__ DVec3 direct_lighting(
                 0.0f,
                 1.0e30f,
                 error_code)) {
-            direct = add(direct, mul(product(surface.base_color, light.radiance), cosine * inverse_pi));
+            direct = add(direct, evaluated_contribution(light_direction, light.radiance));
         }
     }
     for (int index = 0; index < scene.point_light_count; ++index) {
@@ -2208,6 +3042,11 @@ __device__ DVec3 direct_lighting(
             continue;
         }
         const float distance = sqrtf(distance_squared);
+        const float range_attenuation =
+            punctual_range_attenuation(distance, light.range);
+        if (range_attenuation <= 0.0f) {
+            continue;
+        }
         const DVec3 light_direction = divv(to_light, distance);
         const float cosine = fmaxf(0.0f, dot(surface.shading_normal, light_direction));
         if (cosine <= 0.0f) {
@@ -2222,7 +3061,50 @@ __device__ DVec3 direct_lighting(
                 error_code)) {
             direct = add(
                 direct,
-                mul(product(surface.base_color, divv(light.intensity, distance_squared)), cosine * inverse_pi));
+                evaluated_contribution(
+                    light_direction,
+                    mul(light.intensity, range_attenuation / distance_squared)));
+        }
+    }
+    for (int index = 0; index < scene.spot_light_count; ++index) {
+        const DSpotLight light = scene.spot_lights[index];
+        const DVec3 to_light = sub(light.position, hit.position);
+        const float distance_squared = length_squared(to_light);
+        if (!(distance_squared > 1.0e-12f)) {
+            continue;
+        }
+        const float distance = sqrtf(distance_squared);
+        const float range_attenuation =
+            punctual_range_attenuation(distance, light.range);
+        if (range_attenuation <= 0.0f) {
+            continue;
+        }
+        const DVec3 light_direction = divv(to_light, distance);
+        const float cone_cosine = dot(mul(light_direction, -1.0f), normalize(light.direction));
+        const float cone = light.inner_cosine <= light.outer_cosine
+            ? (cone_cosine >= light.outer_cosine ? 1.0f : 0.0f)
+            : saturate(
+                  (cone_cosine - light.outer_cosine) /
+                  (light.inner_cosine - light.outer_cosine));
+        if (cone <= 0.0f || dot(surface.shading_normal, light_direction) <= 0.0f) {
+            continue;
+        }
+        const DRay shadow{
+            offset_origin(hit.position, hit.geometric_normal, light_direction),
+            light_direction};
+        if (!occluded_scene(
+                scene,
+                shadow,
+                0.0f,
+                distance - 1.0e-7f,
+                error_code)) {
+            direct = add(
+                direct,
+                evaluated_contribution(
+                    light_direction,
+                    mul(
+                        light.intensity,
+                        cone * range_attenuation / distance_squared)));
         }
     }
     return direct;
@@ -2256,6 +3138,25 @@ __device__ int emissive_light_index(const DScene& scene, const DHit& hit) {
             scene.triangle_light_indices != nullptr
         ? scene.triangle_light_indices[hit.primitive_index]
         : -1;
+}
+
+__device__ bool environment_direct_active(const DScene& scene) {
+    return scene.environment_intensity > 0.0f &&
+        (scene.environment_texels != nullptr || max_component(scene.environment) > 0.0f);
+}
+
+__device__ float environment_strategy_probability(const DScene& scene) {
+    if (!environment_direct_active(scene)) {
+        return 0.0f;
+    }
+    return scene.emissive_light_count > 0 ? 0.5f : 1.0f;
+}
+
+__device__ float emissive_strategy_probability(const DScene& scene) {
+    if (scene.emissive_light_count <= 0) {
+        return 0.0f;
+    }
+    return environment_direct_active(scene) ? 0.5f : 1.0f;
 }
 
 __device__ float sphere_surface_jacobian(
@@ -2314,7 +3215,7 @@ __device__ float emissive_light_pdf_for_hit(
             sphere_surface_jacobian(instance, local_normal);
     }
     return sampled_area > 0.0f
-        ? light.selection_pdf * distance_squared /
+        ? emissive_strategy_probability(scene) * light.selection_pdf * distance_squared /
             (sampled_area * light_cosine)
         : 0.0f;
 }
@@ -2323,6 +3224,7 @@ __device__ bool sample_emissive_shadow_task(
     const DScene& scene,
     const DHit& hit,
     const DSurface& surface,
+    DVec3 outgoing,
     DVec3 throughput,
     int pixel_index,
     DPcgState& rng,
@@ -2457,19 +3359,36 @@ __device__ bool sample_emissive_shadow_task(
 
     const float light_pdf =
         sampled_area > 0.0f
-        ? light.selection_pdf * distance_squared /
+        ? emissive_strategy_probability(scene) * light.selection_pdf * distance_squared /
             (sampled_area * light_cosine)
         : 0.0f;
-    const float bsdf_pdf = surface_cosine / kPi;
     if (!(light_pdf > 0.0f) || !isfinite(light_pdf)) {
         return false;
     }
-    const float mis_weight = power_heuristic(light_pdf, bsdf_pdf);
+    const DPbrEvaluation evaluated = evaluate_pbr(
+        surface,
+        surface.shading_normal,
+        outgoing,
+        light_direction);
+    const float mis_weight = power_heuristic(light_pdf, evaluated.pdf);
+    DVec3 light_emission = light_material.emission;
+    if (light_material.emissive_texture_id >= 0 &&
+        light_material.emissive_texture_id < scene.texture_count) {
+        const DVec2 emissive_uv = transformed_uv(
+            light_uv,
+            light_uv,
+            light_material.emissive_texture_transform,
+            light_material.emissive_texture_rotation,
+            light_material.emissive_texture_texcoord);
+        light_emission = product(
+            light_emission,
+            sample_texture(scene, light_material.emissive_texture_id, emissive_uv));
+    }
     const DVec3 contribution = mul(
         product(
-            product(throughput, surface.base_color),
-            light_material.emission),
-        surface_cosine * mis_weight / (kPi * light_pdf));
+            product(throughput, evaluated.brdf),
+            light_emission),
+        surface_cosine * mis_weight / light_pdf);
     if (!finite(contribution) || max_component(contribution) <= 0.0f) {
         return false;
     }
@@ -2490,6 +3409,48 @@ __device__ bool sample_emissive_shadow_task(
         shadow_distance * (1.0f - 1.0e-5f),
         pixel_index};
     return task.t_max > 0.0f;
+}
+
+__device__ bool sample_environment_shadow_task(
+    const DScene& scene,
+    const DHit& hit,
+    const DSurface& surface,
+    DVec3 outgoing,
+    DVec3 throughput,
+    int pixel_index,
+    DPcgState& rng,
+    DShadowTask& task) {
+    const float strategy_probability = environment_strategy_probability(scene);
+    if (!(strategy_probability > 0.0f)) {
+        return false;
+    }
+    const DEnvironmentSample light = sample_environment(scene, rng);
+    const float cosine = dot(surface.shading_normal, light.direction);
+    const float light_pdf = strategy_probability * light.pdf;
+    if (!(light_pdf > 0.0f) || cosine <= 0.0f ||
+        max_component(light.radiance) <= 0.0f) {
+        return false;
+    }
+    const DPbrEvaluation evaluated = evaluate_pbr(
+        surface,
+        surface.shading_normal,
+        outgoing,
+        light.direction);
+    const float mis_weight = power_heuristic(light_pdf, evaluated.pdf);
+    const DVec3 contribution = mul(
+        product(product(throughput, evaluated.brdf), light.radiance),
+        cosine * mis_weight * surface.occlusion / light_pdf);
+    if (!finite(contribution) || max_component(contribution) <= 0.0f) {
+        return false;
+    }
+    task = DShadowTask{
+        DRay{
+            offset_origin(hit.position, hit.geometric_normal, light.direction),
+            light.direction},
+        contribution,
+        1.0e30f,
+        pixel_index};
+    return true;
 }
 
 __global__ void initialize_frame_kernel(
@@ -2566,7 +3527,10 @@ __global__ void prepare_sample_kernel(
         if (emissive_handle != 0) {
             cudaGraphSetConditional(
                 emissive_handle,
-                frame.scene.emissive_light_count > 0 ? 1U : 0U);
+                (frame.scene.emissive_light_count > 0 ||
+                 environment_direct_active(frame.scene))
+                    ? 1U
+                    : 0U);
         }
     }
 }
@@ -2637,9 +3601,20 @@ __global__ void shade_wavefront_kernel(
     const DWavefrontHit wavefront_hit = hits[index];
     shading_records[index].valid = 0;
     if (!wavefront_hit.found) {
-        frame.sample_radiance[path.pixel_index] = add(
-            frame.sample_radiance[path.pixel_index],
-            product(path.throughput, frame.scene.environment));
+        if (bounce > 0 || frame.scene.environment_background_visible != 0) {
+            const DVec3 incoming = environment_radiance(
+                frame.scene,
+                path.ray.direction);
+            const float weight = bounce == 0 || path.previous_was_delta != 0
+                ? 1.0f
+                : power_heuristic(
+                      path.previous_bsdf_pdf,
+                      environment_strategy_probability(frame.scene) *
+                          environment_pdf(frame.scene, path.ray.direction));
+            frame.sample_radiance[path.pixel_index] = add(
+                frame.sample_radiance[path.pixel_index],
+                mul(product(path.throughput, incoming), weight));
+        }
         return;
     }
 
@@ -2658,8 +3633,18 @@ __global__ void shade_wavefront_kernel(
     }
     const DMaterial material = frame.scene.materials[hit.material_id];
     const DSurface surface = evaluate_surface(frame.scene, material, hit);
+    const int random_index = frame.pixel_offset + path.pixel_index;
+    DPcgState rng = frame.random_states[random_index];
+    const int alpha_mode = material.type == static_cast<int>(MaterialType::Pbr)
+        ? material.alpha_mode
+        : ((material.opacity_texture_id >= 0 || material.opacity < 1.0f)
+              ? static_cast<int>(AlphaMode::Mask)
+              : static_cast<int>(AlphaMode::Opaque));
+    const bool transparent_passthrough =
+        alpha_mode == static_cast<int>(AlphaMode::Blend) &&
+        random_float(rng) >= surface.opacity;
 
-    if (max_component(material.emission) > 0.0f) {
+    if (!transparent_passthrough && max_component(surface.emission) > 0.0f) {
         float emission_weight = 1.0f;
         if (!path.previous_was_delta && path.previous_bsdf_pdf > 0.0f) {
             const float light_pdf = emissive_light_pdf_for_hit(
@@ -2673,22 +3658,35 @@ __global__ void shade_wavefront_kernel(
         frame.sample_radiance[path.pixel_index] = add(
             frame.sample_radiance[path.pixel_index],
             mul(
-                product(path.throughput, material.emission),
+                product(path.throughput, surface.emission),
                 emission_weight));
     }
-    if (material.type == static_cast<int>(MaterialType::Emissive)) {
+    if (!transparent_passthrough &&
+        material.type == static_cast<int>(MaterialType::Emissive)) {
+        frame.random_states[random_index] = rng;
         return;
     }
 
-    const int random_index =
-        frame.pixel_offset + path.pixel_index;
-    DPcgState rng = frame.random_states[random_index];
-    if (material.type == static_cast<int>(MaterialType::Diffuse)) {
+    const DVec3 outgoing = normalize(mul(path.ray.direction, -1.0f));
+    if (!transparent_passthrough &&
+        (material.type == static_cast<int>(MaterialType::Diffuse) ||
+         material.type == static_cast<int>(MaterialType::Metal) ||
+         material.type == static_cast<int>(MaterialType::Pbr))) {
         shading_records[index] = DShadingRecord{
             hit.position,
             hit.geometric_normal,
             surface.shading_normal,
             surface.base_color,
+            surface.diffuse_color,
+            surface.specular_f0,
+            surface.specular_f90,
+            surface.diffuse_fresnel_f0,
+            surface.diffuse_fresnel_f90,
+            surface.diffuse_fresnel_uses_max,
+            outgoing,
+            surface.metallic,
+            surface.roughness,
+            surface.occlusion,
             path.throughput,
             path.pixel_index,
             1};
@@ -2698,16 +3696,23 @@ __global__ void shade_wavefront_kernel(
     DRay scattered{};
     float bsdf_pdf = 0.0f;
     int was_delta = 1;
-    if (!scatter(
-            path.ray,
-            hit,
-            material,
-            surface,
-            rng,
-            attenuation,
-            scattered,
-            bsdf_pdf,
-            was_delta)) {
+    if (transparent_passthrough) {
+        attenuation = v3(1.0f, 1.0f, 1.0f);
+        scattered = DRay{
+            offset_origin(hit.position, hit.geometric_normal, path.ray.direction),
+            path.ray.direction};
+        bsdf_pdf = 0.0f;
+        was_delta = 1;
+    } else if (!scatter(
+                   path.ray,
+                   hit,
+                   material,
+                   surface,
+                   rng,
+                   attenuation,
+                   scattered,
+                   bsdf_pdf,
+                   was_delta)) {
         frame.random_states[random_index] = rng;
         return;
     }
@@ -2776,7 +3781,8 @@ __global__ void sample_emissive_lights_kernel(
         return;
     }
     shadow_tasks[first].t_max = 0.0f;
-    if (frame.scene.emissive_light_count <= 0) {
+    if (frame.scene.emissive_light_count <= 0 &&
+        !environment_direct_active(frame.scene)) {
         return;
     }
     const DShadingRecord record = shading_records[first];
@@ -2788,19 +3794,45 @@ __global__ void sample_emissive_lights_kernel(
     hit.geometric_normal = record.geometric_normal;
     DSurface surface{};
     surface.base_color = record.base_color;
+    surface.diffuse_color = record.diffuse_color;
+    surface.specular_f0 = record.specular_f0;
+    surface.specular_f90 = record.specular_f90;
+    surface.diffuse_fresnel_f0 = record.diffuse_fresnel_f0;
+    surface.diffuse_fresnel_f90 = record.diffuse_fresnel_f90;
+    surface.diffuse_fresnel_uses_max = record.diffuse_fresnel_uses_max;
+    surface.metallic = record.metallic;
+    surface.roughness = record.roughness;
+    surface.occlusion = record.occlusion;
     surface.shading_normal = record.shading_normal;
     const int random_index =
         frame.pixel_offset + record.pixel_index;
     DPcgState rng = frame.random_states[random_index];
     DShadowTask shadow_task{};
-    if (sample_emissive_shadow_task(
-            frame.scene,
-            hit,
-            surface,
-            record.throughput,
-            record.pixel_index,
-            rng,
-            shadow_task)) {
+    const float environment_probability =
+        environment_strategy_probability(frame.scene);
+    const bool choose_environment = environment_probability > 0.0f &&
+        (frame.scene.emissive_light_count <= 0 ||
+         random_float(rng) < environment_probability);
+    const bool sampled = choose_environment
+        ? sample_environment_shadow_task(
+              frame.scene,
+              hit,
+              surface,
+              record.outgoing,
+              record.throughput,
+              record.pixel_index,
+              rng,
+              shadow_task)
+        : sample_emissive_shadow_task(
+              frame.scene,
+              hit,
+              surface,
+              record.outgoing,
+              record.throughput,
+              record.pixel_index,
+              rng,
+              shadow_task);
+    if (sampled) {
         shadow_tasks[first] = shadow_task;
     }
     frame.random_states[random_index] = rng;
@@ -2831,6 +3863,15 @@ __global__ void direct_visibility_kernel(
     hit.geometric_normal = record.geometric_normal;
     DSurface surface{};
     surface.base_color = record.base_color;
+    surface.diffuse_color = record.diffuse_color;
+    surface.specular_f0 = record.specular_f0;
+    surface.specular_f90 = record.specular_f90;
+    surface.diffuse_fresnel_f0 = record.diffuse_fresnel_f0;
+    surface.diffuse_fresnel_f90 = record.diffuse_fresnel_f90;
+    surface.diffuse_fresnel_uses_max = record.diffuse_fresnel_uses_max;
+    surface.metallic = record.metallic;
+    surface.roughness = record.roughness;
+    surface.occlusion = record.occlusion;
     surface.shading_normal = record.shading_normal;
     DVec3 contribution = product(
         record.throughput,
@@ -2838,8 +3879,10 @@ __global__ void direct_visibility_kernel(
             frame.scene,
             hit,
             surface,
+            record.outgoing,
             frame.error_code));
-    if (frame.scene.emissive_light_count > 0) {
+    if (frame.scene.emissive_light_count > 0 ||
+        environment_direct_active(frame.scene)) {
         const DShadowTask task = shadow_tasks[first];
         if (task.t_max > 0.0f &&
             !occluded_scene(
@@ -3324,19 +4367,7 @@ public:
             materials_host_.clear();
             materials_host_.reserve(scene.materials.size());
             for (const Material& material : scene.materials) {
-                materials_host_.push_back(DMaterial{
-                static_cast<int>(material.type),
-                to_device(material.base_color),
-                to_device(material.emission),
-                material.roughness,
-                material.ior,
-                material.opacity,
-                material.alpha_cutoff,
-                material.bump_scale,
-                material.two_sided ? 1 : 0,
-                material.diffuse_texture_id,
-                material.opacity_texture_id,
-                material.bump_texture_id});
+                materials_host_.push_back(pack_material(material, 0));
             }
             statistics_.material_upload_bytes +=
                 materials_.upload(materials_host_, stream_, statistics_);
@@ -3345,24 +4376,41 @@ public:
         if (has_scene_change(changes, SceneChange::Textures)) {
             textures_host_.clear();
             texels_host_.clear();
+            texture_alphas_host_.clear();
             textures_host_.reserve(scene.textures.size());
             std::size_t texel_count = 0;
             for (const ImageTexture& texture : scene.textures) {
                 texel_count += texture.pixels().size();
             }
             texels_host_.reserve(texel_count);
+            texture_alphas_host_.reserve(texel_count);
             for (const ImageTexture& texture : scene.textures) {
                 const int first = static_cast<int>(texels_host_.size());
+                const int first_alpha = static_cast<int>(texture_alphas_host_.size());
                 textures_host_.push_back(
-                    DTexture{texture.width(), texture.height(), first});
+                    DTexture{
+                        texture.width(),
+                        texture.height(),
+                        first,
+                        first_alpha,
+                        static_cast<int>(texture.wrap_s()),
+                        static_cast<int>(texture.wrap_t()),
+                        texture.mag_filter() == TextureFilter::Nearest ? 1 : 0,
+                        texture.uv_origin() == TextureUvOrigin::TopLeft ? 1 : 0});
                 for (const Color& color : texture.pixels()) {
                     texels_host_.push_back(to_device(color));
                 }
+                texture_alphas_host_.insert(
+                    texture_alphas_host_.end(),
+                    texture.alphas().begin(),
+                    texture.alphas().end());
             }
             statistics_.texture_upload_bytes +=
                 textures_.upload(textures_host_, stream_, statistics_);
             statistics_.texture_upload_bytes +=
                 texels_.upload(texels_host_, stream_, statistics_);
+            statistics_.texture_upload_bytes +=
+                texture_alphas_.upload(texture_alphas_host_, stream_, statistics_);
         }
 
         if (has_scene_change(changes, SceneChange::Geometry)) {
@@ -3407,10 +4455,26 @@ public:
                 for (int vertex_index = 0; vertex_index < 3; ++vertex_index) {
                     const TriangleVertex& vertex = triangle.vertex(vertex_index);
                     shading.uvs[vertex_index] = to_device(vertex.uv);
+                    shading.uv1s[vertex_index] = to_device(vertex.uv1);
                     shading.normals[vertex_index] =
                         to_device(vertex.normal);
+                    shading.tangents[vertex_index] = to_device(vertex.tangent);
+                    shading.colors[vertex_index] = to_device(vertex.color);
+                    shading.alphas[vertex_index] = vertex.alpha;
                     if (vertex.has_normal) {
                         shading.normal_mask |=
+                            1U << static_cast<unsigned int>(vertex_index);
+                    }
+                    if (vertex.has_uv1) {
+                        shading.uv1_mask |=
+                            1U << static_cast<unsigned int>(vertex_index);
+                    }
+                    if (vertex.has_tangent) {
+                        shading.tangent_mask |=
+                            1U << static_cast<unsigned int>(vertex_index);
+                    }
+                    if (vertex.has_color) {
+                        shading.color_mask |=
                             1U << static_cast<unsigned int>(vertex_index);
                     }
                 }
@@ -3483,7 +4547,8 @@ public:
                 point_lights_host_.push_back(
                     DPointLight{
                         to_device(light.position),
-                        to_device(light.intensity)});
+                        to_device(light.intensity),
+                        light.range});
             }
             directional_lights_host_.clear();
             directional_lights_host_.reserve(scene.directional_lights.size());
@@ -3492,6 +4557,17 @@ public:
                     DDirectionalLight{
                         to_device(light.direction),
                         to_device(light.radiance)});
+            }
+            spot_lights_host_.clear();
+            spot_lights_host_.reserve(scene.spot_lights.size());
+            for (const SpotLight& light : scene.spot_lights) {
+                spot_lights_host_.push_back(DSpotLight{
+                    to_device(light.position),
+                    to_device(light.direction),
+                    to_device(light.intensity),
+                    light.range,
+                    std::cos(light.inner_cone_radians),
+                    std::cos(light.outer_cone_radians)});
             }
             statistics_.lighting_upload_bytes +=
                 point_lights_.upload(
@@ -3503,14 +4579,30 @@ public:
                     directional_lights_host_,
                     stream_,
                     statistics_);
+            statistics_.lighting_upload_bytes +=
+                spot_lights_.upload(
+                    spot_lights_host_,
+                    stream_,
+                    statistics_);
             statistics_.lighting_upload_bytes += sizeof(DVec3);
+        }
+
+        if (has_scene_change(changes, SceneChange::Environment)) {
+            upload_environment(
+                scene.environment,
+                scene.environment_map,
+                scene.environment_intensity,
+                scene.environment_rotation_degrees,
+                scene.environment_background_visible);
         }
 
         view_.materials = materials_.get();
         view_.material_count = static_cast<int>(materials_.size());
+        view_.stochastic_alpha_test = 0;
         view_.textures = textures_.get();
         view_.texture_count = static_cast<int>(textures_.size());
         view_.texels = texels_.get();
+        view_.texture_alphas = texture_alphas_.get();
         view_.spheres = spheres_.get();
         view_.sphere_material_ids = sphere_material_ids_.get();
         view_.sphere_count = static_cast<int>(spheres_.size());
@@ -3526,6 +4618,8 @@ public:
         view_.point_light_count = static_cast<int>(point_lights_.size());
         view_.directional_lights = directional_lights_.get();
         view_.directional_light_count = static_cast<int>(directional_lights_.size());
+        view_.spot_lights = spot_lights_.get();
+        view_.spot_light_count = static_cast<int>(spot_lights_.size());
         view_.emissive_lights = emissive_lights_.get();
         view_.emissive_light_count = static_cast<int>(emissive_lights_.size());
         view_.sphere_light_indices = sphere_light_indices_.get();
@@ -3538,7 +4632,6 @@ public:
         view_.tlas_node_count = 0;
         view_.tlas_primitive_indices = nullptr;
         view_.instanced_mode = 0;
-        view_.environment = to_device(scene.environment);
         upload_timer_.end(stream_);
     }
 
@@ -3586,7 +4679,15 @@ public:
             has_scene_change(changes, SceneChange::Lighting)) {
             update_instanced_lighting(scene);
         }
-        update_instanced_view(scene.environment);
+        if (has_scene_change(changes, SceneChange::Environment) || rebuild_assets) {
+            upload_environment(
+                scene.environment,
+                scene.environment_map,
+                scene.environment_intensity,
+                scene.environment_rotation_degrees,
+                scene.environment_background_visible);
+        }
+        update_instanced_view();
         upload_timer_.end(stream_);
     }
 
@@ -3599,6 +4700,41 @@ public:
     }
 
 private:
+    void upload_environment(
+        const Color& fallback,
+        const std::shared_ptr<const EnvironmentMap>& map,
+        float intensity,
+        float rotation_degrees,
+        bool background_visible) {
+        environment_texels_host_.clear();
+        environment_pmf_host_.clear();
+        environment_cdf_host_.clear();
+        if (map) {
+            environment_texels_host_.reserve(map->pixels().size());
+            for (const Color& color : map->pixels()) {
+                environment_texels_host_.push_back(to_device(color));
+            }
+            environment_pmf_host_ = map->importance_pmf();
+            environment_cdf_host_ = map->importance_cdf();
+        }
+        statistics_.lighting_upload_bytes += environment_texels_.upload(
+            environment_texels_host_, stream_, statistics_);
+        statistics_.lighting_upload_bytes += environment_pmf_.upload(
+            environment_pmf_host_, stream_, statistics_);
+        statistics_.lighting_upload_bytes += environment_cdf_.upload(
+            environment_cdf_host_, stream_, statistics_);
+        view_.environment = to_device(fallback);
+        view_.environment_texels = environment_texels_.get();
+        view_.environment_pmf = environment_pmf_.get();
+        view_.environment_cdf = environment_cdf_.get();
+        view_.environment_width = map ? map->width() : 0;
+        view_.environment_height = map ? map->height() : 0;
+        view_.environment_intensity = std::max(0.0f, intensity);
+        view_.environment_rotation_radians =
+            rotation_degrees * kPi / 180.0f;
+        view_.environment_background_visible = background_visible ? 1 : 0;
+    }
+
     bool same_instanced_asset_layout(
         const InstancedSceneView& scene) const {
         if (!instanced_assets_initialized_ ||
@@ -3630,14 +4766,54 @@ private:
             to_device(material.base_color),
             to_device(material.emission),
             material.roughness,
+            material.metallic,
             material.ior,
             material.opacity,
             material.alpha_cutoff,
             material.bump_scale,
+            material.normal_scale,
+            material.occlusion_strength,
+            static_cast<int>(material.alpha_mode),
             material.two_sided ? 1 : 0,
             texture_id(material.diffuse_texture_id),
             texture_id(material.opacity_texture_id),
-            texture_id(material.bump_texture_id)};
+            texture_id(material.bump_texture_id),
+            texture_id(material.base_color_texture_id),
+            texture_id(material.metallic_roughness_texture_id),
+            texture_id(material.normal_texture_id),
+            texture_id(material.occlusion_texture_id),
+            texture_id(material.emissive_texture_id),
+            pack_texture_transform(material.base_color_texture_transform),
+            pack_texture_transform(material.metallic_roughness_texture_transform),
+            pack_texture_transform(material.normal_texture_transform),
+            pack_texture_transform(material.occlusion_texture_transform),
+            pack_texture_transform(material.emissive_texture_transform),
+            material.base_color_texture_transform.rotation,
+            material.metallic_roughness_texture_transform.rotation,
+            material.normal_texture_transform.rotation,
+            material.occlusion_texture_transform.rotation,
+            material.emissive_texture_transform.rotation,
+            material.base_color_texture_transform.texcoord,
+            material.metallic_roughness_texture_transform.texcoord,
+            material.normal_texture_transform.texcoord,
+            material.occlusion_texture_transform.texcoord,
+            material.emissive_texture_transform.texcoord,
+            static_cast<int>(material.pbr_workflow),
+            to_device(material.specular_color),
+            material.specular_factor,
+            material.glossiness,
+            texture_id(material.specular_texture_id),
+            texture_id(material.specular_color_texture_id),
+            texture_id(material.specular_glossiness_texture_id),
+            pack_texture_transform(material.specular_texture_transform),
+            pack_texture_transform(material.specular_color_texture_transform),
+            pack_texture_transform(material.specular_glossiness_texture_transform),
+            material.specular_texture_transform.rotation,
+            material.specular_color_texture_transform.rotation,
+            material.specular_glossiness_texture_transform.rotation,
+            material.specular_texture_transform.texcoord,
+            material.specular_color_texture_transform.texcoord,
+            material.specular_glossiness_texture_transform.texcoord};
     }
 
     static DInstance pack_instance(
@@ -3953,7 +5129,8 @@ private:
             point_lights_host_.push_back(
                 DPointLight{
                     to_device(light.position),
-                    to_device(light.intensity)});
+                    to_device(light.intensity),
+                    light.range});
         }
         directional_lights_host_.clear();
         directional_lights_host_.reserve(
@@ -3965,6 +5142,17 @@ private:
                     to_device(light.direction),
                     to_device(light.radiance)});
         }
+        spot_lights_host_.clear();
+        spot_lights_host_.reserve(scene.spot_lights.size());
+        for (const SpotLight& light : scene.spot_lights) {
+            spot_lights_host_.push_back(DSpotLight{
+                to_device(light.position),
+                to_device(light.direction),
+                to_device(light.intensity),
+                light.range,
+                std::cos(light.inner_cone_radians),
+                std::cos(light.outer_cone_radians)});
+        }
         statistics_.lighting_upload_bytes +=
             point_lights_.upload(
                 point_lights_host_,
@@ -3973,6 +5161,11 @@ private:
         statistics_.lighting_upload_bytes +=
             directional_lights_.upload(
                 directional_lights_host_,
+                stream_,
+                statistics_);
+        statistics_.lighting_upload_bytes +=
+            spot_lights_.upload(
+                spot_lights_host_,
                 stream_,
                 statistics_);
     }
@@ -3986,32 +5179,30 @@ private:
         const InstancedSceneView& scene) {
         textures_host_.clear();
         texels_host_.clear();
-        asset_texture_bases_host_.clear();
-        asset_texture_bases_host_.reserve(
-            scene.assets.size());
-        for (const InstancedSceneAssetView& asset :
-             scene.assets) {
-            if (!asset.local_scene) {
-                throw std::runtime_error(
-                    "CUDA texture update has no local scene");
+        texture_alphas_host_.clear();
+        textures_host_.reserve(scene.textures.size());
+        for (const ImageTexture& texture : scene.textures) {
+            const int first =
+                static_cast<int>(texels_host_.size());
+            const int first_alpha =
+                static_cast<int>(texture_alphas_host_.size());
+            textures_host_.push_back(
+                DTexture{
+                    texture.width(),
+                    texture.height(),
+                    first,
+                    first_alpha,
+                    static_cast<int>(texture.wrap_s()),
+                    static_cast<int>(texture.wrap_t()),
+                    texture.mag_filter() == TextureFilter::Nearest ? 1 : 0,
+                    texture.uv_origin() == TextureUvOrigin::TopLeft ? 1 : 0});
+            for (const Color& color : texture.pixels()) {
+                texels_host_.push_back(to_device(color));
             }
-            asset_texture_bases_host_.push_back(
-                static_cast<int>(textures_host_.size()));
-            for (const ImageTexture& texture :
-                 asset.local_scene->textures) {
-                const int first =
-                    static_cast<int>(texels_host_.size());
-                textures_host_.push_back(
-                    DTexture{
-                        texture.width(),
-                        texture.height(),
-                        first});
-                for (const Color& color :
-                     texture.pixels()) {
-                    texels_host_.push_back(
-                        to_device(color));
-                }
-            }
+            texture_alphas_host_.insert(
+                texture_alphas_host_.end(),
+                texture.alphas().begin(),
+                texture.alphas().end());
         }
         statistics_.texture_upload_bytes +=
             textures_.upload(
@@ -4021,6 +5212,11 @@ private:
         statistics_.texture_upload_bytes +=
             texels_.upload(
                 texels_host_,
+                stream_,
+                statistics_);
+        statistics_.texture_upload_bytes +=
+            texture_alphas_.upload(
+                texture_alphas_host_,
                 stream_,
                 statistics_);
     }
@@ -4041,20 +5237,16 @@ private:
             if (instance.asset_index < 0 ||
                 static_cast<std::size_t>(
                     instance.asset_index) >=
-                    asset_texture_bases_host_.size()) {
+                    scene.assets.size()) {
                 throw std::runtime_error(
                     "CUDA instance material update references an invalid asset");
             }
             const int material_offset =
                 static_cast<int>(materials_host_.size());
-            const int texture_base =
-                asset_texture_bases_host_[
-                    static_cast<std::size_t>(
-                        instance.asset_index)];
             for (const Material& material :
                  instance.materials) {
                 materials_host_.push_back(
-                    pack_material(material, texture_base));
+                    pack_material(material, 0));
             }
             instances_host_[index].material_offset =
                 material_offset;
@@ -4090,14 +5282,10 @@ private:
             }
             const int material_offset =
                 static_cast<int>(materials_host_.size());
-            const int texture_base =
-                asset_texture_bases_host_[
-                    static_cast<std::size_t>(
-                        instance.asset_index)];
             for (const Material& material :
                  instance.materials) {
                 materials_host_.push_back(
-                    pack_material(material, texture_base));
+                    pack_material(material, 0));
             }
             instances_host_.push_back(
                 pack_instance(instance, material_offset));
@@ -4148,6 +5336,7 @@ private:
         materials_host_.clear();
         textures_host_.clear();
         texels_host_.clear();
+        texture_alphas_host_.clear();
         spheres_host_.clear();
         sphere_material_ids_host_.clear();
         traversal_triangles_host_.clear();
@@ -4156,13 +5345,33 @@ private:
         bvh_nodes_host_.clear();
         primitive_indices_host_.clear();
         assets_host_.clear();
-        asset_texture_bases_host_.clear();
         asset_ids_host_.clear();
         asset_scenes_host_.clear();
-        asset_texture_bases_host_.reserve(scene.assets.size());
         asset_ids_host_.reserve(scene.assets.size());
         asset_scenes_host_.reserve(scene.assets.size());
         assets_host_.reserve(scene.assets.size());
+
+        textures_host_.reserve(scene.textures.size());
+        for (const ImageTexture& texture : scene.textures) {
+            const int first = static_cast<int>(texels_host_.size());
+            const int first_alpha = static_cast<int>(texture_alphas_host_.size());
+            textures_host_.push_back(DTexture{
+                texture.width(),
+                texture.height(),
+                first,
+                first_alpha,
+                static_cast<int>(texture.wrap_s()),
+                static_cast<int>(texture.wrap_t()),
+                texture.mag_filter() == TextureFilter::Nearest ? 1 : 0,
+                texture.uv_origin() == TextureUvOrigin::TopLeft ? 1 : 0});
+            for (const Color& color : texture.pixels()) {
+                texels_host_.push_back(to_device(color));
+            }
+            texture_alphas_host_.insert(
+                texture_alphas_host_.end(),
+                texture.alphas().begin(),
+                texture.alphas().end());
+        }
 
         for (const InstancedSceneAssetView& asset_view :
              scene.assets) {
@@ -4174,23 +5383,6 @@ private:
             asset_ids_host_.push_back(asset_view.asset_id);
             asset_scenes_host_.push_back(
                 asset_view.local_scene);
-            const int texture_base =
-                static_cast<int>(textures_host_.size());
-            asset_texture_bases_host_.push_back(texture_base);
-            for (const ImageTexture& texture :
-                 asset_scene.textures) {
-                const int first =
-                    static_cast<int>(texels_host_.size());
-                textures_host_.push_back(
-                    DTexture{
-                        texture.width(),
-                        texture.height(),
-                        first});
-                for (const Color& color : texture.pixels()) {
-                    texels_host_.push_back(to_device(color));
-                }
-            }
-
             DAsset asset{};
             asset.sphere_first =
                 static_cast<int>(spheres_host_.size());
@@ -4234,12 +5426,31 @@ private:
                         triangle.vertex(vertex);
                     shading.uvs[vertex] =
                         to_device(source.uv);
+                    shading.uv1s[vertex] =
+                        to_device(source.uv1);
                     shading.normals[vertex] =
                         to_device(source.normal);
+                    shading.tangents[vertex] =
+                        to_device(source.tangent);
+                    shading.colors[vertex] =
+                        to_device(source.color);
+                    shading.alphas[vertex] = source.alpha;
                     if (source.has_normal) {
                         shading.normal_mask |=
                             1U << static_cast<unsigned int>(
                                 vertex);
+                    }
+                    if (source.has_uv1) {
+                        shading.uv1_mask |=
+                            1U << static_cast<unsigned int>(vertex);
+                    }
+                    if (source.has_tangent) {
+                        shading.tangent_mask |=
+                            1U << static_cast<unsigned int>(vertex);
+                    }
+                    if (source.has_color) {
+                        shading.color_mask |=
+                            1U << static_cast<unsigned int>(vertex);
                     }
                 }
                 shading_triangles_host_.push_back(shading);
@@ -4304,14 +5515,10 @@ private:
             }
             const int material_offset =
                 static_cast<int>(materials_host_.size());
-            const int texture_base =
-                asset_texture_bases_host_[
-                    static_cast<std::size_t>(
-                        instance.asset_index)];
             for (const Material& material :
                  instance.materials) {
                 materials_host_.push_back(
-                    pack_material(material, texture_base));
+                    pack_material(material, 0));
             }
             instances_host_.push_back(
                 pack_instance(instance, material_offset));
@@ -4330,6 +5537,11 @@ private:
         statistics_.texture_upload_bytes +=
             texels_.upload(
                 texels_host_,
+                stream_,
+                statistics_);
+        statistics_.texture_upload_bytes +=
+            texture_alphas_.upload(
+                texture_alphas_host_,
                 stream_,
                 statistics_);
         statistics_.geometry_upload_bytes +=
@@ -4481,14 +5693,16 @@ private:
         }
     }
 
-    void update_instanced_view(const Color& environment) {
+    void update_instanced_view() {
         view_.materials = materials_.get();
         view_.material_count =
             static_cast<int>(materials_.size());
+        view_.stochastic_alpha_test = 0;
         view_.textures = textures_.get();
         view_.texture_count =
             static_cast<int>(textures_.size());
         view_.texels = texels_.get();
+        view_.texture_alphas = texture_alphas_.get();
         view_.spheres = spheres_.get();
         view_.sphere_material_ids =
             sphere_material_ids_.get();
@@ -4516,6 +5730,8 @@ private:
         view_.directional_light_count =
             static_cast<int>(
                 directional_lights_.size());
+        view_.spot_lights = spot_lights_.get();
+        view_.spot_light_count = static_cast<int>(spot_lights_.size());
         view_.emissive_lights =
             emissive_lights_.get();
         view_.emissive_light_count =
@@ -4535,7 +5751,6 @@ private:
         view_.tlas_primitive_indices =
             tlas_primitive_indices_.get();
         view_.instanced_mode = 1;
-        view_.environment = to_device(environment);
     }
 
     void rebuild_emissive_lights(const Scene& scene) {
@@ -4698,6 +5913,7 @@ private:
     DeviceBuffer<DMaterial> materials_;
     DeviceBuffer<DTexture> textures_;
     DeviceBuffer<DVec3> texels_;
+    DeviceBuffer<float> texture_alphas_;
     DeviceBuffer<DSphere> spheres_;
     DeviceBuffer<int> sphere_material_ids_;
     DeviceBuffer<DTraversalTriangle> traversal_triangles_;
@@ -4707,6 +5923,10 @@ private:
     DeviceBuffer<int> primitive_indices_;
     DeviceBuffer<DPointLight> point_lights_;
     DeviceBuffer<DDirectionalLight> directional_lights_;
+    DeviceBuffer<DSpotLight> spot_lights_;
+    DeviceBuffer<DVec3> environment_texels_;
+    DeviceBuffer<float> environment_pmf_;
+    DeviceBuffer<float> environment_cdf_;
     DeviceBuffer<DEmissiveLight> emissive_lights_;
     DeviceBuffer<int> sphere_light_indices_;
     DeviceBuffer<int> triangle_light_indices_;
@@ -4717,6 +5937,7 @@ private:
     std::vector<DMaterial> materials_host_;
     std::vector<DTexture> textures_host_;
     std::vector<DVec3> texels_host_;
+    std::vector<float> texture_alphas_host_;
     std::vector<DSphere> spheres_host_;
     std::vector<int> sphere_material_ids_host_;
     std::vector<DTraversalTriangle> traversal_triangles_host_;
@@ -4726,12 +5947,15 @@ private:
     std::vector<int> primitive_indices_host_;
     std::vector<DPointLight> point_lights_host_;
     std::vector<DDirectionalLight> directional_lights_host_;
+    std::vector<DSpotLight> spot_lights_host_;
+    std::vector<DVec3> environment_texels_host_;
+    std::vector<float> environment_pmf_host_;
+    std::vector<float> environment_cdf_host_;
     std::vector<DEmissiveLight> emissive_lights_host_;
     std::vector<int> sphere_light_indices_host_;
     std::vector<int> triangle_light_indices_host_;
     std::vector<DAsset> assets_host_;
     std::vector<DInstance> instances_host_;
-    std::vector<int> asset_texture_bases_host_;
     std::vector<std::uint64_t> asset_ids_host_;
     std::vector<const Scene*> asset_scenes_host_;
     std::vector<DBvh4Node> tlas_nodes_host_;

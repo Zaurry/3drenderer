@@ -17,6 +17,7 @@ public:
     void set_distance(float distance);
     float distance() const;
     void orbit(float delta_x, float delta_y);
+    void pan(float delta_x, float delta_y, float viewport_height_pixels);
     void zoom(float wheel_delta);
     Camera camera() const;
 
