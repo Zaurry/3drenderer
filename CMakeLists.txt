@@ -17,6 +17,28 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
+set(FASTGLTF_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(FASTGLTF_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(FASTGLTF_ENABLE_DOCS OFF CACHE BOOL "" FORCE)
+set(FASTGLTF_ENABLE_DEPRECATED_EXT ON CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    fastgltf
+    URL https://github.com/spnda/fastgltf/archive/refs/tags/v0.9.0.tar.gz
+    URL_HASH SHA256=0bb564e127b14c22f062db50f89381dd2e0a20dbaf4987ca138a4ae8728712f9
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(fastgltf)
+
+set(TINYEXR_BUILD_SAMPLE OFF CACHE BOOL "" FORCE)
+set(TINYEXR_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    tinyexr
+    URL https://github.com/syoyo/tinyexr/archive/refs/tags/v3.2.0.tar.gz
+    URL_HASH SHA256=df2bd61124a35d8138f8b0bc22418a1d4fe33622c818e0e022f5522afc0821b0
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(tinyexr)
+
 option(RENDERER_NATIVE_ARCH "Enable native CPU instruction tuning" OFF)
 option(RENDERER_BUILD_VIEWER "Build the SDL3/OpenGL interactive viewer" ON)
 
@@ -155,9 +177,12 @@ set(RENDERER_CORE_SOURCES
     src/render/interactive/path_interactive_session.cpp
     src/render/pathtracer/pathtracer_renderer.cpp
     src/render/pathtracer/path_backend.cpp
+    src/render/pbr.cpp
     src/render/scene_intersector.cpp
     src/sampling/sampler.cpp
     src/scene/camera.cpp
+    src/scene/environment.cpp
+    src/scene/gltf_loader.cpp
     src/scene/material_evaluator.cpp
     src/scene/mesh.cpp
     src/scene/obj_loader.cpp
@@ -179,9 +204,11 @@ target_include_directories(renderer_core
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/external/stb"
         "${CMAKE_CURRENT_SOURCE_DIR}/external/tinyobjloader"
+        "${tinyexr_SOURCE_DIR}"
 )
 target_link_libraries(renderer_core PUBLIC Eigen3::Eigen)
 target_link_libraries(renderer_core PUBLIC nlohmann_json::nlohmann_json)
+target_link_libraries(renderer_core PUBLIC fastgltf::fastgltf tinyexr)
 if(RENDERER_HAS_CUDA)
     target_link_libraries(renderer_core PRIVATE CUDA::cudart)
     set_target_properties(renderer_core PROPERTIES
@@ -293,8 +320,8 @@ add_test(NAME renderer_tests COMMAND renderer_tests)
 function(target_enable_warnings target_name)
     if(MSVC)
         target_compile_options(${target_name} PRIVATE
-            $<$<COMPILE_LANGUAGE:CXX>:/W4 /permissive- /utf-8>
-            $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/W4,-permissive-,-utf-8>
+            $<$<COMPILE_LANGUAGE:CXX>:/W4 /permissive- /utf-8 /bigobj>
+            $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/W4,-permissive-,-utf-8,/bigobj>
             $<$<COMPILE_LANGUAGE:CUDA>:-diag-suppress=68>
             $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/wd4068,/wd4211>
         )

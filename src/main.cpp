@@ -5,7 +5,9 @@
 #include "scene/scene.h"
 
 #include <algorithm>
+#include <cmath>
 #include <exception>
+#include <filesystem>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -20,7 +22,11 @@ struct SceneBundle {
 struct CliOptions {
     std::string mode = "path";
     std::string scene = "gradient_sphere";
-    std::string obj_path;
+    std::string asset_path;
+    std::filesystem::path environment_path;
+    float environment_intensity = 1.0f;
+    float environment_yaw_degrees = 0.0f;
+    bool environment_background_visible = true;
     std::string output_path;
     int width = 512;
     int height = 512;
@@ -35,10 +41,15 @@ void print_help() {
         << "3D Path Renderer v0.1\n"
         << "\n"
         << "Usage:\n"
-        << "  renderer --mode path --scene gradient_sphere|triangle|mirror_spheres|cornell_box|obj_viewer --output file.png [options]\n"
+        << "  renderer --mode path --scene gradient_sphere|triangle|mirror_spheres|cornell_box|asset_viewer --output file.png [options]\n"
         << "\n"
         << "Options:\n"
-        << "  --obj path          OBJ file for --scene obj_viewer\n"
+        << "  --asset path        OBJ/glTF/GLB file for --scene asset_viewer\n"
+        << "  --obj path          backward-compatible alias for --asset\n"
+        << "  --environment path  2:1 HDR/EXR/PNG/JPG environment map\n"
+        << "  --environment-intensity value  environment multiplier, default 1\n"
+        << "  --environment-yaw degrees  rotate the environment around Y\n"
+        << "  --hide-environment-background  light without drawing the environment\n"
         << "  --width integer     image width, default 512\n"
         << "  --height integer    image height, default 512\n"
         << "  --spp integer       samples per pixel, default 1\n"
@@ -61,6 +72,20 @@ int parse_positive_int(const std::string& value, const std::string& name) {
     return parsed;
 }
 
+float parse_finite_float(const std::string& value, const std::string& name) {
+    std::size_t consumed = 0;
+    float parsed = 0.0f;
+    try {
+        parsed = std::stof(value, &consumed);
+    } catch (const std::exception&) {
+        throw std::invalid_argument(name + " must be a number");
+    }
+    if (consumed != value.size() || !std::isfinite(parsed)) {
+        throw std::invalid_argument(name + " must be a finite number");
+    }
+    return parsed;
+}
+
 std::string require_value(int argc, char** argv, int& i, const std::string& flag) {
     if (i + 1 >= argc) {
         throw std::invalid_argument(flag + " requires a value");
@@ -79,8 +104,21 @@ CliOptions parse_args(int argc, char** argv) {
             options.mode = require_value(argc, argv, i, arg);
         } else if (arg == "--scene") {
             options.scene = require_value(argc, argv, i, arg);
-        } else if (arg == "--obj") {
-            options.obj_path = require_value(argc, argv, i, arg);
+        } else if (arg == "--obj" || arg == "--asset") {
+            options.asset_path = require_value(argc, argv, i, arg);
+        } else if (arg == "--environment") {
+            options.environment_path = require_value(argc, argv, i, arg);
+        } else if (arg == "--environment-intensity") {
+            options.environment_intensity =
+                parse_finite_float(require_value(argc, argv, i, arg), arg);
+            if (options.environment_intensity < 0.0f) {
+                throw std::invalid_argument(arg + " must be non-negative");
+            }
+        } else if (arg == "--environment-yaw") {
+            options.environment_yaw_degrees =
+                parse_finite_float(require_value(argc, argv, i, arg), arg);
+        } else if (arg == "--hide-environment-background") {
+            options.environment_background_visible = false;
         } else if (arg == "--width") {
             options.width = parse_positive_int(require_value(argc, argv, i, arg), arg);
         } else if (arg == "--height") {
@@ -122,12 +160,15 @@ renderer::Camera make_camera(
         static_cast<float>(width) / static_cast<float>(height));
 }
 
-SceneBundle make_obj_scene(const CliOptions& options) {
-    if (options.obj_path.empty()) {
-        throw std::invalid_argument("--scene obj_viewer requires --obj");
+SceneBundle make_asset_scene(const CliOptions& options) {
+    if (options.asset_path.empty()) {
+        throw std::invalid_argument("--scene asset_viewer requires --asset");
     }
 
-    const renderer::LoadedScene loaded = renderer::load_scene_asset(options.obj_path, options.width, options.height);
+    const renderer::LoadedScene loaded = renderer::load_scene_asset(
+        options.asset_path,
+        options.width,
+        options.height);
     for (const std::string& warning : loaded.warnings) {
         std::cerr << "warning: " << warning << '\n';
     }
@@ -175,8 +216,8 @@ SceneBundle make_scene_bundle(const CliOptions& options) {
                 options.width,
                 options.height)};
     }
-    if (options.scene == "obj_viewer") {
-        return make_obj_scene(options);
+    if (options.scene == "obj_viewer" || options.scene == "asset_viewer") {
+        return make_asset_scene(options);
     }
 
     throw std::invalid_argument("unknown scene: " + options.scene);
@@ -203,6 +244,15 @@ int main(int argc, char** argv) {
         }
 
         SceneBundle bundle = make_scene_bundle(options);
+        if (!options.environment_path.empty()) {
+            bundle.scene.environment_map =
+                renderer::EnvironmentMap::load(options.environment_path);
+            bundle.scene.environment = renderer::Color::Ones();
+        }
+        bundle.scene.environment_intensity = options.environment_intensity;
+        bundle.scene.environment_rotation_degrees = options.environment_yaw_degrees;
+        bundle.scene.environment_background_visible =
+            options.environment_background_visible;
         if (options.path_backend == renderer::PathBackend::Auto) {
             std::string reason;
             if (!renderer::cuda_path_backend_available(&reason)) {

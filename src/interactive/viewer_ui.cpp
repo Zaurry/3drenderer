@@ -8,18 +8,24 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <filesystem>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <unordered_map>
 
 namespace renderer {
 
 namespace {
+
+constexpr float kPi = 3.14159265358979323846f;
 
 struct ProjectedPoint {
     ImVec2 screen;
@@ -315,6 +321,54 @@ bool is_object_selected(const ViewerUiState& state, ObjectId id) {
         id) != state.selected_objects.end();
 }
 
+std::vector<std::size_t> referenced_material_slots(
+    const SceneMeshAsset& asset) {
+    std::vector<unsigned char> referenced(
+        asset.local_scene.materials.size(),
+        0U);
+    const auto mark_referenced = [&referenced](int material_id) {
+        if (material_id >= 0 &&
+            static_cast<std::size_t>(material_id) < referenced.size()) {
+            referenced[static_cast<std::size_t>(material_id)] = 1U;
+        }
+    };
+    for (const Triangle& triangle : asset.local_scene.triangles) {
+        mark_referenced(triangle.material_id());
+    }
+    for (const Sphere& sphere : asset.local_scene.spheres) {
+        mark_referenced(sphere.material_id());
+    }
+
+    std::vector<std::size_t> slots;
+    for (std::size_t slot = 0; slot < referenced.size(); ++slot) {
+        if (referenced[slot] != 0U) {
+            slots.push_back(slot);
+        }
+    }
+    if (slots.empty() && !asset.local_scene.materials.empty()) {
+        slots.push_back(0);
+    }
+    return slots;
+}
+
+bool contains_case_insensitive(
+    std::string_view text,
+    std::string_view query) {
+    if (query.empty()) {
+        return true;
+    }
+    const auto equal_folded = [](char lhs, char rhs) {
+        return std::tolower(static_cast<unsigned char>(lhs)) ==
+            std::tolower(static_cast<unsigned char>(rhs));
+    };
+    return std::search(
+               text.begin(),
+               text.end(),
+               query.begin(),
+               query.end(),
+               equal_folded) != text.end();
+}
+
 SceneChangeSet render_changes_for_subtree(
     const SceneDocument& document,
     ObjectId id,
@@ -414,7 +468,7 @@ void build_default_dock_layout(ImGuiID dockspace_id, const ImGuiViewport& viewpo
     ImGuiID center = dockspace_id;
     ImGuiID left = 0;
     ImGuiID right = 0;
-    ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.20f, &left, &center);
+    ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.24f, &left, &center);
     ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.28f, &right, &center);
 
     ImGuiID right_bottom = 0;
@@ -426,38 +480,6 @@ void build_default_dock_layout(ImGuiID dockspace_id, const ImGuiViewport& viewpo
     ImGui::DockBuilderDockWindow("Inspector", right_bottom);
     ImGui::DockBuilderDockWindow("Camera & Lighting", right_bottom);
     ImGui::DockBuilderFinish(dockspace_id);
-}
-
-bool dock_layout_needs_default(const ImGuiDockNode* node) {
-    if (!node) {
-        return true;
-    }
-    if (!node->IsSplitNode()) {
-        return false;
-    }
-
-    int populated_tool_nodes = 0;
-    int usable_tool_nodes = 0;
-    const std::function<void(const ImGuiDockNode*)> inspect =
-        [&](const ImGuiDockNode* candidate) {
-            if (!candidate) {
-                return;
-            }
-            if (candidate->IsSplitNode()) {
-                inspect(candidate->ChildNodes[0]);
-                inspect(candidate->ChildNodes[1]);
-                return;
-            }
-            if (!candidate->IsCentralNode() && candidate->Windows.Size > 0) {
-                ++populated_tool_nodes;
-                if (candidate->Size.x >= 180.0f &&
-                    candidate->Size.y >= 120.0f) {
-                    ++usable_tool_nodes;
-                }
-            }
-        };
-    inspect(node);
-    return populated_tool_nodes >= 2 && usable_tool_nodes == 0;
 }
 
 }  // namespace
@@ -505,10 +527,13 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
         dockspace_flags |= ImGuiDockNodeFlags_KeepAliveOnly;
     }
     ImGui::DockSpaceOverViewport(dockspace_id, main_viewport, dockspace_flags);
-    const bool create_default_layout =
-        normal_window_size &&
-        (!dockspace_existed ||
-         dock_layout_needs_default(ImGui::DockBuilderGetNode(dockspace_id)));
+    // A loaded multi-viewport layout may report zero-sized dock nodes during
+    // the first frame while its external platform windows are being created.
+    // Treating that transient state as a broken layout re-docks every named
+    // panel into the main viewport and leaves the saved floating nodes orphaned.
+    // Only synthesize the default layout when no saved dockspace exists; users
+    // can explicitly repair a real bad layout through View -> Reset layout.
+    const bool create_default_layout = normal_window_size && !dockspace_existed;
     if (create_default_layout || reset_layout) {
         state.scene_panel_visible = true;
         state.inspector_panel_visible = true;
@@ -801,7 +826,8 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
 
             ImGui::Separator();
             ImGui::TextDisabled("G/R/S: transform | Ctrl+R: reset | 1/2/3/4: mode");
-            ImGui::TextDisabled("Orbit: LMB drag/wheel | Free: hold RMB + WASD");
+            ImGui::TextDisabled("Orbit: LMB rotate | RMB pan | wheel zoom");
+            ImGui::TextDisabled("Free: hold RMB + WASD");
         }
         ImGui::End();
     }
@@ -855,19 +881,54 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
 
             if (ImGui::CollapsingHeader("Lighting")) {
                 ImGui::Checkbox("Show point light markers", &state.show_point_light_markers);
-                Color& environment = document.environment();
-                const ColorStrengthEditResult environment_edit =
-                    draw_color_and_strength(
-                        "Environment",
-                        "Environment color",
-                        "Environment strength",
-                        environment);
-                if (environment_edit.changed) {
-                    actions.scene_changes |= SceneChange::Lighting;
+                ImGui::SeparatorText("Environment IBL");
+                const std::string environment_path = document.environment_path().empty()
+                    ? std::string("Constant color")
+                    : document.environment_path().filename().string();
+                ImGui::TextWrapped("Source: %s", environment_path.c_str());
+                if (ImGui::Button("Load HDRI...")) {
+                    actions.load_environment_requested = true;
                 }
-                if (environment_edit.finished) {
+                ImGui::SameLine();
+                if (ImGui::Button("Clear HDRI") && document.environment_map()) {
+                    document.clear_environment_map();
+                    document.checkpoint();
+                    actions.scene_changes |= SceneChange::Environment;
+                }
+                bool environment_changed = false;
+                bool environment_finished = false;
+                Color& environment = document.environment();
+                environment_changed = ImGui::ColorEdit3(
+                    "Environment tint",
+                    environment.data(),
+                    ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR) || environment_changed;
+                environment_finished = ImGui::IsItemDeactivatedAfterEdit() || environment_finished;
+                environment_changed = ImGui::SliderFloat(
+                    "Environment intensity",
+                    &document.environment_intensity(),
+                    0.0f,
+                    32.0f,
+                    "%.3f",
+                    ImGuiSliderFlags_Logarithmic) || environment_changed;
+                environment_finished = ImGui::IsItemDeactivatedAfterEdit() || environment_finished;
+                environment_changed = ImGui::SliderFloat(
+                    "Environment rotation",
+                    &document.environment_rotation_degrees(),
+                    -180.0f,
+                    180.0f,
+                    "%.1f deg") || environment_changed;
+                environment_finished = ImGui::IsItemDeactivatedAfterEdit() || environment_finished;
+                environment_changed = ImGui::Checkbox(
+                    "Show environment background",
+                    &document.environment_background_visible()) || environment_changed;
+                if (environment_changed) {
+                    actions.scene_changes |= SceneChange::Environment;
+                }
+                if (environment_finished ||
+                    (environment_changed && ImGui::IsItemDeactivated())) {
                     document.checkpoint();
                 }
+                ImGui::TextDisabled("OpenGL IBL is unoccluded; Path traces visibility.");
                 if (ImGui::Button("Add point light")) {
                     const Vec3 center = (bounds.min + bounds.max) * 0.5f;
                     const float radius = scene_radius(bounds);
@@ -895,8 +956,13 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
     }
 
     if (state.scene_panel_visible) {
+        ImGui::SetNextWindowSizeConstraints(
+            ImVec2(380.0f, 360.0f),
+            ImVec2(
+                std::numeric_limits<float>::max(),
+                std::numeric_limits<float>::max()));
         if (ImGui::Begin("Scene", &state.scene_panel_visible)) {
-            if (ImGui::Button("Import OBJ...")) {
+            if (ImGui::Button("Import asset...")) {
                 actions.import_files_requested = true;
             }
             ImGui::SameLine();
@@ -964,14 +1030,72 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
             }
             ImGui::Checkbox("Local coordinates", &state.gizmo_local);
 
+            ImGui::SeparatorText("Objects");
+            ImGui::TextDisabled(
+                "%zu objects  |  Ctrl+click for multi-select",
+                document.objects().size());
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputTextWithHint(
+                "##SceneObjectFilter",
+                "Filter objects...",
+                state.scene_filter.data(),
+                state.scene_filter.size());
+            const std::string_view object_filter(state.scene_filter.data());
+            std::unordered_map<ObjectId, const SceneObject*> objects_by_id;
+            std::unordered_map<ObjectId, std::vector<ObjectId>> children_by_parent;
+            objects_by_id.reserve(document.objects().size());
+            children_by_parent.reserve(document.objects().size());
+            for (const SceneObject& object : document.objects()) {
+                objects_by_id.emplace(object.id, &object);
+                children_by_parent[object.parent_id].push_back(object.id);
+            }
+            std::unordered_map<ObjectId, bool> filter_match_cache;
+            filter_match_cache.reserve(document.objects().size());
+            std::function<bool(ObjectId)> subtree_matches = [&](ObjectId id) {
+                if (object_filter.empty()) {
+                    return true;
+                }
+                if (const auto cached = filter_match_cache.find(id);
+                    cached != filter_match_cache.end()) {
+                    return cached->second;
+                }
+                const auto object = objects_by_id.find(id);
+                bool matches = object != objects_by_id.end() &&
+                    contains_case_insensitive(object->second->name, object_filter);
+                if (const auto children = children_by_parent.find(id);
+                    !matches && children != children_by_parent.end()) {
+                    for (ObjectId child : children->second) {
+                        if (subtree_matches(child)) {
+                            matches = true;
+                            break;
+                        }
+                    }
+                }
+                filter_match_cache.emplace(id, matches);
+                return matches;
+            };
+            bool drew_filtered_object = false;
+
             std::function<void(ObjectId)> draw_children = [&](ObjectId parent_id) {
-                for (ObjectId id : document.children(parent_id)) {
-                    SceneObject* object = document.find(id);
-                    if (!object) {
+                const auto children = children_by_parent.find(parent_id);
+                if (children == children_by_parent.end()) {
+                    return;
+                }
+                for (ObjectId id : children->second) {
+                    if (!subtree_matches(id)) {
                         continue;
                     }
+                    const auto object_entry = objects_by_id.find(id);
+                    if (object_entry == objects_by_id.end()) {
+                        continue;
+                    }
+                    const SceneObject* object = object_entry->second;
+                    drew_filtered_object = true;
                     ImGui::PushID(static_cast<int>(id));
-                    const bool has_children = !document.children(id).empty();
+                    const auto object_children = children_by_parent.find(id);
+                    const bool has_children =
+                        object_children != children_by_parent.end() &&
+                        !object_children->second.empty();
                     ImGuiTreeNodeFlags flags =
                         ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
                     if (!has_children) {
@@ -979,6 +1103,9 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     }
                     if (is_object_selected(state, id)) {
                         flags |= ImGuiTreeNodeFlags_Selected;
+                    }
+                    if (!object_filter.empty() && has_children) {
+                        ImGui::SetNextItemOpen(true, ImGuiCond_Always);
                     }
                     const bool open = ImGui::TreeNodeEx("object",
                                                         flags,
@@ -1010,8 +1137,15 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     ImGui::PopID();
                 }
             };
-            if (ImGui::BeginChild("Outliner", ImVec2(0.0f, 190.0f), ImGuiChildFlags_Borders)) {
+            if (ImGui::BeginChild(
+                    "Outliner",
+                    ImVec2(0.0f, 0.0f),
+                    ImGuiChildFlags_Borders,
+                    ImGuiWindowFlags_HorizontalScrollbar)) {
                 draw_children(kInvalidObjectId);
+                if (!object_filter.empty() && !drew_filtered_object) {
+                    ImGui::TextDisabled("No matching objects");
+                }
             }
             ImGui::EndChild();
         }
@@ -1104,29 +1238,124 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         "The yellow scene arrows show the direction the light rays travel.");
                 }
 
+                if (active->type == SceneObjectType::Camera) {
+                    ImGui::SeparatorText("Scene Camera");
+                    const char* projection =
+                        active->camera_projection == SceneCameraProjection::Orthographic
+                            ? "Orthographic (perspective preview)"
+                            : "Perspective";
+                    ImGui::Text("Projection: %s", projection);
+
+                    bool camera_changed = false;
+                    bool camera_edit_finished = false;
+                    ImGui::BeginDisabled(active->locked);
+                    if (active->camera_projection == SceneCameraProjection::Perspective) {
+                        camera_changed = ImGui::SliderFloat(
+                            "Camera vertical FOV",
+                            &active->camera_vertical_fov_degrees,
+                            1.0f,
+                            179.0f,
+                            "%.2f deg") || camera_changed;
+                        camera_edit_finished =
+                            ImGui::IsItemDeactivatedAfterEdit() || camera_edit_finished;
+                    } else {
+                        camera_changed = ImGui::DragFloat(
+                            "X magnification",
+                            &active->camera_x_magnification,
+                            0.01f,
+                            1.0e-4f,
+                            100000.0f) || camera_changed;
+                        camera_edit_finished =
+                            ImGui::IsItemDeactivatedAfterEdit() || camera_edit_finished;
+                        camera_changed = ImGui::DragFloat(
+                            "Y magnification",
+                            &active->camera_y_magnification,
+                            0.01f,
+                            1.0e-4f,
+                            100000.0f) || camera_changed;
+                        camera_edit_finished =
+                            ImGui::IsItemDeactivatedAfterEdit() || camera_edit_finished;
+                    }
+                    camera_changed = ImGui::DragFloat(
+                        "Camera near plane",
+                        &active->camera_near_plane,
+                        0.001f,
+                        1.0e-5f,
+                        100000.0f) || camera_changed;
+                    camera_edit_finished =
+                        ImGui::IsItemDeactivatedAfterEdit() || camera_edit_finished;
+                    camera_changed = ImGui::DragFloat(
+                        "Camera far plane",
+                        &active->camera_far_plane,
+                        0.1f,
+                        active->camera_near_plane + 1.0e-4f,
+                        1000000.0f) || camera_changed;
+                    camera_edit_finished =
+                        ImGui::IsItemDeactivatedAfterEdit() || camera_edit_finished;
+                    ImGui::EndDisabled();
+
+                    if (camera_changed) {
+                        active->camera_vertical_fov_degrees = std::clamp(
+                            active->camera_vertical_fov_degrees, 1.0f, 179.0f);
+                        active->camera_x_magnification =
+                            std::max(active->camera_x_magnification, 1.0e-4f);
+                        active->camera_y_magnification =
+                            std::max(active->camera_y_magnification, 1.0e-4f);
+                        active->camera_near_plane =
+                            std::max(active->camera_near_plane, 1.0e-5f);
+                        active->camera_far_plane = std::max(
+                            active->camera_far_plane,
+                            active->camera_near_plane + 1.0e-4f);
+                        actions.scene_changes = SceneChange::All;
+                    }
+                    if (camera_edit_finished) {
+                        document.checkpoint();
+                    }
+                    if (ImGui::Button("Look through camera")) {
+                        actions.look_through_camera = active->id;
+                    }
+                    if (active->camera_projection == SceneCameraProjection::Orthographic) {
+                        ImGui::TextDisabled(
+                            "Path/OpenGL camera rays are perspective; this view uses a 45 deg preview.");
+                    }
+                }
+
                 if (active->type == SceneObjectType::Mesh) {
                     const SceneMeshAsset* asset = document.asset_for_object(active->id);
                     if (asset && !asset->local_scene.materials.empty()) {
+                        const std::vector<std::size_t> material_slots =
+                            referenced_material_slots(*asset);
                         if (state.material_editor_object != active->id) {
                             state.material_editor_object = active->id;
-                            state.selected_material_slot = 0;
+                            state.selected_material_slot = material_slots.front();
+                        } else if (std::find(
+                                       material_slots.begin(),
+                                       material_slots.end(),
+                                       state.selected_material_slot) ==
+                                   material_slots.end()) {
+                            state.selected_material_slot = material_slots.front();
                         }
-                        state.selected_material_slot = std::min(
-                            state.selected_material_slot, asset->local_scene.materials.size() - 1);
 
                         ImGui::SeparatorText("Materials");
+                        ImGui::TextDisabled(
+                            "%zu used material%s",
+                            material_slots.size(),
+                            material_slots.size() == 1 ? "" : "s");
                         const auto material_name = [asset](std::size_t slot) {
                             return slot < asset->material_names.size() &&
                                            !asset->material_names[slot].empty()
                                        ? asset->material_names[slot]
                                        : "Material " + std::to_string(slot + 1);
                         };
+                        const auto material_label = [&material_name](std::size_t slot) {
+                            return material_name(slot) +
+                                "  [slot " + std::to_string(slot) + "]";
+                        };
                         const std::string current_name =
-                            material_name(state.selected_material_slot);
+                            material_label(state.selected_material_slot);
                         if (ImGui::BeginCombo("Material slot", current_name.c_str())) {
-                            for (std::size_t slot = 0; slot < asset->local_scene.materials.size();
-                                 ++slot) {
-                                const std::string name = material_name(slot);
+                            for (std::size_t slot : material_slots) {
+                                const std::string name = material_label(slot);
                                 const bool selected = slot == state.selected_material_slot;
                                 ImGui::PushID(static_cast<int>(slot));
                                 if (ImGui::Selectable(name.c_str(), selected)) {
@@ -1156,13 +1385,23 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                 actions.scene_changes |= SceneChange::MaterialBindings;
                             }
                         } else {
-                            ImGui::TextDisabled("Original OBJ/MTL material");
+                            ImGui::TextDisabled("Original asset material");
                         }
 
                         std::optional<SceneMaterialOverride> properties =
                             document.material_properties(active->id, slot);
                         if (properties) {
                             const Material& source_material = asset->local_scene.materials[slot];
+                            const bool source_specular_glossiness =
+                                source_material.type == MaterialType::Pbr &&
+                                source_material.pbr_workflow == PbrWorkflow::SpecularGlossiness;
+                            if (source_material.type == MaterialType::Pbr) {
+                                ImGui::TextDisabled(
+                                    "PBR workflow: %s",
+                                    source_specular_glossiness
+                                        ? "Specular-Glossiness"
+                                        : "Metallic-Roughness");
+                            }
                             properties->use_diffuse_texture =
                                 properties->use_diffuse_texture &&
                                 source_material.diffuse_texture_id >= 0;
@@ -1171,6 +1410,21 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                 source_material.opacity_texture_id >= 0;
                             properties->use_bump_texture = properties->use_bump_texture &&
                                                            source_material.bump_texture_id >= 0;
+                            properties->use_base_color_texture =
+                                properties->use_base_color_texture &&
+                                source_material.base_color_texture_id >= 0;
+                            properties->use_metallic_roughness_texture =
+                                properties->use_metallic_roughness_texture &&
+                                source_material.metallic_roughness_texture_id >= 0;
+                            properties->use_normal_texture =
+                                properties->use_normal_texture &&
+                                source_material.normal_texture_id >= 0;
+                            properties->use_occlusion_texture =
+                                properties->use_occlusion_texture &&
+                                source_material.occlusion_texture_id >= 0;
+                            properties->use_emissive_texture =
+                                properties->use_emissive_texture &&
+                                source_material.emissive_texture_id >= 0;
 
                             bool material_changed = false;
                             bool material_edit_finished = false;
@@ -1179,8 +1433,8 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
 
                             int material_type = static_cast<int>(properties->type);
                             constexpr const char* material_types[]{
-                                "Diffuse", "Metal", "Dielectric", "Emissive"};
-                            if (ImGui::Combo("Material type", &material_type, material_types, 4)) {
+                                "Diffuse", "Metal", "Dielectric", "Emissive", "PBR"};
+                            if (ImGui::Combo("Material type", &material_type, material_types, 5)) {
                                 properties->type = static_cast<MaterialType>(material_type);
                                 material_changed = true;
                                 checkpoint_immediately = true;
@@ -1198,14 +1452,24 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                                   "white preserves its original colors.");
                             }
 
-                            if (properties->type == MaterialType::Metal) {
+                            if (properties->type == MaterialType::Metal ||
+                                properties->type == MaterialType::Pbr) {
+                                if (properties->type == MaterialType::Pbr &&
+                                    !source_specular_glossiness) {
+                                    material_changed =
+                                        ImGui::SliderFloat(
+                                            "Metallic", &properties->metallic, 0.0f, 1.0f) ||
+                                        material_changed;
+                                    material_edit_finished =
+                                        ImGui::IsItemDeactivatedAfterEdit() || material_edit_finished;
+                                }
                                 material_changed =
                                     ImGui::SliderFloat(
                                         "Roughness", &properties->roughness, 0.0f, 1.0f) ||
                                     material_changed;
                                 material_edit_finished =
                                     ImGui::IsItemDeactivatedAfterEdit() || material_edit_finished;
-                                ImGui::TextDisabled("Physical roughness: Path");
+                                ImGui::TextDisabled("GGX roughness: OpenGL / CPU Path / CUDA Path");
                             } else if (properties->type == MaterialType::Dielectric) {
                                 material_changed =
                                     ImGui::SliderFloat(
@@ -1214,7 +1478,9 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                 material_edit_finished =
                                     ImGui::IsItemDeactivatedAfterEdit() || material_edit_finished;
                                 ImGui::TextDisabled("Physical refraction: Path");
-                            } else if (properties->type == MaterialType::Emissive) {
+                            }
+                            if (properties->type == MaterialType::Emissive ||
+                                properties->type == MaterialType::Pbr) {
                                 const ColorStrengthEditResult emission_edit =
                                     draw_color_and_strength(
                                         "Emission",
@@ -1228,20 +1494,75 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                     material_edit_finished;
                             }
 
+                            AlphaMode effective_alpha_mode = properties->alpha_mode;
+                            if (properties->type == MaterialType::Pbr) {
+                                int alpha_mode = static_cast<int>(properties->alpha_mode);
+                                constexpr const char* alpha_modes[]{"Opaque", "Mask", "Blend"};
+                                if (ImGui::Combo("Alpha mode", &alpha_mode, alpha_modes, 3)) {
+                                    properties->alpha_mode = static_cast<AlphaMode>(alpha_mode);
+                                    effective_alpha_mode = properties->alpha_mode;
+                                    material_changed = true;
+                                    checkpoint_immediately = true;
+                                }
+                            } else {
+                                effective_alpha_mode =
+                                    (properties->use_opacity_texture &&
+                                     source_material.opacity_texture_id >= 0) ||
+                                            properties->opacity < 1.0f
+                                        ? AlphaMode::Mask
+                                        : AlphaMode::Opaque;
+                                ImGui::TextDisabled(
+                                    "Alpha mode: %s (legacy)",
+                                    effective_alpha_mode == AlphaMode::Mask
+                                        ? "Mask"
+                                        : "Opaque");
+                            }
+
+                            const bool opacity_enabled =
+                                properties->type != MaterialType::Pbr ||
+                                effective_alpha_mode != AlphaMode::Opaque;
+                            ImGui::BeginDisabled(!opacity_enabled);
                             material_changed =
                                 ImGui::SliderFloat("Opacity", &properties->opacity, 0.0f, 1.0f) ||
                                 material_changed;
                             material_edit_finished =
                                 ImGui::IsItemDeactivatedAfterEdit() || material_edit_finished;
+                            if (!opacity_enabled &&
+                                ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                                ImGui::SetTooltip("Opacity is ignored by Opaque materials.");
+                            }
+                            ImGui::EndDisabled();
+
+                            const bool cutoff_enabled =
+                                effective_alpha_mode == AlphaMode::Mask;
+                            ImGui::BeginDisabled(!cutoff_enabled);
                             material_changed =
                                 ImGui::SliderFloat(
                                     "Alpha cutoff", &properties->alpha_cutoff, 0.0f, 1.0f) ||
                                 material_changed;
                             material_edit_finished =
                                 ImGui::IsItemDeactivatedAfterEdit() || material_edit_finished;
+                            if (!cutoff_enabled &&
+                                ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                                ImGui::SetTooltip("Alpha cutoff is used only by Mask materials.");
+                            }
+                            ImGui::EndDisabled();
                             material_changed =
                                 ImGui::DragFloat("Bump scale", &properties->bump_scale, 0.01f) ||
                                 material_changed;
+                            material_edit_finished =
+                                ImGui::IsItemDeactivatedAfterEdit() || material_edit_finished;
+                            material_changed =
+                                ImGui::DragFloat("Normal scale", &properties->normal_scale, 0.01f) ||
+                                material_changed;
+                            material_edit_finished =
+                                ImGui::IsItemDeactivatedAfterEdit() || material_edit_finished;
+                            material_changed =
+                                ImGui::SliderFloat(
+                                    "Occlusion strength",
+                                    &properties->occlusion_strength,
+                                    0.0f,
+                                    1.0f) || material_changed;
                             material_edit_finished =
                                 ImGui::IsItemDeactivatedAfterEdit() || material_edit_finished;
                             if (ImGui::Checkbox("Two-sided", &properties->two_sided)) {
@@ -1282,6 +1603,36 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                 material_changed = true;
                                 checkpoint_immediately = true;
                             }
+                            if (texture_toggle("Use base color texture",
+                                               source_material.base_color_texture_id,
+                                               properties->use_base_color_texture)) {
+                                material_changed = true;
+                                checkpoint_immediately = true;
+                            }
+                            if (texture_toggle("Use metallic-roughness texture",
+                                               source_material.metallic_roughness_texture_id,
+                                               properties->use_metallic_roughness_texture)) {
+                                material_changed = true;
+                                checkpoint_immediately = true;
+                            }
+                            if (texture_toggle("Use normal texture",
+                                               source_material.normal_texture_id,
+                                               properties->use_normal_texture)) {
+                                material_changed = true;
+                                checkpoint_immediately = true;
+                            }
+                            if (texture_toggle("Use occlusion texture",
+                                               source_material.occlusion_texture_id,
+                                               properties->use_occlusion_texture)) {
+                                material_changed = true;
+                                checkpoint_immediately = true;
+                            }
+                            if (texture_toggle("Use emissive texture",
+                                               source_material.emissive_texture_id,
+                                               properties->use_emissive_texture)) {
+                                material_changed = true;
+                                checkpoint_immediately = true;
+                            }
                             ImGui::EndDisabled();
 
                             if (material_changed &&
@@ -1298,7 +1649,8 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 }
 
                 if (active->type == SceneObjectType::PointLight ||
-                    active->type == SceneObjectType::DirectionalLight) {
+                    active->type == SceneObjectType::DirectionalLight ||
+                    active->type == SceneObjectType::SpotLight) {
                     const ColorStrengthEditResult light_edit =
                         draw_color_and_strength(
                             "Light",
@@ -1309,6 +1661,55 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         actions.scene_changes |= SceneChange::Lighting;
                     }
                     if (light_edit.finished) {
+                        document.checkpoint();
+                    }
+                }
+
+                if (active->type == SceneObjectType::PointLight ||
+                    active->type == SceneObjectType::SpotLight) {
+                    bool shape_changed = false;
+                    bool shape_finished = false;
+                    ImGui::BeginDisabled(active->locked);
+                    shape_changed = ImGui::DragFloat(
+                        "Range (0 = unlimited)",
+                        &active->light_range,
+                        0.05f,
+                        0.0f,
+                        1000000.0f,
+                        "%.3f",
+                        ImGuiSliderFlags_AlwaysClamp) || shape_changed;
+                    shape_finished =
+                        ImGui::IsItemDeactivatedAfterEdit() || shape_finished;
+                    if (active->type == SceneObjectType::SpotLight) {
+                        shape_changed = ImGui::SliderAngle(
+                            "Inner cone",
+                            &active->spot_inner_cone_radians,
+                            0.0f,
+                            90.0f) || shape_changed;
+                        shape_finished =
+                            ImGui::IsItemDeactivatedAfterEdit() || shape_finished;
+                        shape_changed = ImGui::SliderAngle(
+                            "Outer cone",
+                            &active->spot_outer_cone_radians,
+                            0.0f,
+                            90.0f) || shape_changed;
+                        shape_finished =
+                            ImGui::IsItemDeactivatedAfterEdit() || shape_finished;
+                    }
+                    ImGui::EndDisabled();
+                    if (shape_changed) {
+                        active->light_range = std::max(0.0f, active->light_range);
+                        active->spot_inner_cone_radians = std::clamp(
+                            active->spot_inner_cone_radians,
+                            0.0f,
+                            0.5f * kPi);
+                        active->spot_outer_cone_radians = std::clamp(
+                            active->spot_outer_cone_radians,
+                            active->spot_inner_cone_radians,
+                            0.5f * kPi);
+                        actions.scene_changes |= SceneChange::Lighting;
+                    }
+                    if (shape_finished) {
                         document.checkpoint();
                     }
                 }

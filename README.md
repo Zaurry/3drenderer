@@ -5,6 +5,10 @@
 - `OpenGL`：OpenGL 4.5 Core + 可热重载 GLSL，面向实时预览与编辑。
 - `Path`：Monte Carlo 路径追踪，支持 CPU、CUDA 和自动后端选择。
 
+当前主线支持 2:1 经纬度 HDRI（HDR、EXR、PNG、JPG）、glTF 2.0/GLB 静态场景和
+metallic-roughness PBR。OpenGL 使用 Split-Sum IBL，CPU/CUDA Path 使用环境光重要性
+采样与 MIS；三条链路共享 GGX/Smith/Fresnel 材质语义。
+
 CPU 软件光栅化与 Whitted 风格光线追踪已被删除。通用的 `Ray`、BVH、`SceneIntersector`、材质与纹理系统仍由 CPU Path、CUDA Path 和编辑器拾取复用。
 
 ## 快速开始
@@ -21,6 +25,17 @@ ctest --preset default-release --output-on-failure
 
 ```powershell
 .\build\default\bin\viewer.exe --scene builtin
+```
+
+加载 glTF 与 HDRI：
+
+```powershell
+.\build\default\bin\viewer.exe `
+  --scene asset `
+  --asset D:\assets\scene.glb `
+  --environment D:\assets\studio.hdr `
+  --environment-intensity 1.0 `
+  --mode opengl
 ```
 
 离线 CUDA Path：
@@ -97,7 +112,7 @@ Viewer 默认模式为 OpenGL，只保留两个模式：
 - `F5`：重新加载 OpenGL shader。
 - `Tab`：显示或隐藏编辑器界面。
 
-不带参数启动时，Viewer 会从 `%APPDATA%\Zaurry\3D Renderer\last-session.json` 恢复上次会话。显式 CLI 调用保持确定性；`--no-restore-last` 可禁用恢复。
+不带参数启动时，Viewer 会从 `%APPDATA%\Zaurry\3D Renderer\last-session.json` 恢复上次会话。显式 CLI 调用保持确定性；`--no-restore-last` 可禁用恢复。ImGui docking 布局、面板尺寸以及拖到主窗口外的多视口绝对位置单独保存在同目录的 `imgui.ini`；退出时会在外置平台窗口销毁前强制保存。已有布局不会因首帧暂时为零的 DockNode 尺寸被自动重置，只有首次无布局或手动选择 `View -> Reset layout` 才会重建默认布局。
 
 会话格式仍为版本 1：
 
@@ -125,7 +140,8 @@ SDL 显示层只消费 `RenderFrameOutput`，不需要识别具体渲染器。
 - `MaterialBindings`：primitive 到 material 的绑定。
 - `Materials`：材质参数。
 - `Textures`：纹理描述与 texel。
-- `Lighting`：环境色、点光源与方向光。
+- `Lighting`：环境色、点光源、方向光与聚光灯。
+- `Environment`：HDRI、强度、Y 轴旋转与背景可见性；CUDA 只更新环境资源。
 - `All`：导入、undo/redo 等无法可靠细分的操作。
 
 相机、命名、锁定、选择等操作不会上传场景。灯光编辑只更新灯光缓冲；材质编辑不会重建 BVH。
@@ -156,8 +172,8 @@ CUDA 后端使用：
   `t / primitive id / barycentric` hit record。
 - 最终可见命中确定后再重建完整法线与着色数据。
 - 只有最终材质实际使用 bump texture 时才计算 tangent/bitangent。
-- Diffuse bounce 对 emissive 三角形/球体执行一次 NEE，并用 β=2 power
-  heuristic 与 cosine-weighted BSDF 样本做 MIS。
+- 非 delta PBR bounce 在 emissive 三角形/球体与环境光之间执行混合 NEE，并用
+  β=2 power heuristic 与 visible-GGX BSDF 样本做 MIS。
 - Viewer 默认启用 `Auto interaction quality`：相机/场景交互使用自适应
   100%/75%/50%/25% 内部分辨率与最多 2 个 shading bounce；连续静止 8 帧后
   恢复原生 64-bounce 累积。
@@ -178,14 +194,19 @@ quantum/sweep 进度、完整发布状态、GPU trace/resolve/reset/upload 时�
 实例化结果见 [CUDA 实例化拖动结果](docs/output/cuda-instancing-drag-results.md)。
 
 CUDA Path 不依赖 OptiX 或 RT Core。这里的“降噪”来自 NEE/MIS 降低 Monte
-Carlo 方差；没有引入 OptiX/OIDN 等后处理降噪器。CPU Path 的采样与输出算法保持不变。
+Carlo 方差；没有引入 OptiX/OIDN 等后处理降噪器。CPU/CUDA Path 现在共享
+metallic-roughness、GGX sample/pdf/evaluate 与环境 NEE/MIS 语义。
 
 ## CLI
 
 ```text
-renderer --mode path --scene gradient_sphere|triangle|mirror_spheres|cornell_box|obj_viewer
+renderer --mode path --scene gradient_sphere|triangle|mirror_spheres|cornell_box|asset_viewer
          --output file.png
+         [--asset file.obj|file.gltf|file.glb]
          [--obj file.obj]
+         [--environment file.hdr|file.exr|file.png|file.jpg]
+         [--environment-intensity value] [--environment-yaw degrees]
+         [--hide-environment-background]
          [--width N] [--height N] [--spp N]
          [--threads N]
          [--path-backend auto|cpu|cuda]
@@ -197,8 +218,11 @@ Viewer：
 
 ```text
 viewer --scene builtin|asset
-       [--asset file-or-directory ...]
+       [--asset file-or-directory ...]  # OBJ/glTF/GLB
        [--scene-file scene.rscene]
+       [--environment file.hdr|file.exr|file.png|file.jpg]
+       [--environment-intensity value] [--environment-yaw degrees]
+       [--hide-environment-background]
        [--mode opengl|path]
        [--path-backend auto|cpu|cuda]
        [--width N] [--height N] [--frames N]
@@ -216,7 +240,7 @@ src/
   render/interactive/       模式目录、SceneChangeSet、Path session、统一帧输出与后端
   render/opengl/            OpenGL renderer
   render/pathtracer/        CPU/CUDA Path
-  scene/                    场景、材质、纹理、OBJ/MTL、编辑器文档
+  scene/                    场景、材质、纹理、OBJ/MTL、glTF/GLB、HDRI、编辑器文档
 tests/
 docs/
 shaders/opengl/
@@ -227,6 +251,8 @@ shaders/opengl/
 - [像素生命周期](docs/render-pixel-lifecycle.md)
 - [场景对象系统](docs/scene-object-system.md)
 - [GLSL Shader 合约](docs/glsl-shader-contract.md)
+- [实时环境光、glTF 与 PBR](docs/realtime-environment-gltf-pbr.md)
+- [实时环境光、glTF 与 PBR 验证及性能结果](docs/output/realtime-environment-gltf-pbr-results.md)
 - [CUDA pipeline 优化结果](docs/output/cuda-pipeline-optimization-results.md)
 
 `docs/plans/`、日期化 `docs/specs/` 与旧 `docs/output/` 是历史记录；其中涉及 CPU Raster/Whitted 的入口已标记为过期。

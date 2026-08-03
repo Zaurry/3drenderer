@@ -70,7 +70,7 @@ override 以对象和 material slot 为粒度。生成扁平 `Scene` 时：
 
 `.rscene` 保存文档结构、asset 引用、对象层级、transform、材质 override 与灯光。Viewer 会话在此基础上额外保存：
 
-- 窗口和布局。
+- 主窗口尺寸，以及由 `imgui.ini` 保存的 docking、面板尺寸和外置多视口绝对位置。
 - 当前模式（仅 `opengl` / `path`）。
 - Path backend 与 CPU 参数。
 - 相机状态。

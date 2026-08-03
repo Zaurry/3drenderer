@@ -40,6 +40,10 @@ struct ViewerOptions {
     renderer::PathBackend path_backend = renderer::PathBackend::Auto;
     std::filesystem::path gl_vertex_shader;
     std::filesystem::path gl_fragment_shader;
+    std::filesystem::path environment_path;
+    float environment_intensity = 1.0f;
+    float environment_yaw_degrees = 0.0f;
+    bool environment_background_visible = true;
     bool restore_last_session = true;
 };
 
@@ -48,7 +52,72 @@ struct ViewerScene {
     renderer::Scene scene;
     renderer::Bounds3 bounds;
     renderer::Camera camera;
+    bool camera_from_scene = false;
+    float camera_vertical_fov_degrees = 45.0f;
 };
+
+struct SceneCameraView {
+    renderer::Camera camera;
+    float vertical_fov_degrees = 45.0f;
+};
+
+std::optional<SceneCameraView> make_scene_camera_view(
+    const renderer::SceneDocument& document,
+    renderer::ObjectId object_id,
+    float viewport_aspect_ratio) {
+    const renderer::SceneObject* object = document.find(object_id);
+    if (!object || object->type != renderer::SceneObjectType::Camera) {
+        return std::nullopt;
+    }
+
+    const renderer::Mat4 world = document.world_matrix(object_id);
+    const renderer::Vec3 eye = world.block<3, 1>(0, 3);
+    renderer::Vec3 forward =
+        world.block<3, 3>(0, 0) * renderer::Vec3(0.0f, 0.0f, -1.0f);
+    renderer::Vec3 up =
+        world.block<3, 3>(0, 0) * renderer::Vec3(0.0f, 1.0f, 0.0f);
+    if (!eye.allFinite() || !forward.allFinite() || !up.allFinite() ||
+        forward.squaredNorm() <= 1.0e-12f || up.squaredNorm() <= 1.0e-12f) {
+        return std::nullopt;
+    }
+    forward.normalize();
+    up.normalize();
+    if (std::abs(forward.dot(up)) > 0.999f) {
+        up = renderer::Vec3(0.0f, 1.0f, 0.0f);
+        if (std::abs(forward.dot(up)) > 0.999f) {
+            up = renderer::Vec3(1.0f, 0.0f, 0.0f);
+        }
+    }
+
+    const float fov = object->camera_projection ==
+            renderer::SceneCameraProjection::Perspective
+        ? std::clamp(object->camera_vertical_fov_degrees, 1.0f, 179.0f)
+        : 45.0f;
+    const float aspect = object->camera_aspect_ratio > 0.0f
+        ? object->camera_aspect_ratio
+        : viewport_aspect_ratio;
+    try {
+        return SceneCameraView{
+            renderer::Camera(eye, eye + forward, up, fov, aspect),
+            fov};
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
+
+std::optional<SceneCameraView> first_scene_camera_view(
+    const renderer::SceneDocument& document,
+    float viewport_aspect_ratio) {
+    for (const renderer::SceneObject& object : document.objects()) {
+        if (object.type == renderer::SceneObjectType::Camera) {
+            if (auto camera = make_scene_camera_view(
+                    document, object.id, viewport_aspect_ratio)) {
+                return camera;
+            }
+        }
+    }
+    return std::nullopt;
+}
 
 void print_help() {
     std::cout
@@ -56,8 +125,12 @@ void print_help() {
         << "Usage:\n"
         << "  viewer --scene builtin|asset [--asset path\\to\\model-or-directory ...] --mode opengl|path [options]\n\n"
         << "Options:\n"
-        << "  --asset path      OBJ file or directory; may be repeated\n"
+        << "  --asset path      OBJ/glTF/GLB file or directory; may be repeated\n"
         << "  --scene-file path open a saved .rscene document\n"
+        << "  --environment path  2:1 HDR/EXR/PNG/JPG environment map\n"
+        << "  --environment-intensity value  environment multiplier, default 1\n"
+        << "  --environment-yaw degrees  rotate the environment around Y\n"
+        << "  --hide-environment-background  light the scene without drawing the map\n"
         << "  --width integer    window width, default 960\n"
         << "  --height integer   window height, default 540\n"
         << "  --frames integer   render N frames then exit, default unlimited\n"
@@ -98,6 +171,20 @@ int parse_positive_int(const std::string& value, const std::string& name) {
     return parsed;
 }
 
+float parse_finite_float(const std::string& value, const std::string& name) {
+    std::size_t consumed = 0;
+    float parsed = 0.0f;
+    try {
+        parsed = std::stof(value, &consumed);
+    } catch (const std::exception&) {
+        throw std::invalid_argument(name + " must be a number");
+    }
+    if (consumed != value.size() || !std::isfinite(parsed)) {
+        throw std::invalid_argument(name + " must be a finite number");
+    }
+    return parsed;
+}
+
 renderer::InteractiveRenderMode parse_mode(const std::string& value) {
     return renderer::parse_interactive_render_mode(value);
 }
@@ -129,6 +216,19 @@ ViewerOptions parse_args(int argc, char** argv) {
             options.gl_vertex_shader = require_value(argc, argv, i, arg);
         } else if (arg == "--gl-fragment-shader") {
             options.gl_fragment_shader = require_value(argc, argv, i, arg);
+        } else if (arg == "--environment") {
+            options.environment_path = require_value(argc, argv, i, arg);
+        } else if (arg == "--environment-intensity") {
+            options.environment_intensity =
+                parse_finite_float(require_value(argc, argv, i, arg), arg);
+            if (options.environment_intensity < 0.0f) {
+                throw std::invalid_argument(arg + " must be non-negative");
+            }
+        } else if (arg == "--environment-yaw") {
+            options.environment_yaw_degrees =
+                parse_finite_float(require_value(argc, argv, i, arg), arg);
+        } else if (arg == "--hide-environment-background") {
+            options.environment_background_visible = false;
         } else if (arg == "--no-restore-last") {
             options.restore_last_session = false;
         } else {
@@ -219,6 +319,13 @@ ViewerScene load_viewer_scene(
         for (const std::string& path : paths) {
             document.import_path(path, options.width, options.height);
         }
+        if (!options.environment_path.empty()) {
+            document.set_environment_map(options.environment_path);
+        }
+        document.environment_intensity() = options.environment_intensity;
+        document.environment_rotation_degrees() = options.environment_yaw_degrees;
+        document.environment_background_visible() =
+            options.environment_background_visible;
         for (const std::string& warning : document.warnings()) {
             std::cerr << "warning: " << warning << '\n';
         }
@@ -226,11 +333,26 @@ ViewerScene load_viewer_scene(
         renderer::Scene scene = uses_cuda_instanced_scene(options)
             ? renderer::Scene{}
             : document.render_scene();
+        renderer::Camera camera =
+            make_camera_from_bounds(bounds, options.width, options.height);
+        bool camera_from_scene = false;
+        float camera_vertical_fov_degrees = 45.0f;
+        if (auto scene_camera = first_scene_camera_view(
+                document,
+                static_cast<float>(options.width) /
+                    static_cast<float>(options.height))) {
+            camera = scene_camera->camera;
+            camera_from_scene = true;
+            camera_vertical_fov_degrees =
+                scene_camera->vertical_fov_degrees;
+        }
         return ViewerScene{
             std::move(document),
             std::move(scene),
             bounds,
-            make_camera_from_bounds(bounds, options.width, options.height)};
+            std::move(camera),
+            camera_from_scene,
+            camera_vertical_fov_degrees};
     }
 
     renderer::Scene scene = renderer::make_cornell_box_scene();
@@ -240,6 +362,14 @@ ViewerScene load_viewer_scene(
             scene,
             "Builtin Cornell Box",
             "cornell_box");
+    if (!options.environment_path.empty()) {
+        document.set_environment_map(options.environment_path);
+    }
+    document.environment_intensity() = options.environment_intensity;
+    document.environment_rotation_degrees() = options.environment_yaw_degrees;
+    document.environment_background_visible() =
+        options.environment_background_visible;
+    scene = document.render_scene();
     return ViewerScene{
         std::move(document),
         std::move(scene),
@@ -447,6 +577,11 @@ int main(int argc, char** argv) {
             : renderer::ViewerUiState{};
         if (!restored_session) {
             ui_state.mode = options.mode;
+            if (viewer_scene.camera_from_scene) {
+                ui_state.camera_mode = renderer::ViewerCameraMode::Free;
+                ui_state.scene_status =
+                    "Using the first imported glTF scene camera";
+            }
         }
         if (!startup_status.empty()) {
             ui_state.scene_status = startup_status;
@@ -491,9 +626,16 @@ int main(int argc, char** argv) {
             (viewer_scene.bounds.max - viewer_scene.bounds.min).norm() * 0.5f);
         renderer::OrbitCameraController orbit_camera(viewer_scene.bounds, camera_aspect_ratio);
         renderer::FreeCameraController free_camera(
-            orbit_camera.camera(),
+            viewer_scene.camera,
             camera_aspect_ratio,
             scene_radius);
+        if (!restored_session && viewer_scene.camera_from_scene) {
+            orbit_camera.set_camera(viewer_scene.camera);
+            orbit_camera.set_vertical_fov_degrees(
+                viewer_scene.camera_vertical_fov_degrees);
+            free_camera.set_vertical_fov_degrees(
+                viewer_scene.camera_vertical_fov_degrees);
+        }
         if (restored_session) {
             const renderer::ViewerCameraSessionState& saved_camera =
                 restored_session->camera;
@@ -701,10 +843,28 @@ int main(int argc, char** argv) {
                         "Save failed: " + std::string(error.what());
                 }
             };
+            const auto load_environment_path = [&](const std::filesystem::path& path) {
+                try {
+                    viewer_scene.document.checkpoint();
+                    viewer_scene.document.set_environment_map(path);
+                    ui_state.scene_status =
+                        "Loaded environment " + path.filename().string();
+                    external_scene_changes |= renderer::SceneChange::Environment;
+                } catch (const std::exception& error) {
+                    ui_state.scene_status =
+                        "Environment load failed: " + std::string(error.what());
+                }
+            };
             for (const std::string& dropped : input.dropped_paths) {
                 const std::filesystem::path path(dropped);
                 if (has_extension(path, ".rscene")) {
                     open_scene_path(path);
+                } else if (has_extension(path, ".hdr") ||
+                           has_extension(path, ".exr") ||
+                           has_extension(path, ".png") ||
+                           has_extension(path, ".jpg") ||
+                           has_extension(path, ".jpeg")) {
+                    load_environment_path(path);
                 } else {
                     import_asset_path(path);
                 }
@@ -719,6 +879,8 @@ int main(int argc, char** argv) {
                         open_scene_path(selected_path);
                     } else if (result.kind == renderer::FileDialogKind::SaveScene) {
                         save_scene_path(selected_path);
+                    } else if (result.kind == renderer::FileDialogKind::OpenEnvironment) {
+                        load_environment_path(selected_path);
                     } else {
                         import_asset_path(selected_path);
                     }
@@ -768,6 +930,11 @@ int main(int argc, char** argv) {
             }
             if (ui_actions.open_scene_requested &&
                 !display.show_open_scene_dialog()) {
+                ui_state.scene_status = display.last_error();
+            }
+            if (ui_actions.load_environment_requested &&
+                !display.show_environment_dialog(
+                    viewer_scene.document.environment_path().string())) {
                 ui_state.scene_status = display.last_error();
             }
             if (ui_actions.save_scene_as_requested ||
@@ -892,6 +1059,25 @@ int main(int argc, char** argv) {
                 camera_changed = true;
                 std::cout << "camera=" << camera_mode_name(ui_state.camera_mode) << '\n';
             }
+            if (ui_actions.look_through_camera != renderer::kInvalidObjectId) {
+                const float aspect_ratio =
+                    static_cast<float>(settings.width) /
+                    static_cast<float>(settings.height);
+                if (auto scene_camera = make_scene_camera_view(
+                        viewer_scene.document,
+                        ui_actions.look_through_camera,
+                        aspect_ratio)) {
+                    free_camera.set_camera(scene_camera->camera);
+                    free_camera.set_vertical_fov_degrees(
+                        scene_camera->vertical_fov_degrees);
+                    ui_state.camera_mode = renderer::ViewerCameraMode::Free;
+                    ui_actions.camera_mode_changed = true;
+                    camera_changed = true;
+                    ui_state.scene_status = "Looking through imported scene camera";
+                } else {
+                    ui_state.scene_status = "Selected scene camera is invalid";
+                }
+            }
 
             renderer::InteractiveFrameState frame_state;
             frame_state.delta_seconds = delta_seconds;
@@ -925,6 +1111,14 @@ int main(int argc, char** argv) {
                 if (input.left_mouse_down && mouse_moved &&
                     !ui_state.gizmo_hovered && !ui_state.gizmo_was_using) {
                     orbit_camera.orbit(input.mouse_delta_x, input.mouse_delta_y);
+                    camera_changed = true;
+                }
+                if (input.right_mouse_down && mouse_moved &&
+                    !ui_state.gizmo_hovered && !ui_state.gizmo_was_using) {
+                    orbit_camera.pan(
+                        input.mouse_delta_x,
+                        input.mouse_delta_y,
+                        static_cast<float>(std::max(1, window_height)));
                     camera_changed = true;
                 }
                 if (input.wheel_delta != 0.0f) {

@@ -20,6 +20,7 @@ enum class FileDialogKind {
     ImportFolder,
     OpenScene,
     SaveScene,
+    OpenEnvironment,
 };
 
 struct FileDialogResult {
@@ -85,6 +86,7 @@ public:
     bool show_import_folder_dialog(const std::string& default_location = {});
     bool show_open_scene_dialog(const std::string& default_location = {});
     bool show_save_scene_dialog(const std::string& default_location = {});
+    bool show_environment_dialog(const std::string& default_location = {});
     void present(const Framebuffer& framebuffer, const DisplaySettings& display_settings);
     void present(
         const RenderFrameOutput& output,

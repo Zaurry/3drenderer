@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/color.h"
 #include "core/math/bounds.h"
 #include "core/math/ray.h"
 #include "core/math/types.h"
@@ -30,12 +31,22 @@ struct TriangleVertex {
     Vec2 uv = Vec2::Zero();
     Vec3 normal = Vec3::Zero();
     bool has_normal = false;
+    Vec2 uv1 = Vec2::Zero();
+    bool has_uv1 = false;
+    Vec4 tangent = Vec4::Zero();
+    bool has_tangent = false;
+    Color color = Color::Ones();
+    float alpha = 1.0f;
+    bool has_color = false;
 };
 
 struct HitRecord {
     float t = 0.0f;
     Vec3 position = Vec3::Zero();
     Vec2 uv = Vec2::Zero();
+    Vec2 uv1 = Vec2::Zero();
+    Color vertex_color = Color::Ones();
+    float vertex_alpha = 1.0f;
     Vec3 geometric_normal = Vec3::Zero();
     Vec3 shading_normal = Vec3::Zero();
     Vec3 tangent = Vec3::Zero();
@@ -213,9 +224,12 @@ public:
         const Vec3 outward_geometric = edge1.cross(edge2).normalized();
         const Vec3 outward_shading = interpolate_shading_normal(w0, u, v);
         hit.set_normals(ray, outward_geometric, outward_shading);
-        tangent_basis(hit.shading_normal, hit.tangent, hit.bitangent);
+        tangent_basis(w0, u, v, hit.shading_normal, hit.tangent, hit.bitangent);
         hit.has_valid_uv_basis = has_valid_uv_basis();
         hit.uv = interpolate_uv(w0, u, v);
+        hit.uv1 = interpolate_uv1(w0, u, v);
+        hit.vertex_color = interpolate_color(w0, u, v);
+        hit.vertex_alpha = interpolate_alpha(w0, u, v);
         hit.material_id = material_id_;
         return true;
     }
@@ -259,6 +273,27 @@ public:
         return vertices_[0].uv * w0 + vertices_[1].uv * w1 + vertices_[2].uv * w2;
     }
 
+    Vec2 interpolate_uv1(float w0, float w1, float w2) const {
+        if (!vertices_[0].has_uv1 || !vertices_[1].has_uv1 || !vertices_[2].has_uv1) {
+            return interpolate_uv(w0, w1, w2);
+        }
+        return vertices_[0].uv1 * w0 + vertices_[1].uv1 * w1 + vertices_[2].uv1 * w2;
+    }
+
+    Color interpolate_color(float w0, float w1, float w2) const {
+        if (!vertices_[0].has_color || !vertices_[1].has_color || !vertices_[2].has_color) {
+            return Color::Ones();
+        }
+        return vertices_[0].color * w0 + vertices_[1].color * w1 + vertices_[2].color * w2;
+    }
+
+    float interpolate_alpha(float w0, float w1, float w2) const {
+        if (!vertices_[0].has_color || !vertices_[1].has_color || !vertices_[2].has_color) {
+            return 1.0f;
+        }
+        return vertices_[0].alpha * w0 + vertices_[1].alpha * w1 + vertices_[2].alpha * w2;
+    }
+
     Vec3 geometric_normal() const {
         return (b() - a()).cross(c() - a()).normalized();
     }
@@ -278,7 +313,31 @@ public:
         return interpolated.dot(face_normal) < 0.0f ? -interpolated : interpolated;
     }
 
-    void tangent_basis(const Vec3& shading_normal, Vec3& tangent, Vec3& bitangent) const {
+    void tangent_basis(
+        float w0,
+        float w1,
+        float w2,
+        const Vec3& shading_normal,
+        Vec3& tangent,
+        Vec3& bitangent) const {
+        if (vertices_[0].has_tangent && vertices_[1].has_tangent &&
+            vertices_[2].has_tangent) {
+            const Vec3 interpolated =
+                vertices_[0].tangent.head<3>() * w0 +
+                vertices_[1].tangent.head<3>() * w1 +
+                vertices_[2].tangent.head<3>() * w2;
+            tangent = interpolated - shading_normal * interpolated.dot(shading_normal);
+            if (usable_direction(tangent)) {
+                tangent.normalize();
+                const float handedness =
+                    vertices_[0].tangent.w() * w0 +
+                    vertices_[1].tangent.w() * w1 +
+                    vertices_[2].tangent.w() * w2;
+                bitangent = shading_normal.cross(tangent).normalized() *
+                    (handedness < 0.0f ? -1.0f : 1.0f);
+                return;
+            }
+        }
         const Vec3 edge1 = b() - a();
         const Vec3 edge2 = c() - a();
         const float du1 = vertices_[1].uv.x() - vertices_[0].uv.x();

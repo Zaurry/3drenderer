@@ -1,5 +1,7 @@
 #include "scene/scene_asset_loader.h"
 
+#include "scene/gltf_loader.h"
+
 #ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable : 4100 4127 4244 4245 4267 4456 4505 4702 4996)
@@ -321,9 +323,165 @@ Camera make_default_camera(const Bounds3& bounds, int width, int height) {
         aspect);
 }
 
+Vec3 transform_point(const Mat4& transform, const Vec3& point) {
+    return (transform * Vec4(point.x(), point.y(), point.z(), 1.0f)).head<3>();
+}
+
+Vec3 transform_direction(const Mat4& transform, const Vec3& direction) {
+    const Vec3 result = transform.block<3, 3>(0, 0) * direction;
+    return usable_direction(result) ? result.normalized() : direction;
+}
+
+TriangleVertex transform_vertex(
+    const TriangleVertex& source,
+    const Mat4& transform) {
+    TriangleVertex result = source;
+    result.position = transform_point(transform, source.position);
+    const Eigen::Matrix3f linear = transform.block<3, 3>(0, 0);
+    const float determinant = linear.determinant();
+    const bool invertible = linear.allFinite() && std::isfinite(determinant) &&
+        std::abs(determinant) > 1.0e-12f;
+    if (source.has_normal) {
+        if (invertible) {
+            const Vec3 normal = linear.inverse().transpose() * source.normal;
+            result.has_normal = usable_direction(normal);
+            result.normal = result.has_normal ? normal.normalized() : Vec3::Zero();
+        } else {
+            result.has_normal = false;
+            result.normal = Vec3::Zero();
+        }
+    }
+    if (source.has_tangent) {
+        const Vec3 tangent = linear * source.tangent.head<3>();
+        result.has_tangent = invertible && usable_direction(tangent);
+        if (result.has_tangent) {
+            const Vec3 normalized_tangent = tangent.normalized();
+            result.tangent = Vec4(
+                normalized_tangent.x(),
+                normalized_tangent.y(),
+                normalized_tangent.z(),
+                source.tangent.w() * (determinant < 0.0f ? -1.0f : 1.0f));
+        } else {
+            result.tangent = Vec4::Zero();
+        }
+    }
+    return result;
+}
+
+LoadedScene load_flattened_gltf(
+    const std::filesystem::path& path,
+    int width,
+    int height) {
+    const LoadedGltfScene source = load_gltf_scene(path, width, height);
+    LoadedScene loaded{
+        Scene(),
+        Camera(
+            Vec3(0.0f, 0.0f, 1.0f),
+            Vec3::Zero(),
+            Vec3(0.0f, 1.0f, 0.0f),
+            45.0f,
+            1.0f),
+        Bounds3()};
+    loaded.warnings = source.warnings;
+    if (!source.meshes.empty()) {
+        loaded.scene.materials = source.meshes.front().scene.materials;
+        loaded.scene.textures = source.meshes.front().scene.textures;
+        loaded.material_names = source.meshes.front().material_names;
+    }
+
+    std::vector<Mat4> world_transforms(source.nodes.size(), Mat4::Identity());
+    int first_camera_node = -1;
+    for (std::size_t node_index = 0; node_index < source.nodes.size(); ++node_index) {
+        const GltfNodeAsset& node = source.nodes[node_index];
+        const Mat4 parent = node.parent_index >= 0
+            ? world_transforms[static_cast<std::size_t>(node.parent_index)]
+            : Mat4::Identity();
+        const Mat4 world = parent * node.local_transform;
+        world_transforms[node_index] = world;
+        if (node.camera_index >= 0 && first_camera_node < 0) {
+            first_camera_node = static_cast<int>(node_index);
+        }
+        if (node.mesh_index >= 0 &&
+            static_cast<std::size_t>(node.mesh_index) < source.meshes.size()) {
+            const Scene& mesh = source.meshes[static_cast<std::size_t>(node.mesh_index)].scene;
+            for (const Triangle& triangle : mesh.triangles) {
+                const TriangleVertex a = transform_vertex(triangle.vertex(0), world);
+                const TriangleVertex b = transform_vertex(triangle.vertex(1), world);
+                const TriangleVertex c = transform_vertex(triangle.vertex(2), world);
+                loaded.scene.triangles.emplace_back(a, b, c, triangle.material_id());
+                loaded.bounds.expand(a.position);
+                loaded.bounds.expand(b.position);
+                loaded.bounds.expand(c.position);
+            }
+        }
+
+        const Vec3 position = transform_point(world, Vec3::Zero());
+        const Vec3 direction = transform_direction(world, Vec3(0.0f, 0.0f, -1.0f));
+        const Color intensity = node.light_color * std::max(0.0f, node.light_intensity);
+        switch (node.light_type) {
+            case GltfNodeAsset::LightType::Directional:
+                loaded.scene.directional_lights.push_back(
+                    DirectionalLight{direction, intensity});
+                break;
+            case GltfNodeAsset::LightType::Point:
+                loaded.scene.point_lights.push_back(
+                    PointLight{position, intensity, node.light_range});
+                break;
+            case GltfNodeAsset::LightType::Spot:
+                loaded.scene.spot_lights.push_back(SpotLight{
+                    position,
+                    direction,
+                    intensity,
+                    node.light_range,
+                    node.spot_inner_cone_radians,
+                    node.spot_outer_cone_radians});
+                break;
+            case GltfNodeAsset::LightType::None:
+                break;
+        }
+    }
+
+    if (loaded.scene.triangles.empty()) {
+        loaded.bounds = Bounds3(
+            Vec3(-0.5f, -0.5f, -0.5f),
+            Vec3(0.5f, 0.5f, 0.5f));
+    }
+    loaded.camera = make_default_camera(loaded.bounds, width, height);
+    if (first_camera_node >= 0) {
+        const GltfNodeAsset& node = source.nodes[static_cast<std::size_t>(first_camera_node)];
+        if (static_cast<std::size_t>(node.camera_index) < source.cameras.size()) {
+            const GltfCameraAsset& camera =
+                source.cameras[static_cast<std::size_t>(node.camera_index)];
+            const Mat4& world = world_transforms[static_cast<std::size_t>(first_camera_node)];
+            const Vec3 eye = transform_point(world, Vec3::Zero());
+            const Vec3 forward = transform_direction(world, Vec3(0.0f, 0.0f, -1.0f));
+            const Vec3 up = transform_direction(world, Vec3(0.0f, 1.0f, 0.0f));
+            const float fov_degrees = camera.orthographic
+                ? 45.0f
+                : camera.vertical_fov_radians * 180.0f / 3.14159265358979323846f;
+            const float aspect = camera.aspect_ratio > 0.0f
+                ? camera.aspect_ratio
+                : static_cast<float>(std::max(1, width)) /
+                    static_cast<float>(std::max(1, height));
+            loaded.camera = Camera(eye, eye + forward, up, fov_degrees, aspect);
+            if (camera.orthographic) {
+                loaded.warnings.push_back(
+                    "The offline renderer uses a perspective approximation for the glTF orthographic camera.");
+            }
+        }
+    }
+    loaded.scene.environment = Color(0.02f, 0.025f, 0.03f);
+    return loaded;
+}
+
 }  // namespace
 
 LoadedScene load_scene_asset(const std::string& path, int width, int height) {
+    const std::string extension = lowercase_ascii(
+        std::filesystem::path(path).extension().string());
+    if (extension == ".gltf" || extension == ".glb") {
+        return load_flattened_gltf(path, width, height);
+    }
     tinyobj::ObjReaderConfig config;
     config.triangulate = true;
     const std::filesystem::path obj_path(path);

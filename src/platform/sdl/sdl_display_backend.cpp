@@ -147,6 +147,16 @@ SdlDisplayBackend::~SdlDisplayBackend() {
         SDL_GL_MakeCurrent(window_, static_cast<SDL_GLContext>(gl_context_));
     }
     if (imgui_initialized_) {
+        // Persist docking and multi-viewport placement while the platform
+        // windows still exist. ImGui's default shutdown save happens after
+        // the SDL backend has destroyed secondary windows, which can lose the
+        // absolute ViewportPos/DockNode position of panels outside the main
+        // window. Disable the later context-destruction save so it cannot
+        // overwrite this complete snapshot.
+        if (!imgui_ini_path_.empty()) {
+            ImGui::SaveIniSettingsToDisk(imgui_ini_path_.c_str());
+            ImGui::GetIO().IniFilename = nullptr;
+        }
         ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
@@ -544,10 +554,13 @@ bool SdlDisplayBackend::show_dialog(
     auto* callback_data = new DialogCallbackData{dialog_inbox_, kind};
     const char* location = default_location.empty() ? nullptr : default_location.c_str();
     static constexpr SDL_DialogFileFilter model_filters[]{
-        {"Wavefront OBJ", "obj"},
+        {"3D assets", "obj;gltf;glb"},
     };
     static constexpr SDL_DialogFileFilter scene_filters[]{
         {"Renderer scene", "rscene"},
+    };
+    static constexpr SDL_DialogFileFilter environment_filters[]{
+        {"Environment maps", "hdr;exr;png;jpg;jpeg"},
     };
     switch (kind) {
         case FileDialogKind::ImportFiles:
@@ -587,6 +600,16 @@ bool SdlDisplayBackend::show_dialog(
                 1,
                 location);
             break;
+        case FileDialogKind::OpenEnvironment:
+            SDL_ShowOpenFileDialog(
+                &SdlDisplayBackend::dialog_callback,
+                callback_data,
+                window_,
+                environment_filters,
+                1,
+                location,
+                false);
+            break;
     }
     return true;
 }
@@ -605,6 +628,10 @@ bool SdlDisplayBackend::show_open_scene_dialog(const std::string& default_locati
 
 bool SdlDisplayBackend::show_save_scene_dialog(const std::string& default_location) {
     return show_dialog(FileDialogKind::SaveScene, default_location);
+}
+
+bool SdlDisplayBackend::show_environment_dialog(const std::string& default_location) {
+    return show_dialog(FileDialogKind::OpenEnvironment, default_location);
 }
 
 void SdlDisplayBackend::present(
