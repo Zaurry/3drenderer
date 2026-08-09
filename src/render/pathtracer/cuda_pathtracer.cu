@@ -28,9 +28,27 @@ namespace {
 
 constexpr int kThreadsPerBlock = 128;
 constexpr int kMaxPathBounces = 64;
-constexpr int kRussianRouletteStartBounce = 3;
 constexpr int kBvhStackCapacity = 64;
 constexpr float kPi = 3.14159265358979323846f;
+
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+constexpr int kDiagnosticPrimaryRays = 0;
+constexpr int kDiagnosticContinuationRays = 1;
+constexpr int kDiagnosticDirectionalShadowRays = 2;
+constexpr int kDiagnosticPointShadowRays = 3;
+constexpr int kDiagnosticSpotShadowRays = 4;
+constexpr int kDiagnosticEmissiveShadowRays = 5;
+constexpr int kDiagnosticEnvironmentShadowRays = 6;
+constexpr int kDiagnosticPrimaryHits = 7;
+constexpr int kDiagnosticPrimaryMisses = 8;
+constexpr int kDiagnosticRaysByBounce = 9;
+constexpr int kDiagnosticTerminationByBounce =
+    kDiagnosticRaysByBounce + kMaxPathBounces + 1;
+constexpr int kDiagnosticCounterCount =
+    kDiagnosticTerminationByBounce + kMaxPathBounces + 1;
+constexpr int kDiagnosticShadowEmissive = 1;
+constexpr int kDiagnosticShadowEnvironment = 2;
+#endif
 
 void check_cuda(cudaError_t result, const char* operation) {
     if (result != cudaSuccess) {
@@ -363,6 +381,9 @@ struct DShadowTask {
     DVec3 contribution;
     float t_max;
     int pixel_index;
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+    int diagnostic_kind = 0;
+#endif
 };
 
 struct DFrameParameters {
@@ -380,9 +401,15 @@ struct DFrameParameters {
     int pixel_count;
     int path_capacity;
     int max_bounces;
+    int russian_roulette_start_bounce;
+    float russian_roulette_min_probability;
+    float russian_roulette_max_probability;
     int output_width;
     int output_height;
     int* error_code;
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+    unsigned long long* diagnostic_counters;
+#endif
     cudaSurfaceObject_t output_surface;
 };
 
@@ -3002,7 +3029,11 @@ __device__ DVec3 direct_lighting(
     const DHit& hit,
     const DSurface& surface,
     DVec3 outgoing,
-    int* error_code) {
+    int* error_code
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+    , unsigned long long* diagnostic_counters
+#endif
+    ) {
     DVec3 direct = v3(0.0f, 0.0f, 0.0f);
     const auto evaluated_contribution = [&](DVec3 direction, DVec3 incoming) {
         const DPbrEvaluation evaluated = evaluate_pbr(
@@ -3025,6 +3056,11 @@ __device__ DVec3 direct_lighting(
             continue;
         }
         const DRay shadow{offset_origin(hit.position, hit.geometric_normal, light_direction), light_direction};
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+        atomicAdd(
+            diagnostic_counters + kDiagnosticDirectionalShadowRays,
+            1ULL);
+#endif
         if (!occluded_scene(
                 scene,
                 shadow,
@@ -3053,6 +3089,11 @@ __device__ DVec3 direct_lighting(
             continue;
         }
         const DRay shadow{offset_origin(hit.position, hit.geometric_normal, light_direction), light_direction};
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+        atomicAdd(
+            diagnostic_counters + kDiagnosticPointShadowRays,
+            1ULL);
+#endif
         if (!occluded_scene(
                 scene,
                 shadow,
@@ -3092,6 +3133,11 @@ __device__ DVec3 direct_lighting(
         const DRay shadow{
             offset_origin(hit.position, hit.geometric_normal, light_direction),
             light_direction};
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+        atomicAdd(
+            diagnostic_counters + kDiagnosticSpotShadowRays,
+            1ULL);
+#endif
         if (!occluded_scene(
                 scene,
                 shadow,
@@ -3555,6 +3601,21 @@ __global__ void intersect_wavefront_kernel(
         atomicCAS(frame.error_code, 0, 3);
         count = max(0, min(count, frame.path_capacity));
     }
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+    if (first == 0) {
+        const int bounce = *bounce_index;
+        atomicAdd(
+            frame.diagnostic_counters +
+                (bounce == 0
+                    ? kDiagnosticPrimaryRays
+                    : kDiagnosticContinuationRays),
+            static_cast<unsigned long long>(count));
+        atomicAdd(
+            frame.diagnostic_counters + kDiagnosticRaysByBounce +
+                max(0, min(bounce, kMaxPathBounces)),
+            static_cast<unsigned long long>(count));
+    }
+#endif
     if (first >= count) {
         return;
     }
@@ -3599,6 +3660,22 @@ __global__ void shade_wavefront_kernel(
 
     const DPathState path = active_paths[index];
     const DWavefrontHit wavefront_hit = hits[index];
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+    const auto record_termination = [&frame](int surface_bounces) {
+        atomicAdd(
+            frame.diagnostic_counters + kDiagnosticTerminationByBounce +
+                max(0, min(surface_bounces, kMaxPathBounces)),
+            1ULL);
+    };
+    if (bounce == 0) {
+        atomicAdd(
+            frame.diagnostic_counters +
+                (wavefront_hit.found
+                    ? kDiagnosticPrimaryHits
+                    : kDiagnosticPrimaryMisses),
+            1ULL);
+    }
+#endif
     shading_records[index].valid = 0;
     if (!wavefront_hit.found) {
         if (bounce > 0 || frame.scene.environment_background_visible != 0) {
@@ -3615,6 +3692,9 @@ __global__ void shade_wavefront_kernel(
                 frame.sample_radiance[path.pixel_index],
                 mul(product(path.throughput, incoming), weight));
         }
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+        record_termination(bounce);
+#endif
         return;
     }
 
@@ -3629,6 +3709,9 @@ __global__ void shade_wavefront_kernel(
         frame.sample_radiance[path.pixel_index] = add(
             frame.sample_radiance[path.pixel_index],
             product(path.throughput, v3(1.0f, 0.0f, 1.0f)));
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+        record_termination(bounce + 1);
+#endif
         return;
     }
     const DMaterial material = frame.scene.materials[hit.material_id];
@@ -3664,6 +3747,9 @@ __global__ void shade_wavefront_kernel(
     if (!transparent_passthrough &&
         material.type == static_cast<int>(MaterialType::Emissive)) {
         frame.random_states[random_index] = rng;
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+        record_termination(bounce + 1);
+#endif
         return;
     }
 
@@ -3714,6 +3800,9 @@ __global__ void shade_wavefront_kernel(
                    bsdf_pdf,
                    was_delta)) {
         frame.random_states[random_index] = rng;
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+        record_termination(bounce + 1);
+#endif
         return;
     }
 
@@ -3721,14 +3810,22 @@ __global__ void shade_wavefront_kernel(
     if (!finite(throughput) || max_component(throughput) <= 0.0f ||
         bounce + 1 >= frame.max_bounces) {
         frame.random_states[random_index] = rng;
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+        record_termination(bounce + 1);
+#endif
         return;
     }
-    if (bounce + 1 >= kRussianRouletteStartBounce) {
+    if (bounce + 1 >= frame.russian_roulette_start_bounce) {
         const float probability = fminf(
-            fmaxf(max_component(throughput), 0.05f),
-            0.95f);
+            fmaxf(
+                max_component(throughput),
+                frame.russian_roulette_min_probability),
+            frame.russian_roulette_max_probability);
         if (random_float(rng) >= probability) {
             frame.random_states[random_index] = rng;
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+            record_termination(bounce + 1);
+#endif
             return;
         }
         throughput = divv(throughput, probability);
@@ -3760,6 +3857,9 @@ __global__ void shade_wavefront_kernel(
             path.pixel_index};
     } else {
         atomicCAS(frame.error_code, 0, 1);
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+        record_termination(bounce + 1);
+#endif
     }
     frame.random_states[random_index] = rng;
 }
@@ -3833,6 +3933,11 @@ __global__ void sample_emissive_lights_kernel(
               rng,
               shadow_task);
     if (sampled) {
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+        shadow_task.diagnostic_kind = choose_environment
+            ? kDiagnosticShadowEnvironment
+            : kDiagnosticShadowEmissive;
+#endif
         shadow_tasks[first] = shadow_task;
     }
     frame.random_states[random_index] = rng;
@@ -3880,11 +3985,23 @@ __global__ void direct_visibility_kernel(
             hit,
             surface,
             record.outgoing,
-            frame.error_code));
+            frame.error_code
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+            , frame.diagnostic_counters
+#endif
+            ));
     if (frame.scene.emissive_light_count > 0 ||
         environment_direct_active(frame.scene)) {
         const DShadowTask task = shadow_tasks[first];
         if (task.t_max > 0.0f &&
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+            (atomicAdd(
+                frame.diagnostic_counters +
+                    (task.diagnostic_kind == kDiagnosticShadowEnvironment
+                        ? kDiagnosticEnvironmentShadowRays
+                        : kDiagnosticEmissiveShadowRays),
+                1ULL), true) &&
+#endif
             !occluded_scene(
                 frame.scene,
                 task.ray,
@@ -6019,6 +6136,18 @@ public:
         }
         accumulation_.resize(count, statistics_);
         random_states_.resize(count, statistics_);
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+        diagnostic_counters_.resize_exact(
+            kDiagnosticCounterCount,
+            statistics_);
+        check_cuda(
+            cudaMemsetAsync(
+                diagnostic_counters_.get(),
+                0,
+                kDiagnosticCounterCount * sizeof(unsigned long long),
+                stream_),
+            "clear CUDA benchmark diagnostic counters");
+#endif
         ensure_wavefront_capacity(
             wavefront_capacity,
             requested_wavefront_capacity != 0);
@@ -6047,14 +6176,16 @@ public:
     void render_sample(
         const DScene& scene,
         const Camera& camera,
+        const PathRenderSettings& path_settings,
         cudaSurfaceObject_t output_surface = 0) {
-        render_samples(scene, camera, 1, output_surface);
+        render_samples(scene, camera, 1, path_settings, output_surface);
     }
 
     void render_samples(
         const DScene& scene,
         const Camera& camera,
         int sample_count,
+        const PathRenderSettings& path_settings,
         cudaSurfaceObject_t output_surface = 0) {
         render_work(
             scene,
@@ -6065,6 +6196,7 @@ public:
             kMaxPathBounces,
             width_,
             height_,
+            path_settings,
             output_surface,
             true);
     }
@@ -6077,6 +6209,7 @@ public:
         int max_bounces,
         int output_width,
         int output_height,
+        const PathRenderSettings& path_settings,
         cudaSurfaceObject_t output_surface = 0) {
         render_work(
             scene,
@@ -6087,6 +6220,7 @@ public:
             max_bounces,
             output_width,
             output_height,
+            path_settings,
             output_surface,
             false,
             true);
@@ -6099,7 +6233,8 @@ public:
         int pixel_count,
         int max_bounces,
         int output_width,
-        int output_height) {
+        int output_height,
+        const PathRenderSettings& path_settings) {
         if (pixel_count <= 0) {
             throw std::invalid_argument(
                 "CUDA wavefront quantum must contain pixels");
@@ -6130,6 +6265,7 @@ public:
                 max_bounces,
                 output_width,
                 output_height,
+                path_settings,
                 0,
                 false,
                 false);
@@ -6191,6 +6327,7 @@ private:
         int max_bounces,
         int output_width,
         int output_height,
+        const PathRenderSettings& path_settings,
         cudaSurfaceObject_t output_surface,
         bool completes_sample,
         bool record_trace = true) {
@@ -6218,6 +6355,18 @@ private:
             throw std::invalid_argument(
                 "CUDA output dimensions must be positive");
         }
+        const int roulette_start_bounce = std::clamp(
+            path_settings.russian_roulette_start_bounce,
+            1,
+            kMaxPathBounces);
+        const float roulette_min_probability = std::clamp(
+            path_settings.russian_roulette_min_probability,
+            0.01f,
+            1.0f);
+        const float roulette_max_probability = std::clamp(
+            path_settings.russian_roulette_max_probability,
+            roulette_min_probability,
+            1.0f);
         const DCamera packed_camera{
             to_device(camera.eye()),
             to_device(camera.forward()),
@@ -6241,9 +6390,15 @@ private:
             pixel_count,
             static_cast<int>(wavefront_capacity_pixels_),
             max_bounces,
+            roulette_start_bounce,
+            roulette_min_probability,
+            roulette_max_probability,
             output_width,
             output_height,
             error_code_,
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+            diagnostic_counters_.get(),
+#endif
             output_surface};
         update_frame_parameters_kernel<<<1, 1, 0, stream_>>>(
             frame_parameters_,
@@ -6287,6 +6442,39 @@ public:
             static_cast<int>(accumulation_.size()),
             samples_,
             use_pinned_staging);
+    }
+
+    CudaPathDiagnosticProfile download_diagnostic_profile() {
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+        std::array<unsigned long long, kDiagnosticCounterCount> counters{};
+        diagnostic_counters_.download(counters.data(), stream_);
+        synchronize_and_check_errors();
+        CudaPathDiagnosticProfile profile;
+        profile.primary_rays = counters[kDiagnosticPrimaryRays];
+        profile.continuation_rays = counters[kDiagnosticContinuationRays];
+        profile.directional_shadow_rays =
+            counters[kDiagnosticDirectionalShadowRays];
+        profile.point_shadow_rays = counters[kDiagnosticPointShadowRays];
+        profile.spot_shadow_rays = counters[kDiagnosticSpotShadowRays];
+        profile.emissive_shadow_rays =
+            counters[kDiagnosticEmissiveShadowRays];
+        profile.environment_shadow_rays =
+            counters[kDiagnosticEnvironmentShadowRays];
+        profile.primary_hits = counters[kDiagnosticPrimaryHits];
+        profile.primary_misses = counters[kDiagnosticPrimaryMisses];
+        for (std::size_t bounce = 0;
+             bounce < CudaPathDiagnosticProfile::kBounceBins;
+             ++bounce) {
+            profile.rays_by_bounce[bounce] =
+                counters[kDiagnosticRaysByBounce + bounce];
+            profile.termination_by_bounce[bounce] =
+                counters[kDiagnosticTerminationByBounce + bounce];
+        }
+        return profile;
+#else
+        throw std::runtime_error(
+            "CUDA path diagnostics require the instrumented benchmark target");
+#endif
     }
 
     std::vector<Color> download_region_pixels(
@@ -6949,6 +7137,9 @@ private:
     DeviceBuffer<DVec3> accumulation_;
     DeviceBuffer<DVec3> resolved_;
     DeviceBuffer<DPcgState> random_states_;
+#if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
+    DeviceBuffer<unsigned long long> diagnostic_counters_;
+#endif
     DeviceBuffer<unsigned char> wavefront_arena_;
     std::size_t wavefront_capacity_pixels_ = 0;
     DVec3* sample_radiance_ = nullptr;
@@ -7005,7 +7196,11 @@ RenderResult render_cuda_path(
     CudaSceneStorage device_scene(scene, frame.stream(), statistics);
     frame.reset(settings.width, settings.height, settings.path.sample_seed_offset);
     const int sample_count = std::max(1, settings.path.samples_per_pixel);
-    frame.render_samples(device_scene.view(), camera, sample_count);
+    frame.render_samples(
+        device_scene.view(),
+        camera,
+        sample_count,
+        settings.path);
     Image image(settings.width, settings.height);
     image.set_pixels(frame.download_pixels(false));
     return RenderResult{std::move(image), timer.elapsed_seconds(), ExecutionBackend::Cuda};
@@ -7128,6 +7323,7 @@ public:
             frame_.render_sample(
                 scene_->view(),
                 camera,
+                settings.path,
                 static_cast<cudaSurfaceObject_t>(surface));
             statistics_.work_mode = CudaPathWorkMode::FullFrame;
             statistics_.internal_width = settings.width;
@@ -7247,6 +7443,10 @@ public:
             scene_->update_timing();
         }
         return statistics_;
+    }
+
+    CudaPathDiagnosticProfile download_diagnostic_profile() {
+        return frame_.download_diagnostic_profile();
     }
 
     void set_presentation_state(bool interop_active, bool fallback_active) {
@@ -7443,6 +7643,7 @@ private:
             kPreviewBounceLimit,
             settings.width,
             settings.height,
+            settings.path,
             surface);
         preview_frame_.complete_sample();
         preview_has_run_ = true;
@@ -7474,7 +7675,8 @@ private:
             rows * settings.width,
             kMaxPathBounces,
             settings.width,
-            settings.height);
+            settings.height,
+            settings.path);
         frame_.synchronize_and_check_errors();
         active_frame_is_preview_ = false;
         last_work_mode_ = CudaPathWorkMode::NativeTile;
@@ -7604,6 +7806,11 @@ CudaStreamHandle CudaPathInteractiveRenderer::stream_handle() const {
 
 const CudaPathStatistics& CudaPathInteractiveRenderer::statistics() const {
     return impl_->statistics();
+}
+
+CudaPathDiagnosticProfile
+CudaPathInteractiveRenderer::download_diagnostic_profile() {
+    return impl_->download_diagnostic_profile();
 }
 
 void CudaPathInteractiveRenderer::set_presentation_state(

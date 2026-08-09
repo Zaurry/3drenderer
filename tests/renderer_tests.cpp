@@ -508,6 +508,9 @@ void test_viewer_ui_actions_classify_path_resets() {
     actions = renderer::ViewerUiActions{};
     actions.path_backend_changed = true;
     RENDER_CHECK(actions.resets_path_accumulation());
+    actions = renderer::ViewerUiActions{};
+    actions.path_roulette_changed = true;
+    RENDER_CHECK(actions.resets_path_accumulation());
 }
 
 void test_orbit_camera_controller_zoom_and_orbit_change_camera() {
@@ -1515,6 +1518,13 @@ void test_render_settings_defaults_are_useful() {
     RENDER_CHECK(settings.path.samples_per_pixel == 1);
     RENDER_CHECK(settings.path.tile_size == 16);
     RENDER_CHECK(settings.path.thread_count == 0);
+    RENDER_CHECK(settings.path.russian_roulette_start_bounce == 3);
+    RENDER_CHECK(nearly_equal(
+        settings.path.russian_roulette_min_probability,
+        0.05f));
+    RENDER_CHECK(nearly_equal(
+        settings.path.russian_roulette_max_probability,
+        0.95f));
     RENDER_CHECK(settings.path.sample_seed_offset == 0);
     RENDER_CHECK(settings.path.backend == renderer::PathBackend::Auto);
 }
@@ -1679,7 +1689,10 @@ renderer::Scene make_path_roulette_layer_scene() {
 
 renderer::Color render_roulette_layer_sample(
     const renderer::Scene& scene,
-    std::uint64_t seed_offset) {
+    std::uint64_t seed_offset,
+    int roulette_start_bounce = 3,
+    float roulette_min_probability = 0.05f,
+    float roulette_max_probability = 0.95f) {
     const renderer::Camera camera(
         renderer::Vec3::Zero(),
         -renderer::Vec3::UnitZ(),
@@ -1692,6 +1705,11 @@ renderer::Color render_roulette_layer_sample(
     settings.path.samples_per_pixel = 1;
     settings.path.thread_count = 1;
     settings.path.sample_seed_offset = seed_offset;
+    settings.path.russian_roulette_start_bounce = roulette_start_bounce;
+    settings.path.russian_roulette_min_probability =
+        roulette_min_probability;
+    settings.path.russian_roulette_max_probability =
+        roulette_max_probability;
     settings.path.backend = renderer::PathBackend::Cpu;
     return renderer::PathTracerRenderer().render(scene, camera, settings).image.pixel(0, 0);
 }
@@ -1725,6 +1743,14 @@ void test_pathtracer_russian_roulette_terminates_and_preserves_energy() {
     RENDER_CHECK(saw_surviving_path);
     RENDER_CHECK(mean.x() > 0.9f);
     RENDER_CHECK(mean.x() < 1.1f);
+
+    for (int sample = 0; sample < 16; ++sample) {
+        const renderer::Color delayed = render_roulette_layer_sample(
+            scene,
+            static_cast<std::uint64_t>(sample + 1),
+            5);
+        RENDER_CHECK(delayed.isApprox(renderer::Color::Ones(), 1e-6f));
+    }
 }
 
 int count_lit_pixels(const renderer::Framebuffer& framebuffer) {
@@ -4111,6 +4137,9 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     state.render_settings.path.tile_size = 32;
     state.render_settings.path.thread_count = 3;
     state.render_settings.path.backend = renderer::PathBackend::Cpu;
+    state.render_settings.path.russian_roulette_start_bounce = 5;
+    state.render_settings.path.russian_roulette_min_probability = 0.10f;
+    state.render_settings.path.russian_roulette_max_probability = 0.90f;
     state.camera.eye = renderer::Vec3(4.0f, 5.0f, 6.0f);
     state.camera.forward =
         renderer::Vec3(-1.0f, -0.5f, -2.0f).normalized();
@@ -4174,6 +4203,14 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     RENDER_CHECK(loaded.render_settings.path.tile_size == 32);
     RENDER_CHECK(loaded.render_settings.path.thread_count == 3);
     RENDER_CHECK(
+        loaded.render_settings.path.russian_roulette_start_bounce == 5);
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.path.russian_roulette_min_probability,
+        0.10f));
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.path.russian_roulette_max_probability,
+        0.90f));
+    RENDER_CHECK(
         loaded.render_settings.path.backend == renderer::PathBackend::Cpu);
     RENDER_CHECK(loaded.camera.eye.isApprox(state.camera.eye));
     RENDER_CHECK(loaded.camera.forward.isApprox(state.camera.forward));
@@ -4201,6 +4238,9 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
 
     nlohmann::json old_session_json = saved_json;
     old_session_json["view"].erase("automatic_interaction_quality");
+    old_session_json["render"].erase("rr_start_bounce");
+    old_session_json["render"].erase("rr_min_probability");
+    old_session_json["render"].erase("rr_max_probability");
     {
         std::ofstream output(session_path);
         output << old_session_json.dump(2) << '\n';
@@ -4208,6 +4248,14 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     const renderer::ViewerSessionState old_session =
         renderer::ViewerSessionStore::load(session_path);
     RENDER_CHECK(old_session.ui.automatic_interaction_quality);
+    RENDER_CHECK(
+        old_session.render_settings.path.russian_roulette_start_bounce == 3);
+    RENDER_CHECK(nearly_equal(
+        old_session.render_settings.path.russian_roulette_min_probability,
+        0.05f));
+    RENDER_CHECK(nearly_equal(
+        old_session.render_settings.path.russian_roulette_max_probability,
+        0.95f));
 
     for (const char* removed_mode : {"raster", "ray"}) {
         nlohmann::json removed_mode_json = saved_json;

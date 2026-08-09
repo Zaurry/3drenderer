@@ -20,10 +20,7 @@ namespace renderer {
 
 namespace {
 
-constexpr int kRussianRouletteStartBounce = 3;
 constexpr int kMaxPathBounces = 64;
-constexpr float kMinContinuationProbability = 0.05f;
-constexpr float kMaxContinuationProbability = 0.95f;
 
 Color black() {
     return Color::Zero();
@@ -95,6 +92,19 @@ RenderResult PathTracerRenderer::render_cpu(
     const SceneIntersector intersector(scene);
 
     const int samples_per_pixel = std::max(1, settings.path.samples_per_pixel);
+    PathRenderSettings path_settings = settings.path;
+    path_settings.russian_roulette_start_bounce = std::clamp(
+        path_settings.russian_roulette_start_bounce,
+        1,
+        kMaxPathBounces);
+    path_settings.russian_roulette_min_probability = std::clamp(
+        path_settings.russian_roulette_min_probability,
+        0.01f,
+        1.0f);
+    path_settings.russian_roulette_max_probability = std::clamp(
+        path_settings.russian_roulette_max_probability,
+        path_settings.russian_roulette_min_probability,
+        1.0f);
     const int tile_size = std::max(1, settings.path.tile_size);
     const int tiles_x = (settings.width + tile_size - 1) / tile_size;
     const int tiles_y = (settings.height + tile_size - 1) / tile_size;
@@ -138,7 +148,8 @@ RenderResult PathTracerRenderer::render_cpu(
                             camera.generate_ray(u, v),
                             scene,
                             intersector,
-                            rng);
+                            rng,
+                            path_settings);
                     }
 
                     image.set_pixel(x, y, accumulated / static_cast<float>(samples_per_pixel));
@@ -161,7 +172,8 @@ Color PathTracerRenderer::trace_path(
     const Ray& ray,
     const Scene& scene,
     const SceneIntersector& intersector,
-    PcgRandom& rng) const {
+    PcgRandom& rng,
+    const PathRenderSettings& path_settings) const {
     Color radiance = black();
     Color throughput = Color::Ones();
     Ray current_ray = ray;
@@ -265,11 +277,11 @@ Color PathTracerRenderer::trace_path(
         // Short paths are always traced. Afterwards, low-throughput paths are
         // probabilistically terminated. Dividing surviving paths by their
         // continuation probability keeps the Monte Carlo estimator unbiased.
-        if (bounce + 1 >= kRussianRouletteStartBounce) {
+        if (bounce + 1 >= path_settings.russian_roulette_start_bounce) {
             const float continuation_probability = std::clamp(
                 throughput.maxCoeff(),
-                kMinContinuationProbability,
-                kMaxContinuationProbability);
+                path_settings.russian_roulette_min_probability,
+                path_settings.russian_roulette_max_probability);
             if (rng.next_float() >= continuation_probability) {
                 break;
             }

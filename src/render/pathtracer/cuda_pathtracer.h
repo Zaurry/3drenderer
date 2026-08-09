@@ -4,6 +4,7 @@
 #include "render/renderer.h"
 #include "scene/instanced_scene.h"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -54,6 +55,22 @@ struct CudaPathStatistics {
     bool fallback_active = false;
 };
 
+struct CudaPathDiagnosticProfile {
+    static constexpr std::size_t kBounceBins = 65;
+
+    std::uint64_t primary_rays = 0;
+    std::uint64_t continuation_rays = 0;
+    std::uint64_t directional_shadow_rays = 0;
+    std::uint64_t point_shadow_rays = 0;
+    std::uint64_t spot_shadow_rays = 0;
+    std::uint64_t emissive_shadow_rays = 0;
+    std::uint64_t environment_shadow_rays = 0;
+    std::uint64_t primary_hits = 0;
+    std::uint64_t primary_misses = 0;
+    std::array<std::uint64_t, kBounceBins> rays_by_bounce{};
+    std::array<std::uint64_t, kBounceBins> termination_by_bounce{};
+};
+
 bool cuda_path_backend_compiled();
 bool cuda_path_backend_available(std::string* reason = nullptr);
 
@@ -94,6 +111,7 @@ public:
     int accumulated_samples() const;
     CudaStreamHandle stream_handle() const;
     const CudaPathStatistics& statistics() const;
+    CudaPathDiagnosticProfile download_diagnostic_profile();
     void set_presentation_state(bool interop_active, bool fallback_active);
 
 private:

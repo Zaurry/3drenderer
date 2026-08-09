@@ -761,6 +761,56 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         &state.automatic_interaction_quality)) {
                     actions.automatic_interaction_quality_changed = true;
                 }
+                if (has_capability(
+                        active_capabilities,
+                        RenderModeCapability::PathBackendSelection)) {
+                    bool roulette_changed = ImGui::SliderInt(
+                        "RR start bounce",
+                        &render_settings.path.russian_roulette_start_bounce,
+                        1,
+                        64);
+                    int roulette_minimum_percent = static_cast<int>(std::lround(
+                        render_settings.path.russian_roulette_min_probability * 100.0f));
+                    int roulette_maximum_percent = static_cast<int>(std::lround(
+                        render_settings.path.russian_roulette_max_probability * 100.0f));
+                    if (ImGui::SliderInt(
+                        "RR minimum survival",
+                        &roulette_minimum_percent,
+                        1,
+                        100,
+                        "%d%%")) {
+                        render_settings.path.russian_roulette_min_probability =
+                            static_cast<float>(roulette_minimum_percent) / 100.0f;
+                        if (roulette_minimum_percent > roulette_maximum_percent) {
+                            roulette_maximum_percent = roulette_minimum_percent;
+                            render_settings.path.russian_roulette_max_probability =
+                                render_settings.path.russian_roulette_min_probability;
+                        }
+                        roulette_changed = true;
+                    }
+                    if (ImGui::SliderInt(
+                        "RR maximum survival",
+                        &roulette_maximum_percent,
+                        1,
+                        100,
+                        "%d%%")) {
+                        render_settings.path.russian_roulette_max_probability =
+                            static_cast<float>(roulette_maximum_percent) / 100.0f;
+                        if (roulette_maximum_percent < roulette_minimum_percent) {
+                            roulette_minimum_percent = roulette_maximum_percent;
+                            render_settings.path.russian_roulette_min_probability =
+                                render_settings.path.russian_roulette_max_probability;
+                        }
+                        roulette_changed = true;
+                    }
+                    if (roulette_changed) {
+                        actions.path_roulette_changed = true;
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip(
+                            "Surviving paths are divided by their survival probability");
+                    }
+                }
                 int render_scale_percent =
                     static_cast<int>(std::lround(state.render_scale * 100.0f));
                 if (ImGui::SliderInt("Render scale", &render_scale_percent, 25, 100, "%d%%")) {

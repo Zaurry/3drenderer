@@ -1,5 +1,9 @@
 # CUDA Path 资产 BLAS + 实例 TLAS 拖动结果
 
+> 历史记录：本文数值保持原样，但当时使用的 `cuda_path_benchmark` 已删除。
+> 当前 benchmark 架构和扩展 phase 的规则见
+> [规范化 Benchmark 流程](../benchmarking.md)。
+
 日期：2026-07-30
 
 分支：`codex/gpu-wavefront-nee-mis`
@@ -40,15 +44,9 @@ TLAS refit 中位低于 1 ms、P95 低于 2 ms。30 个拖动帧中 BLAS build c
 framebuffer 扫描发布。Sponza 原生 trace 的 +4.17% 仍在不超过 5% 的回退上限内；
 San Miguel 没有回退。
 
-复现命令：
-
-```powershell
-cmake --build --preset cuda-release --target cuda_path_benchmark
-.\build\cuda\bin\cuda_path_benchmark.exe sponza 5 full
-.\build\cuda\bin\cuda_path_benchmark.exe sponza 30 drag
-.\build\cuda\bin\cuda_path_benchmark.exe san-miguel 5 full
-.\build\cuda\bin\cuda_path_benchmark.exe san-miguel 30 drag
-```
+这些命令属于已退休的历史工具。当前标准档包含相机交互 phase；若要重新建立
+对象拖动基线，应按新框架增加 `instance_drag` phase 和版本化 case，而不能复用
+相机交互指标名。
 
 原始记录位于：
 

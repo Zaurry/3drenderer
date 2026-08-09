@@ -1,5 +1,9 @@
 # CUDA Path 重场景性能结果
 
+> 历史记录：本文数值保持原样，但当时使用的 `cuda_path_benchmark` 已删除。
+> 当前入口、固定 San Miguel case 和结构化结果格式见
+> [规范化 Benchmark 流程](../benchmarking.md)。
+
 日期：2026-07-30
 
 分支：`codex/gpu-wavefront-nee-mis`
@@ -25,7 +29,7 @@
 
 ## 固定相机
 
-`cuda_path_benchmark` 固化以下相机，FOV 均为 45°：
+当时的历史工具固化以下相机，FOV 均为 45°：
 
 | 场景 | eye | forward |
 | --- | --- | --- |
@@ -34,11 +38,8 @@
 
 目标不随默认 asset camera 或 session 是否被 Viewer 覆盖而改变：
 
-```powershell
-cmake --build --preset cuda-release --target cuda_path_benchmark
-.\build\cuda\bin\cuda_path_benchmark.exe sponza 5
-.\build\cuda\bin\cuda_path_benchmark.exe san-miguel 5
-```
+当前 San Miguel 标准运行使用 `.\tools\run_benchmarks.ps1 -Backend cuda`。
+Sponza 数值仅保留为历史记录；需要重新测量时应新增独立版本化 case。
 
 五次 trace：
 

@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "name": "san_miguel_first_scene",
+  "description": "Frozen from the no-argument Viewer session captured on 2026-08-08; never reads APPDATA at runtime.",
+  "scene": "san_miguel_first_scene.rscene",
+  "output": {
+    "width": 2418,
+    "height": 1343,
+    "render_scale": 1.0
+  },
+  "camera": {
+    "eye": [28.136741638183594, 2.050234079360962, 2.2544901371002197],
+    "forward": [-0.9936696887016296, 0.019999269396066666, -0.11054708808660507],
+    "up": [0.019876642152667046, 0.9998000264167786, 0.0022113032173365355],
+    "vertical_fov_degrees": 45.0
+  },
+  "display": {
+    "exposure_ev": 0.0,
+    "tone_mapper": "aces"
+  },
+  "render_settings": {
+    "path": {
+      "samples_per_pixel": 1,
+      "tile_size": 32,
+      "thread_count": 0,
+      "rr_start_bounce": 3,
+      "rr_min_probability": 0.05,
+      "rr_max_probability": 0.95,
+      "sample_seed_offset": 0,
+      "backend": "cuda"
+    }
+  },
+  "phases": {
+    "opengl_warmup_frames": 60,
+    "opengl_measure_frames": 300,
+    "cuda_full_warmup_frames": 1,
+    "cuda_full_measure_frames": 5,
+    "cuda_interaction_frames": 30,
+    "cuda_native_sweeps": 10,
+    "diagnostic_samples": 1
+  }
+}

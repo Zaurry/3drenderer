@@ -425,6 +425,9 @@ struct ViewerSessionSignature {
     renderer::ToneMapper tone_mapper = renderer::ToneMapper::None;
     int tile_size = 0;
     int thread_count = 0;
+    int russian_roulette_start_bounce = 3;
+    float russian_roulette_min_probability = 0.05f;
+    float russian_roulette_max_probability = 0.95f;
     int logical_width = 0;
     int logical_height = 0;
     float render_scale = 1.0f;
@@ -462,6 +465,12 @@ ViewerSessionSignature make_session_signature(
     signature.tone_mapper = ui.display.tone_mapper;
     signature.tile_size = settings.path.tile_size;
     signature.thread_count = settings.path.thread_count;
+    signature.russian_roulette_start_bounce =
+        settings.path.russian_roulette_start_bounce;
+    signature.russian_roulette_min_probability =
+        settings.path.russian_roulette_min_probability;
+    signature.russian_roulette_max_probability =
+        settings.path.russian_roulette_max_probability;
     signature.logical_width = logical_size.first;
     signature.logical_height = logical_size.second;
     signature.render_scale = ui.render_scale;
@@ -1083,6 +1092,8 @@ int main(int argc, char** argv) {
             frame_state.delta_seconds = delta_seconds;
             frame_state.scene_changes = scene_changes;
             frame_state.reset_requested = ui_actions.reset_requested;
+            frame_state.reset_requested =
+                frame_state.reset_requested || ui_actions.path_roulette_changed;
             frame_state.automatic_interaction_quality =
                 ui_state.automatic_interaction_quality;
 
@@ -1217,6 +1228,7 @@ int main(int argc, char** argv) {
                 mode_changed ||
                 ui_actions.path_backend_changed ||
                 ui_actions.automatic_interaction_quality_changed ||
+                ui_actions.path_roulette_changed ||
                 frame_state.camera_changed ||
                 frame_state.scene_changes != renderer::SceneChange::None ||
                 frame_state.framebuffer_resized ||

@@ -193,6 +193,14 @@ quantum/sweep 进度、完整发布状态、GPU trace/resolve/reset/upload 时�
 [CUDA 重场景性能结果](docs/output/cuda-heavy-scene-performance-results.md)；物体拖动
 实例化结果见 [CUDA 实例化拖动结果](docs/output/cuda-instancing-drag-results.md)。
 
+当前开发使用独立且默认不构建的规范化 benchmark，不读取 Viewer 的 last-session，
+并将正式 timing 与 CUDA ray/bounce 诊断插桩完全分开。运行和扩展约定见
+[规范化 Benchmark 流程](docs/benchmarking.md)：
+
+```powershell
+.\tools\run_benchmarks.ps1
+```
+
 CUDA Path 不依赖 OptiX 或 RT Core。这里的“降噪”来自 NEE/MIS 降低 Monte
 Carlo 方差；没有引入 OptiX/OIDN 等后处理降噪器。CPU/CUDA Path 现在共享
 metallic-roughness、GGX sample/pdf/evaluate 与环境 NEE/MIS 语义。
@@ -253,6 +261,7 @@ shaders/opengl/
 - [GLSL Shader 合约](docs/glsl-shader-contract.md)
 - [实时环境光、glTF 与 PBR](docs/realtime-environment-gltf-pbr.md)
 - [实时环境光、glTF 与 PBR 验证及性能结果](docs/output/realtime-environment-gltf-pbr-results.md)
+- [规范化 Benchmark 流程](docs/benchmarking.md)
 - [CUDA pipeline 优化结果](docs/output/cuda-pipeline-optimization-results.md)
 
 `docs/plans/`、日期化 `docs/specs/` 与旧 `docs/output/` 是历史记录；其中涉及 CPU Raster/Whitted 的入口已标记为过期。

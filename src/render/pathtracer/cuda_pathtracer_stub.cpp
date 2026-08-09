@@ -72,6 +72,12 @@ const CudaPathStatistics& CudaPathInteractiveRenderer::statistics() const {
     return unavailable_statistics;
 }
 
+CudaPathDiagnosticProfile
+CudaPathInteractiveRenderer::download_diagnostic_profile() {
+    throw std::runtime_error(
+        "CUDA path diagnostics are unavailable: renderer was built without CUDA support");
+}
+
 void CudaPathInteractiveRenderer::set_presentation_state(bool, bool) {}
 
 }  // namespace renderer

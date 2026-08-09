@@ -260,6 +260,18 @@ ViewerSessionState ViewerSessionStore::load(
         std::clamp(render.at("tile_size").get<int>(), 4, 64);
     state.render_settings.path.thread_count =
         std::clamp(render.at("thread_count").get<int>(), 0, 4096);
+    state.render_settings.path.russian_roulette_start_bounce = std::clamp(
+        render.value("rr_start_bounce", 3),
+        1,
+        64);
+    state.render_settings.path.russian_roulette_min_probability = std::clamp(
+        render.value("rr_min_probability", 0.05f),
+        0.01f,
+        1.0f);
+    state.render_settings.path.russian_roulette_max_probability = std::clamp(
+        render.value("rr_max_probability", 0.95f),
+        state.render_settings.path.russian_roulette_min_probability,
+        1.0f);
     state.render_settings.path.backend =
         parse_stored_path_backend(render.at("path_backend").get<std::string>());
     state.render_settings.path.samples_per_pixel = 1;
@@ -333,6 +345,18 @@ void ViewerSessionStore::save(
         {"tile_size", state.render_settings.path.tile_size},
         {"thread_count", state.render_settings.path.thread_count},
         {"path_backend", path_backend_name(state.render_settings.path.backend)},
+        {
+            "rr_start_bounce",
+            state.render_settings.path.russian_roulette_start_bounce,
+        },
+        {
+            "rr_min_probability",
+            state.render_settings.path.russian_roulette_min_probability,
+        },
+        {
+            "rr_max_probability",
+            state.render_settings.path.russian_roulette_max_probability,
+        },
     };
     root["camera"] = {
         {"eye", vec3_json(state.camera.eye)},

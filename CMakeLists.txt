@@ -41,6 +41,12 @@ FetchContent_MakeAvailable(tinyexr)
 
 option(RENDERER_NATIVE_ARCH "Enable native CPU instruction tuning" OFF)
 option(RENDERER_BUILD_VIEWER "Build the SDL3/OpenGL interactive viewer" ON)
+option(RENDERER_BUILD_BENCHMARKS "Build developer-only benchmark tools" OFF)
+
+if(RENDERER_BUILD_BENCHMARKS AND NOT RENDERER_BUILD_VIEWER)
+    message(FATAL_ERROR
+        "RENDERER_BUILD_BENCHMARKS requires RENDERER_BUILD_VIEWER for the OpenGL timing path")
+endif()
 
 set(RENDERER_CUDA "AUTO" CACHE STRING "CUDA path tracer support: AUTO, ON, or OFF")
 set_property(CACHE RENDERER_CUDA PROPERTY STRINGS AUTO ON OFF)
@@ -277,14 +283,101 @@ endif()
 add_executable(renderer_tests tests/renderer_tests.cpp)
 target_link_libraries(renderer_tests PRIVATE renderer_core)
 
-if(RENDERER_HAS_CUDA)
-    add_executable(cuda_path_benchmark EXCLUDE_FROM_ALL
-        tools/cuda_path_benchmark.cpp
+if(RENDERER_BUILD_BENCHMARKS)
+    add_library(renderer_benchmark_common STATIC
+        src/benchmark/benchmark_framework.cpp
     )
-    target_link_libraries(cuda_path_benchmark PRIVATE renderer_core)
-    target_compile_definitions(cuda_path_benchmark PRIVATE
+    target_include_directories(renderer_benchmark_common PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/stb"
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/tinyobjloader"
+        "${tinyexr_SOURCE_DIR}"
+    )
+    target_link_libraries(renderer_benchmark_common PUBLIC
+        Eigen3::Eigen
+        nlohmann_json::nlohmann_json
+    )
+
+    add_executable(viewer_benchmark
+        tools/viewer_benchmark_main.cpp
+    )
+    target_link_libraries(viewer_benchmark PRIVATE
+        renderer_benchmark_common
+        renderer_core
+        renderer_opengl
+        renderer_glad
+        ${RENDERER_SDL_TARGET}
+    )
+    target_compile_definitions(viewer_benchmark PRIVATE
+        RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+        RENDERER_BUILD_TYPE="$<CONFIG>"
+    )
+
+    add_executable(benchmark_tests tests/benchmark_tests.cpp)
+    target_link_libraries(benchmark_tests PRIVATE
+        renderer_benchmark_common
+        renderer_core
+    )
+    target_compile_definitions(benchmark_tests PRIVATE
         RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     )
+    add_test(NAME benchmark_tests COMMAND benchmark_tests)
+
+    if(RENDERER_HAS_CUDA)
+        add_library(renderer_core_diagnostics STATIC ${RENDERER_CORE_SOURCES})
+        target_include_directories(renderer_core_diagnostics
+            PUBLIC
+                "${CMAKE_CURRENT_SOURCE_DIR}/src"
+                "${CMAKE_CURRENT_SOURCE_DIR}/external/stb"
+                "${CMAKE_CURRENT_SOURCE_DIR}/external/tinyobjloader"
+                "${tinyexr_SOURCE_DIR}"
+        )
+        target_link_libraries(renderer_core_diagnostics PUBLIC
+            Eigen3::Eigen
+            nlohmann_json::nlohmann_json
+            fastgltf::fastgltf
+            tinyexr
+        )
+        target_link_libraries(renderer_core_diagnostics PRIVATE CUDA::cudart)
+        target_compile_definitions(renderer_core_diagnostics PUBLIC
+            RENDERER_HAS_CUDA=1
+            RENDERER_BENCHMARK_DIAGNOSTICS=1
+        )
+        set_target_properties(renderer_core_diagnostics PROPERTIES
+            CUDA_STANDARD 20
+            CUDA_STANDARD_REQUIRED ON
+            CUDA_EXTENSIONS OFF
+            CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}"
+        )
+
+        add_executable(viewer_benchmark_diagnostics
+            tools/viewer_benchmark_main.cpp
+        )
+        target_link_libraries(viewer_benchmark_diagnostics PRIVATE
+            renderer_benchmark_common
+            renderer_core_diagnostics
+            CUDA::cudart
+        )
+        target_compile_definitions(viewer_benchmark_diagnostics PRIVATE
+            RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+            RENDERER_BUILD_TYPE="$<CONFIG>"
+            RENDERER_BENCHMARK_DIAGNOSTICS=1
+        )
+
+        add_executable(benchmark_diagnostics_tests
+            tests/benchmark_diagnostics_tests.cpp
+        )
+        target_link_libraries(benchmark_diagnostics_tests PRIVATE
+            renderer_core_diagnostics
+            CUDA::cudart
+        )
+        target_compile_definitions(benchmark_diagnostics_tests PRIVATE
+            RENDERER_BENCHMARK_DIAGNOSTICS=1
+        )
+        add_test(
+            NAME benchmark_diagnostics_tests
+            COMMAND benchmark_diagnostics_tests)
+    endif()
 endif()
 
 function(target_enable_native_arch target_name)
@@ -307,8 +400,14 @@ set(RENDERER_NATIVE_TARGETS renderer_core renderer renderer_tests)
 if(RENDERER_BUILD_VIEWER)
     list(APPEND RENDERER_NATIVE_TARGETS renderer_opengl viewer)
 endif()
-if(RENDERER_HAS_CUDA)
-    list(APPEND RENDERER_NATIVE_TARGETS cuda_path_benchmark)
+if(RENDERER_BUILD_BENCHMARKS)
+    list(APPEND RENDERER_NATIVE_TARGETS
+        renderer_benchmark_common viewer_benchmark benchmark_tests)
+    if(RENDERER_HAS_CUDA)
+        list(APPEND RENDERER_NATIVE_TARGETS
+            renderer_core_diagnostics viewer_benchmark_diagnostics
+            benchmark_diagnostics_tests)
+    endif()
 endif()
 foreach(target_name IN LISTS RENDERER_NATIVE_TARGETS)
     target_enable_native_arch(${target_name})
@@ -336,8 +435,15 @@ endfunction()
 target_enable_warnings(renderer)
 target_enable_warnings(renderer_core)
 target_enable_warnings(renderer_tests)
-if(RENDERER_HAS_CUDA)
-    target_enable_warnings(cuda_path_benchmark)
+if(RENDERER_BUILD_BENCHMARKS)
+    target_enable_warnings(renderer_benchmark_common)
+    target_enable_warnings(viewer_benchmark)
+    target_enable_warnings(benchmark_tests)
+    if(RENDERER_HAS_CUDA)
+        target_enable_warnings(renderer_core_diagnostics)
+        target_enable_warnings(viewer_benchmark_diagnostics)
+        target_enable_warnings(benchmark_diagnostics_tests)
+    endif()
 endif()
 if(RENDERER_BUILD_VIEWER)
     target_enable_warnings(renderer_opengl)

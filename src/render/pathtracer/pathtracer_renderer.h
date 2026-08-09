@@ -20,7 +20,8 @@ private:
         const Ray& ray,
         const Scene& scene,
         const SceneIntersector& intersector,
-        PcgRandom& rng) const;
+        PcgRandom& rng,
+        const PathRenderSettings& path_settings) const;
     bool scatter(
         const Ray& ray,
         const HitRecord& hit,
