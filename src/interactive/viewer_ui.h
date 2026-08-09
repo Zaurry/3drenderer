@@ -71,6 +71,7 @@ struct ViewerUiActions {
     SceneChangeSet scene_changes = SceneChange::None;
     bool render_scale_changed = false;
     bool automatic_interaction_quality_changed = false;
+    bool path_depth_changed = false;
     bool path_roulette_changed = false;
     bool reset_requested = false;
     bool display_changed = false;
@@ -95,6 +96,7 @@ struct ViewerUiActions {
             scene_changes != SceneChange::None ||
             render_scale_changed ||
             automatic_interaction_quality_changed ||
+            path_depth_changed ||
             path_roulette_changed ||
             reset_requested;
     }

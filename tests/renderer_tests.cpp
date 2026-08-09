@@ -509,6 +509,9 @@ void test_viewer_ui_actions_classify_path_resets() {
     actions.path_backend_changed = true;
     RENDER_CHECK(actions.resets_path_accumulation());
     actions = renderer::ViewerUiActions{};
+    actions.path_depth_changed = true;
+    RENDER_CHECK(actions.resets_path_accumulation());
+    actions = renderer::ViewerUiActions{};
     actions.path_roulette_changed = true;
     RENDER_CHECK(actions.resets_path_accumulation());
 }
@@ -1518,6 +1521,7 @@ void test_render_settings_defaults_are_useful() {
     RENDER_CHECK(settings.path.samples_per_pixel == 1);
     RENDER_CHECK(settings.path.tile_size == 16);
     RENDER_CHECK(settings.path.thread_count == 0);
+    RENDER_CHECK(settings.path.max_bounces == 64);
     RENDER_CHECK(settings.path.russian_roulette_start_bounce == 3);
     RENDER_CHECK(nearly_equal(
         settings.path.russian_roulette_min_probability,
@@ -1692,7 +1696,8 @@ renderer::Color render_roulette_layer_sample(
     std::uint64_t seed_offset,
     int roulette_start_bounce = 3,
     float roulette_min_probability = 0.05f,
-    float roulette_max_probability = 0.95f) {
+    float roulette_max_probability = 0.95f,
+    int max_bounces = 64) {
     const renderer::Camera camera(
         renderer::Vec3::Zero(),
         -renderer::Vec3::UnitZ(),
@@ -1705,6 +1710,7 @@ renderer::Color render_roulette_layer_sample(
     settings.path.samples_per_pixel = 1;
     settings.path.thread_count = 1;
     settings.path.sample_seed_offset = seed_offset;
+    settings.path.max_bounces = max_bounces;
     settings.path.russian_roulette_start_bounce = roulette_start_bounce;
     settings.path.russian_roulette_min_probability =
         roulette_min_probability;
@@ -1751,6 +1757,23 @@ void test_pathtracer_russian_roulette_terminates_and_preserves_energy() {
             5);
         RENDER_CHECK(delayed.isApprox(renderer::Color::Ones(), 1e-6f));
     }
+
+    const renderer::Color truncated = render_roulette_layer_sample(
+        scene,
+        1,
+        5,
+        0.05f,
+        0.95f,
+        4);
+    RENDER_CHECK(truncated.isApprox(renderer::Color::Zero(), 1e-6f));
+    const renderer::Color complete = render_roulette_layer_sample(
+        scene,
+        1,
+        5,
+        0.05f,
+        0.95f,
+        5);
+    RENDER_CHECK(complete.isApprox(renderer::Color::Ones(), 1e-6f));
 }
 
 int count_lit_pixels(const renderer::Framebuffer& framebuffer) {
@@ -3609,6 +3632,17 @@ void test_cuda_pathtracer_lighting_contracts_when_available() {
     RENDER_CHECK(roulette_mean.allFinite());
     RENDER_CHECK(roulette_mean.x() > 0.9f);
     RENDER_CHECK(roulette_mean.x() < 1.1f);
+
+    settings.path.samples_per_pixel = 1;
+    settings.path.russian_roulette_start_bounce = 64;
+    settings.path.max_bounces = 4;
+    const renderer::Color truncated =
+        renderer::PathTracerRenderer().render(roulette_scene, camera, settings).image.pixel(0, 0);
+    RENDER_CHECK(truncated.isApprox(renderer::Color::Zero(), 1e-6f));
+    settings.path.max_bounces = 5;
+    const renderer::Color complete =
+        renderer::PathTracerRenderer().render(roulette_scene, camera, settings).image.pixel(0, 0);
+    RENDER_CHECK(complete.isApprox(renderer::Color::Ones(), 1e-6f));
 }
 
 void test_cuda_pathtracer_spheres_materials_and_bump_texture_when_available() {
@@ -4137,6 +4171,7 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     state.render_settings.path.tile_size = 32;
     state.render_settings.path.thread_count = 3;
     state.render_settings.path.backend = renderer::PathBackend::Cpu;
+    state.render_settings.path.max_bounces = 12;
     state.render_settings.path.russian_roulette_start_bounce = 5;
     state.render_settings.path.russian_roulette_min_probability = 0.10f;
     state.render_settings.path.russian_roulette_max_probability = 0.90f;
@@ -4202,6 +4237,7 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     RENDER_CHECK(loaded.ui.gizmo_local);
     RENDER_CHECK(loaded.render_settings.path.tile_size == 32);
     RENDER_CHECK(loaded.render_settings.path.thread_count == 3);
+    RENDER_CHECK(loaded.render_settings.path.max_bounces == 12);
     RENDER_CHECK(
         loaded.render_settings.path.russian_roulette_start_bounce == 5);
     RENDER_CHECK(nearly_equal(
@@ -4238,6 +4274,7 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
 
     nlohmann::json old_session_json = saved_json;
     old_session_json["view"].erase("automatic_interaction_quality");
+    old_session_json["render"].erase("max_bounces");
     old_session_json["render"].erase("rr_start_bounce");
     old_session_json["render"].erase("rr_min_probability");
     old_session_json["render"].erase("rr_max_probability");
@@ -4248,6 +4285,7 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     const renderer::ViewerSessionState old_session =
         renderer::ViewerSessionStore::load(session_path);
     RENDER_CHECK(old_session.ui.automatic_interaction_quality);
+    RENDER_CHECK(old_session.render_settings.path.max_bounces == 64);
     RENDER_CHECK(
         old_session.render_settings.path.russian_roulette_start_bounce == 3);
     RENDER_CHECK(nearly_equal(

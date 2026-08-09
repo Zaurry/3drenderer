@@ -764,6 +764,17 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 if (has_capability(
                         active_capabilities,
                         RenderModeCapability::PathBackendSelection)) {
+                    if (ImGui::SliderInt(
+                            "Maximum bounces",
+                            &render_settings.path.max_bounces,
+                            1,
+                            64)) {
+                        actions.path_depth_changed = true;
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip(
+                            "Hard path-depth limit before Russian roulette");
+                    }
                     bool roulette_changed = ImGui::SliderInt(
                         "RR start bounce",
                         &render_settings.path.russian_roulette_start_bounce,

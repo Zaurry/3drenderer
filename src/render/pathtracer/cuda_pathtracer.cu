@@ -6193,7 +6193,7 @@ public:
             sample_count,
             0,
             static_cast<int>(accumulation_.size()),
-            kMaxPathBounces,
+            std::clamp(path_settings.max_bounces, 1, kMaxPathBounces),
             width_,
             height_,
             path_settings,
@@ -7640,7 +7640,9 @@ private:
             camera,
             0,
             preview_width * preview_height,
-            kPreviewBounceLimit,
+            std::min(
+                kPreviewBounceLimit,
+                std::clamp(settings.path.max_bounces, 1, kMaxPathBounces)),
             settings.width,
             settings.height,
             settings.path,
@@ -7673,7 +7675,7 @@ private:
             camera,
             tile_y_ * settings.width,
             rows * settings.width,
-            kMaxPathBounces,
+            std::clamp(settings.path.max_bounces, 1, kMaxPathBounces),
             settings.width,
             settings.height,
             settings.path);

@@ -426,6 +426,7 @@ CaseConfig load_case(
     config.render_settings.path.samples_per_pixel = path.value("samples_per_pixel", 1);
     config.render_settings.path.tile_size = path.value("tile_size", 16);
     config.render_settings.path.thread_count = path.value("thread_count", 0);
+    config.render_settings.path.max_bounces = path.value("max_bounces", 64);
     config.render_settings.path.russian_roulette_start_bounce =
         path.value("rr_start_bounce", 3);
     config.render_settings.path.russian_roulette_min_probability =

@@ -1,0 +1,38 @@
+{
+  "summary": {
+    "mode": "path",
+    "frames": 180,
+    "width": 1767,
+    "height": 1343
+  },
+  "metrics": [
+    {
+      "profile": "native",
+      "paths": 23730810,
+      "mean_bounces": 2.9727716415916694,
+      "median_bounces": 3,
+      "p90_bounces": 3,
+      "p95_bounces": 3,
+      "p99_bounces": 4,
+      "zero_bounce_percent": 0.09776741712566912,
+      "three_bounce_percent": 89.4969788220461,
+      "over_three_percent": 4.983925959543733,
+      "over_eight_percent": 0.007311170583726388,
+      "limit_percent": 1.2641793516529777e-05
+    },
+    {
+      "profile": "preview",
+      "paths": 1188096,
+      "mean_bounces": 1.9685858718487395,
+      "median_bounces": 2,
+      "p90_bounces": 2,
+      "p95_bounces": 2,
+      "p99_bounces": 2,
+      "zero_bounce_percent": 0.0988135638870933,
+      "three_bounce_percent": 0.0,
+      "over_three_percent": 0.0,
+      "over_eight_percent": 0.0,
+      "limit_percent": 0.0
+    }
+  ]
+}

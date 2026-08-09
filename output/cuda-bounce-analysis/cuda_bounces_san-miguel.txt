@@ -1,0 +1,76 @@
+iteration=0 trace_ms=84.1492 wall_ms=91.855 spp=1 internal=2418x1343 quantum_rows=1343 sweep=1 complete_spp_s=0 published=1 present_ms=0 instance_ms=0 tlas_refit_ms=0 blas_builds=2 tlas_refits=0
+iteration=1 trace_ms=82.0223 wall_ms=89.282 spp=2 internal=2418x1343 quantum_rows=1343 sweep=1 complete_spp_s=0 published=1 present_ms=0 instance_ms=0 tlas_refit_ms=0 blas_builds=2 tlas_refits=0
+iteration=2 trace_ms=84.2284 wall_ms=91.457 spp=3 internal=2418x1343 quantum_rows=1343 sweep=1 complete_spp_s=0 published=1 present_ms=0 instance_ms=0 tlas_refit_ms=0 blas_builds=2 tlas_refits=0
+iteration=3 trace_ms=83.3985 wall_ms=90.5499 spp=4 internal=2418x1343 quantum_rows=1343 sweep=1 complete_spp_s=0 published=1 present_ms=0 instance_ms=0 tlas_refit_ms=0 blas_builds=2 tlas_refits=0
+iteration=4 trace_ms=83.2324 wall_ms=90.3091 spp=5 internal=2418x1343 quantum_rows=1343 sweep=1 complete_spp_s=0 published=1 present_ms=0 instance_ms=0 tlas_refit_ms=0 blas_builds=2 tlas_refits=0
+iteration=5 trace_ms=85.2037 wall_ms=92.3985 spp=6 internal=2418x1343 quantum_rows=1343 sweep=1 complete_spp_s=0 published=1 present_ms=0 instance_ms=0 tlas_refit_ms=0 blas_builds=2 tlas_refits=0
+iteration=6 trace_ms=84.8057 wall_ms=91.7993 spp=7 internal=2418x1343 quantum_rows=1343 sweep=1 complete_spp_s=0 published=1 present_ms=0 instance_ms=0 tlas_refit_ms=0 blas_builds=2 tlas_refits=0
+iteration=7 trace_ms=82.4628 wall_ms=89.487 spp=8 internal=2418x1343 quantum_rows=1343 sweep=1 complete_spp_s=0 published=1 present_ms=0 instance_ms=0 tlas_refit_ms=0 blas_builds=2 tlas_refits=0
+iteration=8 trace_ms=81.6216 wall_ms=88.8578 spp=9 internal=2418x1343 quantum_rows=1343 sweep=1 complete_spp_s=0 published=1 present_ms=0 instance_ms=0 tlas_refit_ms=0 blas_builds=2 tlas_refits=0
+iteration=9 trace_ms=85.3248 wall_ms=92.3478 spp=10 internal=2418x1343 quantum_rows=1343 sweep=1 complete_spp_s=0 published=1 present_ms=0 instance_ms=0 tlas_refit_ms=0 blas_builds=2 tlas_refits=0
+case=san-miguel size=2418x1343 triangles=5617453 median_trace_ms=84.149 upload_ms=3734.074 downloads=10
+bounce=0 paths=693746
+bounce=1 paths=582468
+bounce=2 paths=983323
+bounce=3 paths=28538500
+bounce=4 paths=1419827
+bounce=5 paths=181794
+bounce=6 paths=49751
+bounce=7 paths=15974
+bounce=8 paths=5125
+bounce=9 paths=1867
+bounce=10 paths=691
+bounce=11 paths=276
+bounce=12 paths=132
+bounce=13 paths=59
+bounce=14 paths=27
+bounce=15 paths=23
+bounce=16 paths=10
+bounce=17 paths=15
+bounce=18 paths=14
+bounce=19 paths=8
+bounce=20 paths=2
+bounce=21 paths=5
+bounce=22 paths=7
+bounce=23 paths=9
+bounce=24 paths=9
+bounce=25 paths=4
+bounce=26 paths=5
+bounce=27 paths=1
+bounce=28 paths=5
+bounce=29 paths=3
+bounce=30 paths=0
+bounce=31 paths=5
+bounce=32 paths=2
+bounce=33 paths=3
+bounce=34 paths=3
+bounce=35 paths=3
+bounce=36 paths=3
+bounce=37 paths=1
+bounce=38 paths=6
+bounce=39 paths=5
+bounce=40 paths=2
+bounce=41 paths=2
+bounce=42 paths=2
+bounce=43 paths=1
+bounce=44 paths=1
+bounce=45 paths=3
+bounce=46 paths=0
+bounce=47 paths=1
+bounce=48 paths=0
+bounce=49 paths=3
+bounce=50 paths=2
+bounce=51 paths=0
+bounce=52 paths=3
+bounce=53 paths=0
+bounce=54 paths=1
+bounce=55 paths=1
+bounce=56 paths=0
+bounce=57 paths=0
+bounce=58 paths=0
+bounce=59 paths=0
+bounce=60 paths=0
+bounce=61 paths=0
+bounce=62 paths=0
+bounce=63 paths=0
+bounce=64 paths=7

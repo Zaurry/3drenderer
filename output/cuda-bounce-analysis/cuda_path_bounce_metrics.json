@@ -1,0 +1,34 @@
+[
+  {
+    "scene": "san-miguel",
+    "paths": 32473740,
+    "mean_bounces": 2.9327891397787873,
+    "mean_bounces_given_hit": 2.996810886748437,
+    "median_bounces": 3,
+    "p90_bounces": 3,
+    "p95_bounces": 4,
+    "p99_bounces": 4,
+    "zero_bounce_percent": 2.1363292309416777,
+    "three_bounce_percent": 87.88177770715662,
+    "over_three_percent": 5.16017865512257,
+    "over_eight_percent": 0.009952657131577699,
+    "limit_percent": 2.15558786884418e-05,
+    "median_trace_ms": 84.149
+  },
+  {
+    "scene": "cornell",
+    "paths": 32473740,
+    "mean_bounces": 0.8330109805646039,
+    "mean_bounces_given_hit": 2.635419808596554,
+    "median_bounces": 0,
+    "p90_bounces": 3,
+    "p95_bounces": 3,
+    "p99_bounces": 6,
+    "zero_bounce_percent": 68.39171589105536,
+    "three_bounce_percent": 14.643850692898324,
+    "over_three_percent": 4.34005753571963,
+    "over_eight_percent": 0.2258778939536992,
+    "limit_percent": 0.0,
+    "median_trace_ms": 7.96
+  }
+]

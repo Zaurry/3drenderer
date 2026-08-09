@@ -260,6 +260,10 @@ ViewerSessionState ViewerSessionStore::load(
         std::clamp(render.at("tile_size").get<int>(), 4, 64);
     state.render_settings.path.thread_count =
         std::clamp(render.at("thread_count").get<int>(), 0, 4096);
+    state.render_settings.path.max_bounces = std::clamp(
+        render.value("max_bounces", 64),
+        1,
+        64);
     state.render_settings.path.russian_roulette_start_bounce = std::clamp(
         render.value("rr_start_bounce", 3),
         1,
@@ -344,6 +348,7 @@ void ViewerSessionStore::save(
     root["render"] = {
         {"tile_size", state.render_settings.path.tile_size},
         {"thread_count", state.render_settings.path.thread_count},
+        {"max_bounces", state.render_settings.path.max_bounces},
         {"path_backend", path_backend_name(state.render_settings.path.backend)},
         {
             "rr_start_bounce",

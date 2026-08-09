@@ -93,6 +93,10 @@ RenderResult PathTracerRenderer::render_cpu(
 
     const int samples_per_pixel = std::max(1, settings.path.samples_per_pixel);
     PathRenderSettings path_settings = settings.path;
+    path_settings.max_bounces = std::clamp(
+        path_settings.max_bounces,
+        1,
+        kMaxPathBounces);
     path_settings.russian_roulette_start_bounce = std::clamp(
         path_settings.russian_roulette_start_bounce,
         1,
@@ -180,7 +184,7 @@ Color PathTracerRenderer::trace_path(
     float previous_bsdf_pdf = 0.0f;
     bool previous_delta = true;
 
-    for (int bounce = 0; bounce < kMaxPathBounces; ++bounce) {
+    for (int bounce = 0; bounce < path_settings.max_bounces; ++bounce) {
         HitRecord hit;
         if (!intersector.intersect(current_ray, 0.0f, 1.0e30f, hit)) {
             if (bounce > 0 || scene.environment_background_visible) {
@@ -270,7 +274,7 @@ Color PathTracerRenderer::trace_path(
         if (!throughput.allFinite() || throughput.maxCoeff() <= 0.0f) {
             break;
         }
-        if (bounce + 1 >= kMaxPathBounces) {
+        if (bounce + 1 >= path_settings.max_bounces) {
             break;
         }
 
