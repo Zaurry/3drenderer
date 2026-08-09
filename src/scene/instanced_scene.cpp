@@ -2,11 +2,21 @@
 
 #include "scene/primitive.h"
 
+#include <atomic>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
 
 namespace renderer {
+
+std::uint64_t allocate_render_scene_source_id() {
+    static std::atomic<std::uint64_t> next_id{1};
+    std::uint64_t id = next_id.fetch_add(1, std::memory_order_relaxed);
+    if (id == 0) {
+        id = next_id.fetch_add(1, std::memory_order_relaxed);
+    }
+    return id;
+}
 
 namespace {
 
@@ -58,6 +68,7 @@ RenderSceneSnapshot make_render_scene_snapshot(Scene scene) {
     geometry->spheres.clear();
 
     RenderSceneSnapshot snapshot;
+    snapshot.source_id = allocate_render_scene_source_id();
     snapshot.revisions = geometry->revisions.empty()
         ? SceneRevisions{1, 1, 1, 1, 1, 1, 1, 1}
         : geometry->revisions;

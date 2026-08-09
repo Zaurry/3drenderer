@@ -1,5 +1,6 @@
 #include "test_framework.h"
 
+#include "render/interactive/interactive_render_session.h"
 #include "scene/scene_document.h"
 
 #include <iostream>
@@ -52,6 +53,17 @@ int main() {
     RENDER_CHECK(document.redo());
     RENDER_CHECK(document.world_matrix(object_id).isApprox(second));
 
+    renderer::SceneTransform millimeter_transform;
+    millimeter_transform.local_matrix = renderer::Mat4::Identity();
+    millimeter_transform.local_matrix.topLeftCorner<3, 3>() *= 0.001f;
+    RENDER_CHECK(millimeter_transform.valid());
+    renderer::SceneTransform singular_transform = millimeter_transform;
+    singular_transform.local_matrix.row(0).head<3>().setZero();
+    RENDER_CHECK(!singular_transform.valid());
+    RENDER_CHECK(document.set_world_matrix(
+        object_id,
+        millimeter_transform.local_matrix));
+
     renderer::Scene sphere_scene;
     sphere_scene.materials.push_back(renderer::Material{});
     sphere_scene.spheres.emplace_back(
@@ -78,6 +90,43 @@ int main() {
     RENDER_CHECK(nearly_equal(
         sphere_snapshot.instances[1].object_to_world(0, 0),
         2.0f));
+
+    renderer::SceneDocument another_document;
+    const renderer::RenderSceneSnapshot& another_snapshot =
+        another_document.render_scene_snapshot();
+    RENDER_CHECK(snapshot.source_id != 0);
+    RENDER_CHECK(another_snapshot.source_id != 0);
+    RENDER_CHECK(snapshot.source_id != another_snapshot.source_id);
+    RENDER_CHECK(
+        renderer::scene_changes_for_snapshot(
+            snapshot.source_id,
+            another_snapshot.revisions,
+            true,
+            another_snapshot) == renderer::SceneChange::All);
+    RENDER_CHECK(
+        renderer::scene_changes_for_snapshot(
+            another_snapshot.source_id,
+            another_snapshot.revisions,
+            true,
+            another_snapshot) == renderer::SceneChange::None);
+    RENDER_CHECK(
+        renderer::scene_changes_for_snapshot(
+            another_snapshot.source_id,
+            another_snapshot.revisions,
+            true,
+            another_snapshot,
+            renderer::SceneChange::Materials) ==
+        renderer::SceneChange::None);
+    renderer::RenderSceneSnapshot legacy_snapshot = another_snapshot;
+    legacy_snapshot.source_id = 0;
+    RENDER_CHECK(renderer::has_scene_change(
+        renderer::scene_changes_for_snapshot(
+            0,
+            renderer::SceneRevisions{},
+            true,
+            legacy_snapshot,
+            renderer::SceneChange::Materials),
+        renderer::SceneChange::Materials));
 
     renderer::Scene invalid;
     invalid.materials.push_back(renderer::Material{});

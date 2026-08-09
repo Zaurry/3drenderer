@@ -84,6 +84,26 @@ inline SceneChangeSet scene_changes_between(
     return changes;
 }
 
+inline SceneChangeSet scene_changes_for_snapshot(
+    std::uint64_t previous_source_id,
+    const SceneRevisions& previous_revisions,
+    bool has_previous_snapshot,
+    const RenderSceneSnapshot& current,
+    SceneChangeSet hinted_changes = SceneChange::None) {
+    if (!has_previous_snapshot ||
+        (previous_source_id != current.source_id &&
+         (previous_source_id != 0 || current.source_id != 0))) {
+        return SceneChange::All;
+    }
+    // Versioned snapshots are authoritative. Caller hints are retained only for
+    // legacy, unversioned snapshots; otherwise stale UI bookkeeping can cause
+    // unnecessary uploads and progressive resets.
+    if (current.source_id != 0 || !current.revisions.empty()) {
+        return scene_changes_between(previous_revisions, current.revisions);
+    }
+    return hinted_changes;
+}
+
 struct InteractiveFrameState {
     bool camera_changed = false;
     SceneChangeSet scene_changes = SceneChange::None;

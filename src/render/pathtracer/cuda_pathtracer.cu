@@ -7052,8 +7052,9 @@ public:
             snapshot,
             frame_.stream(),
             statistics_);
+        uploaded_source_id_ = snapshot.source_id;
         uploaded_revisions_ = snapshot.revisions;
-        has_uploaded_revisions_ = !uploaded_revisions_.empty();
+        has_uploaded_snapshot_ = true;
         frame_.reset(
             settings.width,
             settings.height,
@@ -7089,14 +7090,12 @@ public:
         CudaSurfaceHandle surface) {
         require_device(settings.path.cuda_device);
         const SceneRevisions current_revisions = snapshot.revisions;
-        SceneChangeSet scene_changes = frame_state.scene_changes;
-        if (!current_revisions.empty()) {
-            scene_changes = has_uploaded_revisions_
-                ? scene_changes_between(
-                    uploaded_revisions_,
-                    current_revisions)
-                : SceneChange::All;
-        }
+        const SceneChangeSet scene_changes = scene_changes_for_snapshot(
+            uploaded_source_id_,
+            uploaded_revisions_,
+            has_uploaded_snapshot_,
+            snapshot,
+            frame_state.scene_changes);
         if (!scene_) {
             scene_ = std::make_unique<CudaSceneStorage>(
                 snapshot,
@@ -7105,13 +7104,15 @@ public:
         } else if (scene_changes != SceneChange::None) {
             scene_->sync(snapshot, scene_changes);
         }
+        uploaded_source_id_ = snapshot.source_id;
         uploaded_revisions_ = current_revisions;
-        has_uploaded_revisions_ = !current_revisions.empty();
+        has_uploaded_snapshot_ = true;
         const ProgressiveRenderKey progressive_key =
             ProgressiveRenderKey::from(
                 camera,
                 settings,
                 frame_state.automatic_interaction_quality,
+                snapshot.source_id,
                 current_revisions);
         const bool progressive_key_changed =
             !has_progressive_key_ ||
@@ -7318,12 +7319,14 @@ private:
         int max_bounces = 0;
         int roulette_start = 0;
         bool automatic_quality = false;
+        std::uint64_t source_id = 0;
         SceneRevisions revisions;
 
         static ProgressiveRenderKey from(
             const Camera& camera,
             const RenderSettings& settings,
             bool automatic_quality_value,
+            std::uint64_t source_id_value,
             const SceneRevisions& revision_value) {
             ProgressiveRenderKey result;
             result.eye = camera.eye();
@@ -7344,6 +7347,7 @@ private:
             result.roulette_start =
                 settings.path.russian_roulette_start_bounce;
             result.automatic_quality = automatic_quality_value;
+            result.source_id = source_id_value;
             result.revisions = revision_value;
             return result;
         }
@@ -7364,6 +7368,7 @@ private:
                 max_bounces == other.max_bounces &&
                 roulette_start == other.roulette_start &&
                 automatic_quality == other.automatic_quality &&
+                source_id == other.source_id &&
                 revisions == other.revisions;
         }
     };
@@ -7656,7 +7661,8 @@ private:
     bool host_presentation_initialized_ = false;
     bool automatic_quality_enabled_ = false;
     bool has_progressive_key_ = false;
-    bool has_uploaded_revisions_ = false;
+    bool has_uploaded_snapshot_ = false;
+    std::uint64_t uploaded_source_id_ = 0;
     SceneRevisions uploaded_revisions_;
     ProgressiveRenderKey progressive_key_;
     CudaPathWorkMode last_work_mode_ = CudaPathWorkMode::FullFrame;

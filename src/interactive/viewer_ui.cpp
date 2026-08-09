@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <functional>
@@ -1834,15 +1835,33 @@ SceneChangeSet ViewerUi::draw_scene_gizmo(
         camera, std::max(1.0e-4f, radius * 1.0e-4f), std::max(1000.0f, radius * 100.0f));
     const Mat4 old_active_world = document.world_matrix(active->id);
     Mat4 manipulated = old_active_world;
-    const ImGuizmo::OPERATION operation = state.gizmo_operation == 1   ? ImGuizmo::ROTATE
-                                          : state.gizmo_operation == 2 ? ImGuizmo::SCALE
-                                                                       : ImGuizmo::TRANSLATE;
+    ImGuizmo::OPERATION operation = ImGuizmo::TRANSLATE;
+    switch (state.gizmo_operation) {
+        case 1:
+            operation = ImGuizmo::ROTATE;
+            break;
+        case 2:
+            operation = ImGuizmo::SCALE;
+            break;
+        default:
+            state.gizmo_operation = 0;
+            break;
+    }
     const ImGuizmo::MODE mode = state.gizmo_local ? ImGuizmo::LOCAL : ImGuizmo::WORLD;
 
+    // Keep ImGuizmo's active handle state isolated per object and operation.
+    // Without a scoped ID, switching from rotate to scale can inherit the
+    // previous handle's internal state and make the displayed/active tool lag.
+    ImGuizmo::PushID(
+        reinterpret_cast<const void*>(
+            static_cast<std::uintptr_t>(active->id)));
+    ImGuizmo::PushID(state.gizmo_operation);
     const bool changed =
         ImGuizmo::Manipulate(view.data(), projection.data(), operation, mode, manipulated.data());
     const bool using_gizmo = ImGuizmo::IsUsing();
-    state.gizmo_hovered = ImGuizmo::IsOver() || using_gizmo;
+    state.gizmo_hovered = ImGuizmo::IsOver(operation) || using_gizmo;
+    ImGuizmo::PopID();
+    ImGuizmo::PopID();
     std::vector<ObjectId> roots;
     if (changed) {
         const Mat4 delta = manipulated * old_active_world.inverse();

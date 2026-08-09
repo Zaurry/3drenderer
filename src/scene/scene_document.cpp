@@ -6,6 +6,7 @@
 #include "scene/gltf_loader.h"
 
 #include <Eigen/Geometry>
+#include <Eigen/LU>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -476,8 +477,12 @@ bool SceneTransform::valid() const {
             1.0e-6f)) {
         return false;
     }
-    const float determinant = local_matrix.topLeftCorner<3, 3>().determinant();
-    return std::isfinite(determinant) && std::abs(determinant) >= kMinimumScale;
+    // An absolute determinant threshold rejects perfectly conditioned transforms
+    // such as glTF's common uniform 0.001 scale (determinant 1e-9). Full-pivot
+    // rank testing is relative to the matrix magnitude, so it rejects singular
+    // transforms without treating the model's unit choice as an error.
+    const Mat3 linear = local_matrix.topLeftCorner<3, 3>();
+    return linear.fullPivLu().rank() == 3;
 }
 
 SceneTransform SceneTransform::from_trs(const SceneTrs& trs) {
@@ -529,6 +534,7 @@ std::optional<SceneTrs> SceneTransform::trs() const {
 }
 
 SceneDocument::SceneDocument() {
+    render_source_id_ = allocate_render_scene_source_id();
     history_.push_back(state_);
 }
 
@@ -1574,6 +1580,7 @@ void SceneDocument::ensure_render_scene_snapshot() const {
     }
 
     RenderSceneSnapshot result;
+    result.source_id = render_source_id_;
     result.revisions = revisions_;
     result.environment = state_.environment;
     result.environment_map = state_.environment_map;

@@ -1,5 +1,6 @@
 #include "test_framework.h"
 
+#include "render/opengl/opengl_raster_renderer.h"
 #include "render/opengl/opengl_shader_contract.h"
 
 #include <filesystem>
@@ -21,6 +22,17 @@ std::string read_text(const std::filesystem::path& path) {
 }  // namespace
 
 int main() {
+    RENDER_CHECK(renderer::open_gl_requires_geometry_upload(
+        renderer::SceneChange::Geometry));
+    RENDER_CHECK(renderer::open_gl_requires_geometry_upload(
+        renderer::SceneChange::MaterialBindings));
+    RENDER_CHECK(renderer::open_gl_requires_geometry_upload(
+        renderer::SceneChange::InstanceTransforms));
+    RENDER_CHECK(!renderer::open_gl_requires_geometry_upload(
+        renderer::SceneChange::Materials));
+    RENDER_CHECK(!renderer::open_gl_requires_geometry_upload(
+        renderer::SceneChange::Lighting));
+
     const std::filesystem::path shader_root =
         std::filesystem::path(RENDERER_SOURCE_DIR) / "shaders" / "opengl";
     const std::string vertex = read_text(shader_root / "raster.vert");

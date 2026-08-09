@@ -275,6 +275,7 @@ private:
     mutable std::unordered_map<ObjectId, std::vector<ObjectId>> children_by_parent_;
     mutable std::unordered_map<ObjectId, Mat4> world_matrices_;
     mutable std::unordered_map<ObjectId, Bounds3> world_bounds_;
+    std::uint64_t render_source_id_ = 0;
     SceneRevisions revisions_;
     bool uncheckpointed_changes_ = false;
     ObjectId next_object_id_ = 1;

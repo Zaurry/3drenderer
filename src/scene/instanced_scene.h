@@ -70,6 +70,9 @@ struct RenderSceneInstanceSnapshot {
 };
 
 struct RenderSceneSnapshot {
+    // Identifies the snapshot lineage independently from per-domain revisions.
+    // Revisions are only comparable when this value is the same.
+    std::uint64_t source_id = 0;
     SceneRevisions revisions;
     std::vector<RenderSceneAssetSnapshot> assets;
     std::vector<RenderSceneInstanceSnapshot> instances;
@@ -83,6 +86,8 @@ struct RenderSceneSnapshot {
     float environment_rotation_degrees = 0.0f;
     bool environment_background_visible = true;
 };
+
+std::uint64_t allocate_render_scene_source_id();
 
 Scene flatten_render_scene_snapshot(
     const RenderSceneSnapshot& snapshot);

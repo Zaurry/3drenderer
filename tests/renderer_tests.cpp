@@ -4832,12 +4832,15 @@ void test_gltf_static_scene_import_and_flattening() {
         {"scene", 0},
         {"scenes", {{{"nodes", {0}}}}},
         {"nodes", {
-            {{"name", "Root"}, {"children", {1, 2, 3}}},
+            {{"name", "Root"}, {"children", {1, 2, 3, 4}}},
             {{"name", "Left"}, {"mesh", 0}, {"translation", {-1.0, 0.0, 0.0}}},
             {{"name", "Right"}, {"mesh", 0}, {"translation", {1.0, 0.0, 0.0}}},
             {{"name", "CameraLight"}, {"camera", 0},
              {"translation", {0.0, 0.0, 3.0}},
-             {"extensions", {{"KHR_lights_punctual", {{"light", 0}}}}}}
+             {"extensions", {{"KHR_lights_punctual", {{"light", 0}}}}}},
+            {{"name", "MillimeterRoot"}, {"children", {5}},
+             {"scale", {0.001, 0.001, 0.001}}},
+            {{"name", "MillimeterMesh"}, {"mesh", 0}}
         }},
         {"cameras", {{{"name", "MainCamera"}, {"type", "perspective"},
             {"perspective", {{"yfov", 0.7}, {"znear", 0.1}}}}}},
@@ -4873,11 +4876,14 @@ void test_gltf_static_scene_import_and_flattening() {
     const renderer::LoadedGltfScene loaded =
         renderer::load_gltf_scene(gltf_path, 320, 200);
     RENDER_CHECK(loaded.meshes.size() == 1);
-    RENDER_CHECK(loaded.nodes.size() == 4);
+    RENDER_CHECK(loaded.nodes.size() == 6);
     RENDER_CHECK(loaded.cameras.size() == 1);
     RENDER_CHECK(loaded.nodes[1].mesh_index == 0);
     RENDER_CHECK(loaded.nodes[2].mesh_index == 0);
     RENDER_CHECK(loaded.nodes[3].light_type == renderer::GltfNodeAsset::LightType::Spot);
+    renderer::SceneTransform millimeter_node_transform;
+    millimeter_node_transform.local_matrix = loaded.nodes[4].local_transform;
+    RENDER_CHECK(millimeter_node_transform.valid());
     const renderer::Material& material = loaded.meshes[0].scene.materials[0];
     RENDER_CHECK(material.type == renderer::MaterialType::Pbr);
     RENDER_CHECK(nearly_equal(material.metallic, 0.7f));
@@ -4887,7 +4893,7 @@ void test_gltf_static_scene_import_and_flattening() {
 
     const renderer::LoadedScene flattened =
         renderer::load_scene_asset(gltf_path.string(), 320, 200);
-    RENDER_CHECK(flattened.scene.triangles.size() == 2);
+    RENDER_CHECK(flattened.scene.triangles.size() == 3);
     RENDER_CHECK(flattened.scene.spot_lights.size() == 1);
     RENDER_CHECK(nearly_equal(flattened.scene.spot_lights[0].range, 5.0f));
     RENDER_CHECK(flattened.bounds.min.x() < -0.99f);

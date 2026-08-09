@@ -8,6 +8,12 @@
 
 namespace renderer {
 
+constexpr bool open_gl_requires_geometry_upload(SceneChangeSet changes) {
+    return has_scene_change(changes, SceneChange::Geometry) ||
+        has_scene_change(changes, SceneChange::MaterialBindings) ||
+        has_scene_change(changes, SceneChange::InstanceTransforms);
+}
+
 class OpenGlRasterRenderer {
 public:
     OpenGlRasterRenderer(

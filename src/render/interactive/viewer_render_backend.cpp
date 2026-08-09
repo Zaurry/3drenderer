@@ -48,8 +48,9 @@ public:
         const RenderSettings&) override {
         render_scene_ = flatten_render_scene_snapshot(snapshot);
         renderer_->reset(render_scene_);
+        source_id_ = snapshot.source_id;
         revisions_ = snapshot.revisions;
-        has_revisions_ = !revisions_.empty();
+        has_snapshot_ = true;
         update_output();
     }
 
@@ -58,15 +59,15 @@ public:
         const Camera& camera,
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state) override {
-        const SceneRevisions current_revisions = snapshot.revisions;
-        SceneChangeSet changes = frame_state.scene_changes;
-        if (!current_revisions.empty()) {
-            changes = has_revisions_
-                ? scene_changes_between(revisions_, current_revisions)
-                : SceneChange::All;
-            revisions_ = current_revisions;
-            has_revisions_ = true;
-        }
+        const SceneChangeSet changes = scene_changes_for_snapshot(
+            source_id_,
+            revisions_,
+            has_snapshot_,
+            snapshot,
+            frame_state.scene_changes);
+        source_id_ = snapshot.source_id;
+        revisions_ = snapshot.revisions;
+        has_snapshot_ = true;
         if (changes != SceneChange::None) {
             render_scene_ = flatten_render_scene_snapshot(snapshot);
             renderer_->sync_scene(render_scene_, changes);
@@ -108,8 +109,9 @@ private:
     std::shared_ptr<OpenGlRasterRenderer> renderer_;
     Scene render_scene_;
     RenderFrameOutput output_;
+    std::uint64_t source_id_ = 0;
     SceneRevisions revisions_;
-    bool has_revisions_ = false;
+    bool has_snapshot_ = false;
 
     void update_output() {
         if (renderer_->output_texture() == 0) {
@@ -148,8 +150,9 @@ public:
                 selection_reason);
         }
         session_.reset(snapshot, settings);
+        source_id_ = snapshot.source_id;
         revisions_ = snapshot.revisions;
-        has_revisions_ = !revisions_.empty();
+        has_snapshot_ = true;
         framebuffer_->resize(settings.width, settings.height);
         output_ = HostFrameHandle{framebuffer_};
         interop_->initialize(*device_context);
@@ -160,15 +163,16 @@ public:
         const Camera& camera,
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state) override {
-        const SceneRevisions current_revisions = snapshot.revisions;
         InteractiveFrameState effective_frame_state = frame_state;
-        if (!current_revisions.empty()) {
-            effective_frame_state.scene_changes = has_revisions_
-                ? scene_changes_between(revisions_, current_revisions)
-                : SceneChange::All;
-            revisions_ = current_revisions;
-            has_revisions_ = true;
-        }
+        effective_frame_state.scene_changes = scene_changes_for_snapshot(
+            source_id_,
+            revisions_,
+            has_snapshot_,
+            snapshot,
+            frame_state.scene_changes);
+        source_id_ = snapshot.source_id;
+        revisions_ = snapshot.revisions;
+        has_snapshot_ = true;
         if (interop_->state() != CudaOpenGlInteropState::Fallback &&
             interop_->state() != CudaOpenGlInteropState::Unavailable) {
             const CudaStreamHandle stream = session_.cuda_stream_handle();
@@ -239,8 +243,9 @@ private:
     std::shared_ptr<Framebuffer> framebuffer_ =
         std::make_shared<Framebuffer>(1, 1);
     RenderFrameOutput output_;
+    std::uint64_t source_id_ = 0;
     SceneRevisions revisions_;
-    bool has_revisions_ = false;
+    bool has_snapshot_ = false;
 };
 
 }  // namespace

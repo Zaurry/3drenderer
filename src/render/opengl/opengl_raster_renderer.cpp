@@ -583,8 +583,7 @@ public:
     }
 
     void sync_scene(const Scene& scene, SceneChangeSet changes) {
-        if (has_scene_change(changes, SceneChange::Geometry) ||
-            has_scene_change(changes, SceneChange::MaterialBindings)) {
+        if (open_gl_requires_geometry_upload(changes)) {
             upload_geometry(scene);
         }
         if (has_scene_change(changes, SceneChange::Textures)) {
@@ -596,7 +595,8 @@ public:
         if (has_scene_change(changes, SceneChange::Environment)) {
             upload_environment(scene);
         }
-        if (has_scene_change(changes, SceneChange::Geometry)) {
+        if (has_scene_change(changes, SceneChange::Geometry) ||
+            has_scene_change(changes, SceneChange::InstanceTransforms)) {
             scene_radius_ = compute_scene_radius(scene);
         }
     }

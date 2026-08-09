@@ -345,6 +345,7 @@ target_link_libraries(document_tests PRIVATE renderer_scene)
 add_executable(opengl_contract_tests tests/opengl_contract_tests.cpp)
 target_include_directories(opengl_contract_tests PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(opengl_contract_tests PRIVATE renderer_scene)
 target_compile_definitions(opengl_contract_tests PRIVATE
     RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 

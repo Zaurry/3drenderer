@@ -48,6 +48,7 @@ int main() {
         auto second_asset =
             std::make_shared<renderer::Scene>(*first_asset);
         renderer::RenderSceneSnapshot snapshot;
+        snapshot.source_id = renderer::allocate_render_scene_source_id();
         snapshot.revisions = renderer::SceneRevisions{1, 1, 1, 1, 1, 1, 1, 1};
         renderer::RenderSceneAssetSnapshot first_view;
         first_view.asset_id = 101;
@@ -214,6 +215,14 @@ int main() {
         RENDER_CHECK(interactive.accumulated_samples() == 1);
         snapshot.environment = renderer::Color(0.2f, 0.1f, 0.05f);
         snapshot.revisions.environment++;
+        interactive.render_next_frame(
+            snapshot,
+            camera,
+            settings,
+            frame_state,
+            frame);
+        RENDER_CHECK(interactive.accumulated_samples() == 1);
+        snapshot.source_id = renderer::allocate_render_scene_source_id();
         interactive.render_next_frame(
             snapshot,
             camera,
