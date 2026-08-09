@@ -4,7 +4,6 @@
 #include "interactive/viewer_session.h"
 #include "render/interactive/viewer_render_backend.h"
 #include "render/pathtracer/cuda_pathtracer.h"
-#include "render/pathtracer/path_backend.h"
 #include "scene/scene_document.h"
 
 #if !defined(RENDERER_BENCHMARK_DIAGNOSTICS)
@@ -139,18 +138,6 @@ Options parse_options(int argc, char** argv) {
     return options;
 }
 
-const char* path_backend_name(renderer::PathBackend backend) {
-    switch (backend) {
-    case renderer::PathBackend::Auto:
-        return "auto";
-    case renderer::PathBackend::Cpu:
-        return "cpu";
-    case renderer::PathBackend::Cuda:
-        return "cuda";
-    }
-    return "auto";
-}
-
 const char* tone_mapper_name(renderer::ToneMapper tone_mapper) {
     switch (tone_mapper) {
     case renderer::ToneMapper::None:
@@ -201,13 +188,12 @@ void import_session_as_case(
         }},
         {"render_settings", {{"path", {
             {"samples_per_pixel", 1},
-            {"tile_size", state.render_settings.path.tile_size},
-            {"thread_count", state.render_settings.path.thread_count},
+            {"cuda_device", state.render_settings.path.cuda_device},
             {"rr_start_bounce", state.render_settings.path.russian_roulette_start_bounce},
             {"rr_min_probability", state.render_settings.path.russian_roulette_min_probability},
             {"rr_max_probability", state.render_settings.path.russian_roulette_max_probability},
             {"sample_seed_offset", state.render_settings.path.sample_seed_offset},
-            {"backend", path_backend_name(state.render_settings.path.backend)},
+            {"backend", "cuda"},
         }}}},
         {"phases", {
             {"opengl_warmup_frames", 60},
@@ -332,11 +318,11 @@ nlohmann::json system_metadata() {
 nlohmann::json case_metadata(
     const CaseConfig& config,
     const renderer::SceneDocument& document) {
-    const renderer::InstancedSceneView& instanced = document.instanced_render_scene();
+    const renderer::RenderSceneSnapshot& instanced = document.render_scene_snapshot();
     std::size_t triangles = 0;
     std::size_t materials = 0;
     std::size_t textures = 0;
-    for (const renderer::InstancedSceneAssetView& asset : instanced.assets) {
+    for (const renderer::RenderSceneAssetSnapshot& asset : instanced.assets) {
         if (!asset.local_scene) {
             continue;
         }
@@ -463,14 +449,14 @@ void add_opengl_metadata(Report& report) {
 void run_opengl(
     Report& report,
     const CaseConfig& config,
-    const renderer::Scene& scene,
+    const renderer::RenderSceneSnapshot& snapshot,
     const std::filesystem::path& source_root) {
     auto backend = renderer::make_viewer_render_backend(
         renderer::InteractiveRenderMode::OpenGl,
         source_root / "shaders/opengl/raster.vert",
         source_root / "shaders/opengl/raster.frag");
     const auto prepare_start = std::chrono::steady_clock::now();
-    backend->reset(scene, config.render_settings);
+    backend->reset(snapshot, config.render_settings);
     PhaseResult prepare{"backend_prepare", "opengl"};
     prepare.metrics.push_back(scalar_metric(
         "opengl.backend_prepare.wall_ms",
@@ -484,7 +470,7 @@ void run_opengl(
     glGenQueries(1, &first_query);
     const auto first_start = std::chrono::steady_clock::now();
     glBeginQuery(GL_TIME_ELAPSED, first_query);
-    backend->render(scene, config.camera, config.render_settings, frame);
+    backend->render(snapshot, config.camera, config.render_settings, frame);
     glEndQuery(GL_TIME_ELAPSED);
     GLuint64 first_nanoseconds = 0;
     glGetQueryObjectui64v(first_query, GL_QUERY_RESULT, &first_nanoseconds);
@@ -502,7 +488,7 @@ void run_opengl(
 
     frame.camera_changed = false;
     for (int index = 0; index < config.opengl_warmup_frames; ++index) {
-        backend->render(scene, config.camera, config.render_settings, frame);
+        backend->render(snapshot, config.camera, config.render_settings, frame);
     }
     glFinish();
     std::vector<GLuint> queries(
@@ -513,7 +499,7 @@ void run_opengl(
     for (GLuint query : queries) {
         const auto start = std::chrono::steady_clock::now();
         glBeginQuery(GL_TIME_ELAPSED, query);
-        backend->render(scene, config.camera, config.render_settings, frame);
+        backend->render(snapshot, config.camera, config.render_settings, frame);
         glEndQuery(GL_TIME_ELAPSED);
         wall_samples.push_back(elapsed_milliseconds(start));
     }
@@ -576,7 +562,7 @@ void synchronize_cuda_benchmark_sample() {
 void run_cuda_timing(
     Report& report,
     const CaseConfig& config,
-    const renderer::InstancedSceneView& instanced,
+    const renderer::RenderSceneSnapshot& instanced,
     const std::filesystem::path& source_root) {
     std::string unavailable_reason;
     if (!renderer::cuda_path_backend_available(&unavailable_reason)) {
@@ -585,30 +571,31 @@ void run_cuda_timing(
         return;
     }
     renderer::RenderSettings settings = config.render_settings;
-    settings.path.backend = renderer::PathBackend::Cuda;
-    renderer::Scene placeholder;
     auto backend = renderer::make_viewer_render_backend(
         renderer::InteractiveRenderMode::Path,
         source_root / "shaders/opengl/raster.vert",
         source_root / "shaders/opengl/raster.frag");
     const auto prepare_start = std::chrono::steady_clock::now();
-    backend->reset(placeholder, settings, &instanced);
+    backend->reset(instanced, settings);
     PhaseResult prepare{"backend_prepare", "cuda"};
     prepare.metrics.push_back(scalar_metric(
         "cuda.backend_prepare.wall_ms",
         "ms",
         elapsed_milliseconds(prepare_start)));
-    append_cuda_statistics(prepare, backend->statistics().cuda);
+    append_cuda_statistics(
+        prepare,
+        std::get<renderer::CudaPathViewerStatistics>(backend->statistics()).cuda);
     report.phases.push_back(std::move(prepare));
 
     renderer::InteractiveFrameState frame;
     frame.camera_changed = true;
     frame.automatic_interaction_quality = false;
     const auto first_start = std::chrono::steady_clock::now();
-    backend->render(placeholder, config.camera, settings, frame, &instanced);
+    backend->render(instanced, config.camera, settings, frame);
     synchronize_cuda_benchmark_sample();
     const double first_wall = elapsed_milliseconds(first_start);
-    auto statistics = backend->statistics().cuda;
+    auto statistics =
+        std::get<renderer::CudaPathViewerStatistics>(backend->statistics()).cuda;
     PhaseResult first{"first_frame", "cuda"};
     first.metrics.push_back(scalar_metric(
         "cuda.first_frame.wall_ms", "ms", first_wall));
@@ -618,7 +605,7 @@ void run_cuda_timing(
 
     frame.camera_changed = false;
     for (int index = 0; index < config.cuda_full_warmup_frames; ++index) {
-        backend->render(placeholder, config.camera, settings, frame, &instanced);
+        backend->render(instanced, config.camera, settings, frame);
         synchronize_cuda_benchmark_sample();
     }
     std::vector<double> full_wall;
@@ -626,10 +613,11 @@ void run_cuda_timing(
     std::vector<double> full_present;
     for (int index = 0; index < config.cuda_full_measure_frames; ++index) {
         const auto start = std::chrono::steady_clock::now();
-        backend->render(placeholder, config.camera, settings, frame, &instanced);
+        backend->render(instanced, config.camera, settings, frame);
         synchronize_cuda_benchmark_sample();
         full_wall.push_back(elapsed_milliseconds(start));
-        statistics = backend->statistics().cuda;
+        statistics = std::get<renderer::CudaPathViewerStatistics>(
+            backend->statistics()).cuda;
         full_trace.push_back(statistics.trace_milliseconds);
         full_present.push_back(statistics.presentation_milliseconds);
     }
@@ -642,7 +630,7 @@ void run_cuda_timing(
         "cuda.frame.presentation_ms", "ms", std::move(full_present)));
     report.phases.push_back(std::move(full));
 
-    backend->reset(placeholder, settings, &instanced);
+    backend->reset(instanced, settings);
     frame.automatic_interaction_quality = true;
     std::vector<double> interaction_wall;
     std::vector<double> interaction_trace;
@@ -650,10 +638,11 @@ void run_cuda_timing(
     for (int index = 0; index < config.cuda_interaction_frames; ++index) {
         frame.camera_changed = true;
         const auto start = std::chrono::steady_clock::now();
-        backend->render(placeholder, config.camera, settings, frame, &instanced);
+        backend->render(instanced, config.camera, settings, frame);
         synchronize_cuda_benchmark_sample();
         const double wall = elapsed_milliseconds(start);
-        statistics = backend->statistics().cuda;
+        statistics = std::get<renderer::CudaPathViewerStatistics>(
+            backend->statistics()).cuda;
         if (index > 0) {
             interaction_wall.push_back(wall);
             interaction_trace.push_back(statistics.trace_milliseconds);
@@ -671,25 +660,28 @@ void run_cuda_timing(
         "cuda.interaction.internal_pixels", "pixels", std::move(interaction_pixels)));
     report.phases.push_back(std::move(interaction));
 
-    backend->reset(placeholder, settings, &instanced);
+    backend->reset(instanced, settings);
     frame.camera_changed = true;
-    backend->render(placeholder, config.camera, settings, frame, &instanced);
+    backend->render(instanced, config.camera, settings, frame);
     synchronize_cuda_benchmark_sample();
     frame.camera_changed = false;
     std::vector<double> native_wall;
     std::vector<double> native_trace;
     std::vector<double> sweep_rates;
     int completed_sweeps = 0;
-    int previous_samples = backend->statistics().accumulated_samples;
+    int previous_samples = std::get<renderer::CudaPathViewerStatistics>(
+        backend->statistics()).accumulated_samples;
     constexpr int max_frames = 100000;
     for (int frame_index = 0;
          frame_index < max_frames && completed_sweeps < config.cuda_native_sweeps;
          ++frame_index) {
         const auto start = std::chrono::steady_clock::now();
-        backend->render(placeholder, config.camera, settings, frame, &instanced);
+        backend->render(instanced, config.camera, settings, frame);
         synchronize_cuda_benchmark_sample();
         const double wall = elapsed_milliseconds(start);
-        const auto backend_statistics = backend->statistics();
+        const auto backend_statistics =
+            std::get<renderer::CudaPathViewerStatistics>(
+                backend->statistics());
         statistics = backend_statistics.cuda;
         if (statistics.work_mode == renderer::CudaPathWorkMode::NativeTile) {
             native_wall.push_back(wall);
@@ -754,7 +746,7 @@ Report create_report(
 void run_diagnostics(
     Report& report,
     const CaseConfig& config,
-    const renderer::InstancedSceneView& instanced) {
+    const renderer::RenderSceneSnapshot& instanced) {
     std::string unavailable_reason;
     if (!renderer::cuda_path_backend_available(&unavailable_reason)) {
         report.phases.push_back(PhaseResult{
@@ -762,22 +754,19 @@ void run_diagnostics(
         return;
     }
     renderer::RenderSettings settings = config.render_settings;
-    settings.path.backend = renderer::PathBackend::Cuda;
-    renderer::Scene placeholder;
     renderer::CudaPathInteractiveRenderer renderer_instance;
-    renderer_instance.reset(placeholder, settings, &instanced);
+    renderer_instance.reset(instanced, settings);
     renderer::Framebuffer framebuffer(settings.width, settings.height);
     renderer::InteractiveFrameState frame;
     frame.automatic_interaction_quality = false;
     for (int index = 0; index < config.diagnostic_samples; ++index) {
         frame.camera_changed = index == 0;
         renderer_instance.render_next_frame(
-            placeholder,
+            instanced,
             config.camera,
             settings,
             frame,
-            framebuffer,
-            &instanced);
+            framebuffer);
     }
     const renderer::CudaPathDiagnosticProfile profile =
         renderer_instance.download_diagnostic_profile();
@@ -871,18 +860,22 @@ int main(int argc, char** argv) {
         report.phases.push_back(std::move(load));
 
 #if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
-        run_diagnostics(report, config, document.instanced_render_scene());
+        run_diagnostics(report, config, document.render_scene_snapshot());
 #else
         HiddenGlContext context;
         add_opengl_metadata(report);
         if (options.backend == "all" || options.backend == "opengl") {
-            run_opengl(report, config, document.render_scene(), source_root);
+            run_opengl(
+                report,
+                config,
+                document.render_scene_snapshot(),
+                source_root);
         }
         if (options.backend == "all" || options.backend == "cuda") {
             run_cuda_timing(
                 report,
                 config,
-                document.instanced_render_scene(),
+                document.render_scene_snapshot(),
                 source_root);
         }
 #endif

@@ -21,13 +21,12 @@
   "render_settings": {
     "path": {
       "samples_per_pixel": 1,
-      "tile_size": 32,
-      "thread_count": 0,
+      "max_bounces": 64,
       "rr_start_bounce": 3,
       "rr_min_probability": 0.05,
       "rr_max_probability": 0.95,
       "sample_seed_offset": 0,
-      "backend": "cuda"
+      "cuda_device": 0
     }
   },
   "phases": {

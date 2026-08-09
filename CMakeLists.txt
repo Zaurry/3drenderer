@@ -1,6 +1,6 @@
-cmake_minimum_required(VERSION 3.21)
+cmake_minimum_required(VERSION 3.24)
 
-project(cpu_3d_renderer VERSION 0.1.0 LANGUAGES C CXX)
+project(renderer VERSION 0.2.0 LANGUAGES C CXX)
 
 include(FetchContent)
 include(CheckLanguage)
@@ -60,7 +60,7 @@ if(NOT RENDERER_CUDA_MODE STREQUAL "OFF")
     check_language(CUDA)
     if(CMAKE_CUDA_COMPILER)
         if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-            set(CMAKE_CUDA_ARCHITECTURES 120 CACHE STRING "CUDA architectures")
+            set(CMAKE_CUDA_ARCHITECTURES native CACHE STRING "CUDA architectures")
         endif()
         enable_language(CUDA)
         find_package(CUDAToolkit REQUIRED)
@@ -170,25 +170,17 @@ if(RENDERER_BUILD_VIEWER)
 
 endif()
 
-set(RENDERER_CORE_SOURCES
+set(RENDERER_SCENE_SOURCES
     src/acceleration/bvh.cpp
+    src/core/io/atomic_file.cpp
     src/core/image.cpp
-    src/interactive/frame_rate_counter.cpp
-    src/interactive/free_camera_controller.cpp
-    src/interactive/orbit_camera_controller.cpp
-    src/interactive/viewer_session.cpp
-    src/render/display_settings.cpp
-    src/render/framebuffer.cpp
-    src/render/interactive/render_mode.cpp
-    src/render/interactive/path_interactive_session.cpp
-    src/render/pathtracer/pathtracer_renderer.cpp
-    src/render/pathtracer/path_backend.cpp
     src/render/pbr.cpp
     src/render/scene_intersector.cpp
     src/sampling/sampler.cpp
     src/scene/camera.cpp
     src/scene/environment.cpp
     src/scene/gltf_loader.cpp
+    src/scene/instanced_scene.cpp
     src/scene/material_evaluator.cpp
     src/scene/mesh.cpp
     src/scene/obj_loader.cpp
@@ -198,35 +190,93 @@ set(RENDERER_CORE_SOURCES
     src/scene/texture.cpp
 )
 
+set(RENDERER_RENDER_COMMON_SOURCES
+    src/render/display_settings.cpp
+    src/render/framebuffer.cpp
+)
+
+set(RENDERER_INTERACTIVE_SOURCES
+    src/interactive/frame_rate_counter.cpp
+    src/interactive/free_camera_controller.cpp
+    src/interactive/orbit_camera_controller.cpp
+    src/interactive/viewer_session.cpp
+    src/render/interactive/render_mode.cpp
+    src/render/interactive/path_interactive_session.cpp
+)
+
 if(RENDERER_HAS_CUDA)
-    list(APPEND RENDERER_CORE_SOURCES src/render/pathtracer/cuda_pathtracer.cu)
+    set(RENDERER_CUDA_SOURCES
+        src/render/pathtracer/cuda_device_context.cu
+        src/render/pathtracer/cuda_pathtracer.cu)
 else()
-    list(APPEND RENDERER_CORE_SOURCES src/render/pathtracer/cuda_pathtracer_stub.cpp)
+    set(RENDERER_CUDA_SOURCES
+        src/render/pathtracer/cuda_device_context_stub.cpp
+        src/render/pathtracer/cuda_pathtracer_stub.cpp)
 endif()
 
-add_library(renderer_core STATIC ${RENDERER_CORE_SOURCES})
-target_include_directories(renderer_core
-    PUBLIC
-        "${CMAKE_CURRENT_SOURCE_DIR}/src"
-        "${CMAKE_CURRENT_SOURCE_DIR}/external/stb"
-        "${CMAKE_CURRENT_SOURCE_DIR}/external/tinyobjloader"
-        "${tinyexr_SOURCE_DIR}"
+set(RENDERER_PUBLIC_INCLUDE_DIRECTORIES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/stb"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/tinyobjloader"
+    "${tinyexr_SOURCE_DIR}"
 )
-target_link_libraries(renderer_core PUBLIC Eigen3::Eigen)
-target_link_libraries(renderer_core PUBLIC nlohmann_json::nlohmann_json)
-target_link_libraries(renderer_core PUBLIC fastgltf::fastgltf tinyexr)
+
+add_library(renderer_scene STATIC ${RENDERER_SCENE_SOURCES})
+target_include_directories(renderer_scene
+    PUBLIC
+        ${RENDERER_PUBLIC_INCLUDE_DIRECTORIES}
+)
+target_link_libraries(renderer_scene PUBLIC
+    Eigen3::Eigen
+    nlohmann_json::nlohmann_json
+    fastgltf::fastgltf
+    tinyexr)
+
+add_library(renderer_render_common STATIC ${RENDERER_RENDER_COMMON_SOURCES})
+target_include_directories(renderer_render_common PUBLIC
+    ${RENDERER_PUBLIC_INCLUDE_DIRECTORIES})
+target_link_libraries(renderer_render_common PUBLIC renderer_scene)
+
+add_library(renderer_cuda STATIC ${RENDERER_CUDA_SOURCES})
+target_include_directories(renderer_cuda PUBLIC
+    ${RENDERER_PUBLIC_INCLUDE_DIRECTORIES})
+target_link_libraries(renderer_cuda PUBLIC
+    renderer_scene
+    renderer_render_common)
 if(RENDERER_HAS_CUDA)
-    target_link_libraries(renderer_core PRIVATE CUDA::cudart)
-    set_target_properties(renderer_core PROPERTIES
+    target_link_libraries(renderer_cuda PRIVATE CUDA::cudart)
+    set_target_properties(renderer_cuda PROPERTIES
         CUDA_STANDARD 20
         CUDA_STANDARD_REQUIRED ON
         CUDA_EXTENSIONS OFF
         CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}"
     )
-    target_compile_definitions(renderer_core PUBLIC RENDERER_HAS_CUDA=1)
+    target_compile_definitions(renderer_cuda PUBLIC RENDERER_HAS_CUDA=1)
 else()
-    target_compile_definitions(renderer_core PUBLIC RENDERER_HAS_CUDA=0)
+    target_compile_definitions(renderer_cuda PUBLIC RENDERER_HAS_CUDA=0)
 endif()
+
+add_library(renderer_interactive STATIC ${RENDERER_INTERACTIVE_SOURCES})
+target_include_directories(renderer_interactive PUBLIC
+    ${RENDERER_PUBLIC_INCLUDE_DIRECTORIES})
+target_link_libraries(renderer_interactive PUBLIC
+    renderer_scene
+    renderer_render_common
+    renderer_cuda)
+
+add_library(renderer_core INTERFACE)
+target_link_libraries(renderer_core INTERFACE
+    renderer_scene
+    renderer_render_common
+    renderer_cuda
+    renderer_interactive)
+
+set(RENDERER_CORE_SOURCES
+    ${RENDERER_SCENE_SOURCES}
+    ${RENDERER_RENDER_COMMON_SOURCES}
+    ${RENDERER_INTERACTIVE_SOURCES}
+    ${RENDERER_CUDA_SOURCES}
+)
 
 add_executable(renderer src/main.cpp)
 target_link_libraries(renderer PRIVATE renderer_core)
@@ -282,6 +332,32 @@ endif()
 
 add_executable(renderer_tests tests/renderer_tests.cpp)
 target_link_libraries(renderer_tests PRIVATE renderer_core)
+
+add_executable(scene_tests tests/scene_tests.cpp)
+target_link_libraries(scene_tests PRIVATE renderer_scene)
+
+add_executable(sampling_tests tests/sampling_tests.cpp)
+target_link_libraries(sampling_tests PRIVATE renderer_scene)
+
+add_executable(document_tests tests/document_tests.cpp)
+target_link_libraries(document_tests PRIVATE renderer_scene)
+
+add_executable(opengl_contract_tests tests/opengl_contract_tests.cpp)
+target_include_directories(opengl_contract_tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_definitions(opengl_contract_tests PRIVATE
+    RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
+add_executable(cuda_contract_tests tests/cuda_contract_tests.cpp)
+target_link_libraries(cuda_contract_tests PRIVATE renderer_cuda)
+
+set(RENDERER_TEST_TARGETS
+    renderer_tests
+    scene_tests
+    sampling_tests
+    document_tests
+    opengl_contract_tests
+    cuda_contract_tests)
 
 if(RENDERER_BUILD_BENCHMARKS)
     add_library(renderer_benchmark_common STATIC
@@ -396,7 +472,13 @@ function(target_enable_native_arch target_name)
     endif()
 endfunction()
 
-set(RENDERER_NATIVE_TARGETS renderer_core renderer renderer_tests)
+set(RENDERER_NATIVE_TARGETS
+    renderer_scene
+    renderer_render_common
+    renderer_cuda
+    renderer_interactive
+    renderer
+    ${RENDERER_TEST_TARGETS})
 if(RENDERER_BUILD_VIEWER)
     list(APPEND RENDERER_NATIVE_TARGETS renderer_opengl viewer)
 endif()
@@ -415,6 +497,11 @@ endforeach()
 
 enable_testing()
 add_test(NAME renderer_tests COMMAND renderer_tests)
+add_test(NAME scene_tests COMMAND scene_tests)
+add_test(NAME sampling_tests COMMAND sampling_tests)
+add_test(NAME document_tests COMMAND document_tests)
+add_test(NAME opengl_contract_tests COMMAND opengl_contract_tests)
+add_test(NAME cuda_contract_tests COMMAND cuda_contract_tests)
 
 function(target_enable_warnings target_name)
     if(MSVC)
@@ -433,8 +520,13 @@ function(target_enable_warnings target_name)
 endfunction()
 
 target_enable_warnings(renderer)
-target_enable_warnings(renderer_core)
-target_enable_warnings(renderer_tests)
+target_enable_warnings(renderer_scene)
+target_enable_warnings(renderer_render_common)
+target_enable_warnings(renderer_cuda)
+target_enable_warnings(renderer_interactive)
+foreach(test_target IN LISTS RENDERER_TEST_TARGETS)
+    target_enable_warnings(${test_target})
+endforeach()
 if(RENDERER_BUILD_BENCHMARKS)
     target_enable_warnings(renderer_benchmark_common)
     target_enable_warnings(viewer_benchmark)

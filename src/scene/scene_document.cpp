@@ -1,5 +1,7 @@
 #include "scene/scene_document.h"
 
+#include "core/io/atomic_file.h"
+#include "render/scene_intersector.h"
 #include "scene/scene_asset_loader.h"
 #include "scene/gltf_loader.h"
 
@@ -13,6 +15,7 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 namespace renderer {
 
@@ -22,6 +25,12 @@ constexpr float kPi = 3.14159265358979323846f;
 constexpr float kMinimumScale = 1.0e-6f;
 constexpr int kMaximumHierarchyDepth = 1024;
 constexpr std::size_t kMaximumHistory = 256;
+
+void build_picking_acceleration(
+    const std::shared_ptr<SceneMeshAsset>& asset) {
+    asset->picking_intersector =
+        std::make_shared<SceneIntersector>(asset->local_scene);
+}
 
 constexpr int Material::* kMaterialTextureIds[] = {
     &Material::diffuse_texture_id,
@@ -370,9 +379,75 @@ bool asset_extension(const std::filesystem::path& path) {
     return extension == ".obj" || extension == ".gltf" || extension == ".glb";
 }
 
+MaterialSlot validated_material_slot(
+    int material_id,
+    std::size_t material_count) {
+    if (material_id == -1) {
+        return MaterialSlot::missing();
+    }
+    if (material_id < -1) {
+        throw std::runtime_error(
+            "mesh primitive material slot must be -1 or non-negative");
+    }
+    if (static_cast<std::size_t>(material_id) >= material_count) {
+        throw std::runtime_error(
+            "mesh primitive material slot is out of range");
+    }
+    return MaterialSlot::bound(
+        static_cast<std::uint32_t>(material_id));
+}
+
+bool decompose_trs_matrix(const Mat4& matrix, SceneTrs& output) {
+    if (!matrix.allFinite()) {
+        return false;
+    }
+    const Vec4 affine_row = matrix.row(3).transpose();
+    if (!affine_row.isApprox(Vec4(0.0f, 0.0f, 0.0f, 1.0f), 1.0e-6f)) {
+        return false;
+    }
+
+    SceneTrs candidate;
+    candidate.translation = matrix.topRightCorner<3, 1>();
+    Mat3 linear = matrix.topLeftCorner<3, 3>();
+    candidate.scale = Vec3(
+        linear.col(0).norm(),
+        linear.col(1).norm(),
+        linear.col(2).norm());
+    if ((candidate.scale.array() < kMinimumScale).any()) {
+        return false;
+    }
+    if (linear.determinant() < 0.0f) {
+        Eigen::Index reflected_axis = 0;
+        candidate.scale.cwiseAbs().maxCoeff(&reflected_axis);
+        candidate.scale[reflected_axis] = -candidate.scale[reflected_axis];
+    }
+
+    Mat3 rotation = linear;
+    for (int axis = 0; axis < 3; ++axis) {
+        rotation.col(axis) /= candidate.scale[axis];
+    }
+    if (!rotation.transpose().isApprox(rotation.inverse(), 1.0e-5f) ||
+        std::abs(rotation.determinant() - 1.0f) > 1.0e-5f) {
+        return false;
+    }
+    const Vec3 zyx = rotation.eulerAngles(2, 1, 0);
+    candidate.rotation_degrees =
+        Vec3(zyx.z(), zyx.y(), zyx.x()) * (180.0f / kPi);
+    if (!candidate.valid()) {
+        return false;
+    }
+    const float scale = std::max(1.0f, matrix.cwiseAbs().maxCoeff());
+    if ((candidate.matrix() - matrix).cwiseAbs().maxCoeff() >
+        scale * 1.0e-5f) {
+        return false;
+    }
+    output = candidate;
+    return true;
+}
+
 }  // namespace
 
-Mat4 SceneTransform::matrix() const {
+Mat4 SceneTrs::matrix() const {
     const Vec3 radians = rotation_degrees * (kPi / 180.0f);
     const Eigen::Affine3f transform =
         Eigen::Translation3f(translation) *
@@ -383,11 +458,74 @@ Mat4 SceneTransform::matrix() const {
     return transform.matrix();
 }
 
-bool SceneTransform::valid() const {
+bool SceneTrs::valid() const {
     return translation.allFinite() && rotation_degrees.allFinite() && scale.allFinite() &&
         std::abs(scale.x()) >= kMinimumScale &&
         std::abs(scale.y()) >= kMinimumScale &&
         std::abs(scale.z()) >= kMinimumScale;
+}
+
+Mat4 SceneTransform::matrix() const {
+    return local_matrix;
+}
+
+bool SceneTransform::valid() const {
+    if (!local_matrix.allFinite() ||
+        !local_matrix.row(3).transpose().isApprox(
+            Vec4(0.0f, 0.0f, 0.0f, 1.0f),
+            1.0e-6f)) {
+        return false;
+    }
+    const float determinant = local_matrix.topLeftCorner<3, 3>().determinant();
+    return std::isfinite(determinant) && std::abs(determinant) >= kMinimumScale;
+}
+
+SceneTransform SceneTransform::from_trs(const SceneTrs& trs) {
+    SceneTransform result;
+    result.local_matrix = trs.matrix();
+    return result;
+}
+
+nlohmann::json matrix_json(const Mat4& matrix) {
+    nlohmann::json result = nlohmann::json::array();
+    for (int row = 0; row < 4; ++row) {
+        result.push_back(nlohmann::json::array({
+            matrix(row, 0),
+            matrix(row, 1),
+            matrix(row, 2),
+            matrix(row, 3)}));
+    }
+    return result;
+}
+
+Mat4 parse_matrix(const nlohmann::json& value, const char* field) {
+    if (!value.is_array() || value.size() != 4) {
+        throw std::runtime_error(
+            std::string(field) + " must contain four rows");
+    }
+    Mat4 result;
+    for (int row = 0; row < 4; ++row) {
+        const nlohmann::json& source_row = value.at(row);
+        if (!source_row.is_array() || source_row.size() != 4) {
+            throw std::runtime_error(
+                std::string(field) + " rows must contain four numbers");
+        }
+        for (int column = 0; column < 4; ++column) {
+            result(row, column) = source_row.at(column).get<float>();
+        }
+    }
+    if (!result.allFinite()) {
+        throw std::runtime_error(std::string(field) + " must be finite");
+    }
+    return result;
+}
+
+std::optional<SceneTrs> SceneTransform::trs() const {
+    SceneTrs result;
+    if (!decompose_trs_matrix(local_matrix, result)) {
+        return std::nullopt;
+    }
+    return result;
 }
 
 SceneDocument::SceneDocument() {
@@ -399,6 +537,15 @@ SceneDocument SceneDocument::from_scene(
     std::string name,
     std::string builtin_id) {
     SceneDocument document;
+    const std::vector<Sphere> procedural_spheres = scene.spheres;
+    std::shared_ptr<Scene> render_geometry;
+    if (!procedural_spheres.empty()) {
+        render_geometry = std::make_shared<Scene>(scene);
+        render_geometry->spheres.clear();
+    }
+    // Picking keeps the same canonical triangles as the shared unit-sphere
+    // render asset, while snapshots represent center/radius as instances.
+    tessellate_spheres(scene);
     document.state_.environment = scene.environment;
     document.state_.environment_map = scene.environment_map;
     document.state_.environment_path = scene.environment_map
@@ -420,6 +567,8 @@ SceneDocument SceneDocument::from_scene(
     asset->source_path.clear();
     asset->builtin_id = std::move(builtin_id);
     asset->local_scene = std::move(scene);
+    asset->render_geometry = std::move(render_geometry);
+    asset->procedural_spheres = procedural_spheres;
     asset->material_names.reserve(asset->local_scene.materials.size());
     for (std::size_t index = 0; index < asset->local_scene.materials.size(); ++index) {
         asset->material_names.push_back(
@@ -431,6 +580,7 @@ SceneDocument SceneDocument::from_scene(
     for (const Sphere& sphere : asset->local_scene.spheres) {
         asset->local_bounds.expand(sphere.bounds());
     }
+    build_picking_acceleration(asset);
     document.assets_.push_back(asset);
     SceneObject object;
     object.id = document.next_object_id_++;
@@ -445,7 +595,7 @@ SceneDocument SceneDocument::from_scene(
             "Point Light " + std::to_string(index + 1),
             point_lights[index].position,
             point_lights[index].intensity);
-        document.find(light_id)->light_range = point_lights[index].range;
+        document.find_mutable(light_id)->light_range = point_lights[index].range;
     }
     for (std::size_t index = 0; index < spot_lights.size(); ++index) {
         document.create_spot_light(
@@ -467,8 +617,13 @@ SceneDocument SceneDocument::from_scene(
             directional_lights[index].radiance);
     }
     document.history_.assign(1, document.state_);
-    document.render_dirty_ = true;
-    document.instanced_dirty_ = true;
+    document.uncheckpointed_changes_ = false;
+    document.object_index_dirty_ = true;
+    document.spatial_cache_dirty_ = true;
+    advance_scene_revisions(
+        document.revisions_,
+        SceneRevisionDomain::All);
+    document.snapshot_dirty_ = true;
     return document;
 }
 
@@ -476,14 +631,13 @@ const std::vector<SceneObject>& SceneDocument::objects() const {
     return state_.objects;
 }
 
-std::vector<SceneObject>& SceneDocument::objects() {
-    render_dirty_ = true;
-    instanced_dirty_ = true;
-    return state_.objects;
-}
-
-const std::vector<std::shared_ptr<SceneMeshAsset>>& SceneDocument::assets() const {
-    return assets_;
+std::vector<std::shared_ptr<const SceneMeshAsset>> SceneDocument::assets() const {
+    std::vector<std::shared_ptr<const SceneMeshAsset>> result;
+    result.reserve(assets_.size());
+    for (const auto& asset : assets_) {
+        result.push_back(asset);
+    }
+    return result;
 }
 
 const SceneMeshAsset* SceneDocument::asset_for_object(ObjectId id) const {
@@ -496,34 +650,144 @@ const SceneMeshAsset* SceneDocument::asset_for_object(ObjectId id) const {
 }
 
 const SceneObject* SceneDocument::find(ObjectId id) const {
-    const auto found = std::find_if(
-        state_.objects.begin(),
-        state_.objects.end(),
-        [id](const SceneObject& object) { return object.id == id; });
-    return found == state_.objects.end() ? nullptr : &*found;
+    if (object_index_dirty_ || object_indices_.size() != state_.objects.size()) {
+        rebuild_object_index();
+    }
+    const auto found = object_indices_.find(id);
+    return found == object_indices_.end()
+        ? nullptr
+        : &state_.objects[found->second];
 }
 
-SceneObject* SceneDocument::find(ObjectId id) {
-    const auto found = std::find_if(
-        state_.objects.begin(),
-        state_.objects.end(),
-        [id](const SceneObject& object) { return object.id == id; });
-    if (found == state_.objects.end()) {
-        return nullptr;
+SceneObject* SceneDocument::find_mutable(ObjectId id) {
+    return const_cast<SceneObject*>(
+        static_cast<const SceneDocument&>(*this).find(id));
+}
+
+void SceneDocument::rebuild_object_index() const {
+    object_indices_.clear();
+    children_by_parent_.clear();
+    object_indices_.reserve(state_.objects.size());
+    children_by_parent_.reserve(state_.objects.size());
+    for (std::size_t index = 0; index < state_.objects.size(); ++index) {
+        const SceneObject& object = state_.objects[index];
+        object_indices_.emplace(object.id, index);
+        children_by_parent_[object.parent_id].push_back(object.id);
     }
-    render_dirty_ = true;
-    instanced_dirty_ = true;
-    return &*found;
+    object_index_dirty_ = false;
+}
+
+void SceneDocument::mark_changed(
+    SceneRevisionDomain domains,
+    bool hierarchy_changed) {
+    snapshot_dirty_ = true;
+    uncheckpointed_changes_ = true;
+    advance_scene_revisions(revisions_, domains);
+    if (hierarchy_changed ||
+        has_revision_domain(domains, SceneRevisionDomain::Topology)) {
+        object_index_dirty_ = true;
+    }
+    if (hierarchy_changed ||
+        has_revision_domain(domains, SceneRevisionDomain::Topology) ||
+        has_revision_domain(domains, SceneRevisionDomain::Transforms)) {
+        spatial_cache_dirty_ = true;
+    }
 }
 
 std::vector<ObjectId> SceneDocument::children(ObjectId parent_id) const {
-    std::vector<ObjectId> result;
-    for (const SceneObject& object : state_.objects) {
-        if (object.parent_id == parent_id) {
-            result.push_back(object.id);
-        }
+    if (object_index_dirty_ || object_indices_.size() != state_.objects.size()) {
+        rebuild_object_index();
     }
-    return result;
+    const auto found = children_by_parent_.find(parent_id);
+    return found == children_by_parent_.end()
+        ? std::vector<ObjectId>()
+        : found->second;
+}
+
+bool SceneDocument::set_object_name(ObjectId id, std::string name) {
+    SceneObject* object = find_mutable(id);
+    if (!object || object->name == name) {
+        return false;
+    }
+    object->name = std::move(name);
+    uncheckpointed_changes_ = true;
+    return true;
+}
+
+bool SceneDocument::set_object_visible(ObjectId id, bool visible) {
+    SceneObject* object = find_mutable(id);
+    if (!object || object->visible == visible) {
+        return false;
+    }
+    object->visible = visible;
+    mark_changed(SceneRevisionDomain::Topology);
+    return true;
+}
+
+bool SceneDocument::set_object_locked(ObjectId id, bool locked) {
+    SceneObject* object = find_mutable(id);
+    if (!object || object->locked == locked) {
+        return false;
+    }
+    object->locked = locked;
+    uncheckpointed_changes_ = true;
+    return true;
+}
+
+bool SceneDocument::set_camera_properties(
+    ObjectId id,
+    const SceneCameraProperties& properties) {
+    SceneObject* object = find_mutable(id);
+    if (!object || object->type != SceneObjectType::Camera || object->locked ||
+        !std::isfinite(properties.vertical_fov_degrees) ||
+        !std::isfinite(properties.aspect_ratio) ||
+        !std::isfinite(properties.x_magnification) ||
+        !std::isfinite(properties.y_magnification) ||
+        !std::isfinite(properties.near_plane) ||
+        !std::isfinite(properties.far_plane) ||
+        properties.vertical_fov_degrees < 1.0f ||
+        properties.vertical_fov_degrees > 179.0f ||
+        properties.x_magnification < 1.0e-4f ||
+        properties.y_magnification < 1.0e-4f ||
+        properties.near_plane < 1.0e-5f ||
+        properties.far_plane <= properties.near_plane) {
+        return false;
+    }
+    object->camera_projection = properties.projection;
+    object->camera_vertical_fov_degrees = properties.vertical_fov_degrees;
+    object->camera_aspect_ratio = properties.aspect_ratio;
+    object->camera_x_magnification = properties.x_magnification;
+    object->camera_y_magnification = properties.y_magnification;
+    object->camera_near_plane = properties.near_plane;
+    object->camera_far_plane = properties.far_plane;
+    mark_changed(SceneRevisionDomain::Transforms);
+    return true;
+}
+
+bool SceneDocument::set_light_properties(
+    ObjectId id,
+    const SceneLightProperties& properties) {
+    SceneObject* object = find_mutable(id);
+    if (!object || object->locked ||
+        (object->type != SceneObjectType::PointLight &&
+         object->type != SceneObjectType::DirectionalLight &&
+         object->type != SceneObjectType::SpotLight) ||
+        !properties.color.allFinite() ||
+        !std::isfinite(properties.range) ||
+        !std::isfinite(properties.spot_inner_cone_radians) ||
+        !std::isfinite(properties.spot_outer_cone_radians)) {
+        return false;
+    }
+    object->light_color = properties.color.cwiseMax(Color::Zero());
+    object->light_range = std::max(0.0f, properties.range);
+    object->spot_inner_cone_radians = std::clamp(
+        properties.spot_inner_cone_radians, 0.0f, kPi * 0.5f);
+    object->spot_outer_cone_radians = std::clamp(
+        properties.spot_outer_cone_radians,
+        object->spot_inner_cone_radians,
+        kPi * 0.5f);
+    mark_changed(SceneRevisionDomain::Lighting);
+    return true;
 }
 
 ObjectId SceneDocument::create_group(std::string name, ObjectId parent_id) {
@@ -533,8 +797,7 @@ ObjectId SceneDocument::create_group(std::string name, ObjectId parent_id) {
     object.name = std::move(name);
     object.type = SceneObjectType::Group;
     state_.objects.push_back(std::move(object));
-    render_dirty_ = true;
-    instanced_dirty_ = true;
+    mark_changed(SceneRevisionDomain::All, true);
     return state_.objects.back().id;
 }
 
@@ -544,9 +807,11 @@ ObjectId SceneDocument::create_point_light(
     const Color& intensity,
     ObjectId parent_id) {
     const ObjectId id = create_group(std::move(name), parent_id);
-    SceneObject* object = find(id);
+    SceneObject* object = find_mutable(id);
     object->type = SceneObjectType::PointLight;
-    object->transform.translation = position;
+    SceneTrs transform;
+    transform.translation = position;
+    object->transform = SceneTransform::from_trs(transform);
     object->light_color = intensity;
     return id;
 }
@@ -557,7 +822,7 @@ ObjectId SceneDocument::create_directional_light(
     const Color& radiance,
     ObjectId parent_id) {
     const ObjectId id = create_group(std::move(name), parent_id);
-    SceneObject* object = find(id);
+    SceneObject* object = find_mutable(id);
     object->type = SceneObjectType::DirectionalLight;
     object->light_color = radiance;
     const Vec3 normalized = usable_direction(direction)
@@ -566,8 +831,10 @@ ObjectId SceneDocument::create_directional_light(
     const Eigen::Quaternionf rotation =
         Eigen::Quaternionf::FromTwoVectors(Vec3(0.0f, 0.0f, -1.0f), normalized);
     const Vec3 zyx = rotation.toRotationMatrix().eulerAngles(2, 1, 0);
-    object->transform.rotation_degrees =
+    SceneTrs transform;
+    transform.rotation_degrees =
         Vec3(zyx.z(), zyx.y(), zyx.x()) * (180.0f / kPi);
+    object->transform = SceneTransform::from_trs(transform);
     return id;
 }
 
@@ -585,9 +852,11 @@ ObjectId SceneDocument::create_spot_light(
         direction,
         intensity,
         parent_id);
-    SceneObject* object = find(id);
+    SceneObject* object = find_mutable(id);
     object->type = SceneObjectType::SpotLight;
-    object->transform.translation = position;
+    SceneTrs transform = object->transform.trs().value_or(SceneTrs{});
+    transform.translation = position;
+    object->transform = SceneTransform::from_trs(transform);
     object->light_range = std::max(0.0f, range);
     object->spot_inner_cone_radians = std::max(0.0f, inner_cone_radians);
     object->spot_outer_cone_radians = std::clamp(
@@ -602,7 +871,7 @@ ObjectId SceneDocument::create_camera(
     SceneCameraProjection projection,
     ObjectId parent_id) {
     const ObjectId id = create_group(std::move(name), parent_id);
-    SceneObject* object = find(id);
+    SceneObject* object = find_mutable(id);
     object->type = SceneObjectType::Camera;
     object->camera_projection = projection;
     return id;
@@ -673,6 +942,7 @@ std::shared_ptr<SceneMeshAsset> SceneDocument::store_loaded_asset(
     asset->warnings = std::move(loaded.warnings);
     asset->material_names = std::move(loaded.material_names);
     asset->local_bounds = loaded.bounds;
+    build_picking_acceleration(asset);
     assets_.push_back(asset);
     for (const std::string& warning : asset->warnings) {
         warnings_.push_back(normalized_path.string() + ": " + warning);
@@ -700,6 +970,7 @@ ObjectId SceneDocument::import_gltf(
         asset->warnings = std::move(loaded.meshes[mesh_index].warnings);
         asset->material_names = std::move(loaded.meshes[mesh_index].material_names);
         asset->local_bounds = loaded.meshes[mesh_index].bounds;
+        build_picking_acceleration(asset);
         mesh_assets[mesh_index] = asset->id;
         for (const std::string& warning : asset->warnings) {
             warnings_.push_back(normalized.string() + ": " + warning);
@@ -716,10 +987,12 @@ ObjectId SceneDocument::import_gltf(
             ? node_objects.at(static_cast<std::size_t>(source.parent_index))
             : root;
         const ObjectId node_id = create_group(source.name, node_parent);
-        SceneObject* node = find(node_id);
-        if (!decompose_matrix(source.local_transform, node->transform)) {
+        SceneObject* node = find_mutable(node_id);
+        node->transform.local_matrix = source.local_transform;
+        if (!node->transform.valid()) {
             throw std::runtime_error(
-                "glTF node transform cannot be represented as editable TRS: " + source.name);
+                "glTF node transform is not a finite invertible affine matrix: " +
+                source.name);
         }
         node_objects.push_back(node_id);
 
@@ -734,6 +1007,7 @@ ObjectId SceneDocument::import_gltf(
             mesh.type = SceneObjectType::Mesh;
             mesh.asset_id = mesh_assets[static_cast<std::size_t>(source.mesh_index)];
             state_.objects.push_back(std::move(mesh));
+            object_index_dirty_ = true;
         }
         if (source.camera_index >= 0) {
             if (static_cast<std::size_t>(source.camera_index) >= loaded.cameras.size()) {
@@ -747,7 +1021,7 @@ ObjectId SceneDocument::import_gltf(
                     ? SceneCameraProjection::Orthographic
                     : SceneCameraProjection::Perspective,
                 node_id);
-            SceneObject* camera = find(camera_id);
+            SceneObject* camera = find_mutable(camera_id);
             camera->camera_vertical_fov_degrees =
                 camera_source.vertical_fov_radians * (180.0f / kPi);
             camera->camera_aspect_ratio = camera_source.aspect_ratio;
@@ -772,7 +1046,7 @@ ObjectId SceneDocument::import_gltf(
                     Vec3::Zero(),
                     source.light_color * source.light_intensity,
                     node_id);
-                find(light_id)->light_range = source.light_range;
+                find_mutable(light_id)->light_range = source.light_range;
                 break;
             }
             case GltfNodeAsset::LightType::Spot:
@@ -791,8 +1065,7 @@ ObjectId SceneDocument::import_gltf(
     for (const std::string& warning : loaded.warnings) {
         warnings_.push_back(normalized.string() + ": " + warning);
     }
-    render_dirty_ = true;
-    instanced_dirty_ = true;
+    mark_changed(SceneRevisionDomain::All, true);
     return root;
 }
 
@@ -809,8 +1082,7 @@ ObjectId SceneDocument::import_obj(
     object.type = SceneObjectType::Mesh;
     object.asset_id = asset->id;
     state_.objects.push_back(std::move(object));
-    render_dirty_ = true;
-    instanced_dirty_ = true;
+    mark_changed(SceneRevisionDomain::All, true);
     return state_.objects.back().id;
 }
 
@@ -828,6 +1100,8 @@ std::vector<ObjectId> SceneDocument::import_path(
     const std::size_t previous_warning_count = warnings_.size();
     const ObjectId previous_next_object_id = next_object_id_;
     const AssetId previous_next_asset_id = next_asset_id_;
+    const bool previous_uncheckpointed_changes =
+        uncheckpointed_changes_;
     try {
     std::vector<ObjectId> imported;
     if (std::filesystem::is_regular_file(normalized)) {
@@ -909,8 +1183,6 @@ std::vector<ObjectId> SceneDocument::import_path(
             Color(25.0f, 25.0f, 25.0f));
     }
     checkpoint();
-    render_dirty_ = true;
-    instanced_dirty_ = true;
     return imported;
     } catch (...) {
         state_ = previous_state;
@@ -918,8 +1190,10 @@ std::vector<ObjectId> SceneDocument::import_path(
         warnings_.resize(previous_warning_count);
         next_object_id_ = previous_next_object_id;
         next_asset_id_ = previous_next_asset_id;
-        render_dirty_ = true;
-        instanced_dirty_ = true;
+        object_index_dirty_ = true;
+        spatial_cache_dirty_ = true;
+        uncheckpointed_changes_ = previous_uncheckpointed_changes;
+        snapshot_dirty_ = true;
         throw;
     }
 }
@@ -934,6 +1208,7 @@ ObjectId SceneDocument::clone_subtree(ObjectId source_id, ObjectId parent_id) {
     copy.parent_id = parent_id;
     copy.name += " Copy";
     state_.objects.push_back(copy);
+    object_index_dirty_ = true;
     const ObjectId copy_id = copy.id;
     for (ObjectId child_id : children(source_id)) {
         clone_subtree(child_id, copy_id);
@@ -948,8 +1223,7 @@ ObjectId SceneDocument::duplicate_subtree(ObjectId id) {
     }
     const ObjectId result = clone_subtree(id, source->parent_id);
     if (result != kInvalidObjectId) {
-        render_dirty_ = true;
-        instanced_dirty_ = true;
+        mark_changed(SceneRevisionDomain::All, true);
         checkpoint();
     }
     return result;
@@ -972,8 +1246,7 @@ bool SceneDocument::erase_subtree(ObjectId id) {
     std::erase_if(state_.objects, [&remove](const SceneObject& object) {
         return remove.contains(object.id);
     });
-    render_dirty_ = true;
-    instanced_dirty_ = true;
+    mark_changed(SceneRevisionDomain::All, true);
     checkpoint();
     return true;
 }
@@ -1003,67 +1276,62 @@ bool SceneDocument::is_effectively_visible(ObjectId id) const {
 }
 
 bool SceneDocument::reparent(ObjectId id, ObjectId new_parent_id) {
-    SceneObject* object = find(id);
+    SceneObject* object = find_mutable(id);
     if (!object || id == new_parent_id ||
         (new_parent_id != kInvalidObjectId && !find(new_parent_id)) ||
         is_descendant(new_parent_id, id)) {
         return false;
     }
-    const ObjectId old_parent_id = object->parent_id;
     const Mat4 old_world = world_matrix(id);
-    object->parent_id = new_parent_id;
     const Mat4 parent_world = new_parent_id == kInvalidObjectId
         ? Mat4::Identity()
         : world_matrix(new_parent_id);
-    if (!decompose_matrix(parent_world.inverse() * old_world, object->transform)) {
-        object->parent_id = old_parent_id;
+    SceneTransform next_transform;
+    next_transform.local_matrix = parent_world.inverse() * old_world;
+    if (!next_transform.valid()) {
         return false;
     }
-    render_dirty_ = true;
-    instanced_dirty_ = true;
+    object->parent_id = new_parent_id;
+    object->transform = next_transform;
+    mark_changed(
+        SceneRevisionDomain::Topology | SceneRevisionDomain::Transforms,
+        true);
     checkpoint();
     return true;
 }
 
-bool SceneDocument::decompose_matrix(const Mat4& matrix, SceneTransform& transform) {
-    if (!matrix.allFinite()) {
-        return false;
-    }
-    transform.translation = matrix.topRightCorner<3, 1>();
-    Mat3 linear = matrix.topLeftCorner<3, 3>();
-    transform.scale = Vec3(
-        linear.col(0).norm(),
-        linear.col(1).norm(),
-        linear.col(2).norm());
-    if ((transform.scale.array() < kMinimumScale).any()) {
-        return false;
-    }
-    if (linear.determinant() < 0.0f) {
-        transform.scale.x() = -transform.scale.x();
-    }
-    Mat3 rotation = linear;
-    for (int axis = 0; axis < 3; ++axis) {
-        rotation.col(axis) /= transform.scale[axis];
-    }
-    const Vec3 zyx = rotation.eulerAngles(2, 1, 0);
-    transform.rotation_degrees =
-        Vec3(zyx.z(), zyx.y(), zyx.x()) * (180.0f / kPi);
-    return transform.valid();
-}
-
 bool SceneDocument::set_world_matrix(ObjectId id, const Mat4& world) {
-    SceneObject* object = find(id);
+    SceneObject* object = find_mutable(id);
     if (!object || object->locked) {
         return false;
     }
     const Mat4 parent_world = object->parent_id == kInvalidObjectId
         ? Mat4::Identity()
         : world_matrix(object->parent_id);
-    if (!decompose_matrix(parent_world.inverse() * world, object->transform)) {
+    SceneTransform next_transform;
+    next_transform.local_matrix = parent_world.inverse() * world;
+    if (!next_transform.valid()) {
         return false;
     }
-    render_dirty_ = true;
-    instanced_dirty_ = true;
+    object->transform = next_transform;
+    mark_changed(
+        SceneRevisionDomain::Transforms | SceneRevisionDomain::Lighting);
+    return true;
+}
+
+std::optional<SceneTrs> SceneDocument::local_trs(ObjectId id) const {
+    const SceneObject* object = find(id);
+    return object ? object->transform.trs() : std::nullopt;
+}
+
+bool SceneDocument::set_local_trs(ObjectId id, const SceneTrs& trs) {
+    SceneObject* object = find_mutable(id);
+    if (!object || object->locked || !trs.valid()) {
+        return false;
+    }
+    object->transform = SceneTransform::from_trs(trs);
+    mark_changed(
+        SceneRevisionDomain::Transforms | SceneRevisionDomain::Lighting);
     return true;
 }
 
@@ -1102,7 +1370,7 @@ std::optional<SceneMaterialOverride> SceneDocument::material_properties(
 bool SceneDocument::set_material_override(
     ObjectId id,
     const SceneMaterialOverride& material_override_value) {
-    SceneObject* object = find(id);
+    SceneObject* object = find_mutable(id);
     const auto asset = object ? find_asset(object->asset_id) : nullptr;
     if (!object ||
         object->type != SceneObjectType::Mesh ||
@@ -1131,15 +1399,17 @@ bool SceneDocument::set_material_override(
     } else {
         *found = material_override_value;
     }
-    render_dirty_ = true;
-    instanced_dirty_ = true;
+    mark_changed(
+        SceneRevisionDomain::MaterialBindings |
+        SceneRevisionDomain::Materials |
+        SceneRevisionDomain::Textures);
     return true;
 }
 
 bool SceneDocument::clear_material_override(
     ObjectId id,
     std::size_t material_slot) {
-    SceneObject* object = find(id);
+    SceneObject* object = find_mutable(id);
     if (!object ||
         object->type != SceneObjectType::Mesh ||
         object->locked) {
@@ -1154,53 +1424,116 @@ bool SceneDocument::clear_material_override(
     if (object->material_overrides.size() == previous_size) {
         return false;
     }
-    render_dirty_ = true;
-    instanced_dirty_ = true;
+    mark_changed(
+        SceneRevisionDomain::MaterialBindings |
+        SceneRevisionDomain::Materials |
+        SceneRevisionDomain::Textures);
     return true;
 }
 
-Mat4 SceneDocument::world_matrix_recursive(ObjectId id, int depth) const {
-    if (depth > kMaximumHierarchyDepth) {
-        throw std::runtime_error("scene hierarchy exceeds maximum depth");
+void SceneDocument::rebuild_spatial_cache() const {
+    if (object_index_dirty_ || object_indices_.size() != state_.objects.size()) {
+        rebuild_object_index();
     }
-    const SceneObject* object = find(id);
-    if (!object) {
-        return Mat4::Identity();
+    world_matrices_.clear();
+    world_bounds_.clear();
+    world_matrices_.reserve(state_.objects.size());
+    world_bounds_.reserve(state_.objects.size());
+
+    std::vector<ObjectId> topology;
+    topology.reserve(state_.objects.size());
+    std::vector<ObjectId> stack;
+    const auto roots = children(kInvalidObjectId);
+    stack.insert(stack.end(), roots.rbegin(), roots.rend());
+    while (!stack.empty()) {
+        const ObjectId id = stack.back();
+        stack.pop_back();
+        const SceneObject* object = find(id);
+        if (!object) {
+            continue;
+        }
+        const Mat4 parent_world = object->parent_id == kInvalidObjectId
+            ? Mat4::Identity()
+            : world_matrices_.at(object->parent_id);
+        world_matrices_[id] = parent_world * object->transform.matrix();
+        topology.push_back(id);
+        const auto descendants = children(id);
+        stack.insert(stack.end(), descendants.rbegin(), descendants.rend());
+        if (topology.size() > state_.objects.size()) {
+            throw std::runtime_error("scene hierarchy contains a cycle");
+        }
     }
-    const Mat4 local = object->transform.matrix();
-    return object->parent_id == kInvalidObjectId
-        ? local
-        : world_matrix_recursive(object->parent_id, depth + 1) * local;
+    if (topology.size() != state_.objects.size()) {
+        throw std::runtime_error("scene hierarchy contains an orphan or cycle");
+    }
+
+    for (ObjectId id : topology) {
+        Bounds3 bounds;
+        const SceneObject* object = find(id);
+        if (object && object->type == SceneObjectType::Mesh) {
+            const auto asset = find_asset(object->asset_id);
+            if (asset && finite_bounds(asset->local_bounds)) {
+                bounds.expand(transform_bounds(
+                    asset->local_bounds,
+                    world_matrices_.at(id)));
+            }
+        }
+        world_bounds_.emplace(id, bounds);
+    }
+    for (auto iterator = topology.rbegin(); iterator != topology.rend(); ++iterator) {
+        const SceneObject* object = find(*iterator);
+        if (!object || object->parent_id == kInvalidObjectId) {
+            continue;
+        }
+        const Bounds3 bounds = world_bounds_.at(*iterator);
+        if (finite_bounds(bounds)) {
+            world_bounds_.at(object->parent_id).expand(bounds);
+        }
+    }
+    spatial_cache_dirty_ = false;
+}
+
+Mat4 SceneDocument::world_matrix_recursive(ObjectId id, int) const {
+    return world_matrix(id);
 }
 
 Mat4 SceneDocument::world_matrix(ObjectId id) const {
-    return world_matrix_recursive(id, 0);
+    if (spatial_cache_dirty_) {
+        rebuild_spatial_cache();
+    }
+    const auto found = world_matrices_.find(id);
+    return found == world_matrices_.end() ? Mat4::Identity() : found->second;
 }
 
 Bounds3 SceneDocument::world_bounds(ObjectId id) const {
-    Bounds3 result;
-    const SceneObject* object = find(id);
-    if (!object) {
-        return result;
+    if (spatial_cache_dirty_) {
+        rebuild_spatial_cache();
     }
-    if (object->type == SceneObjectType::Mesh) {
-        const auto asset = find_asset(object->asset_id);
-        if (asset && finite_bounds(asset->local_bounds)) {
-            result.expand(transform_bounds(asset->local_bounds, world_matrix(id)));
-        }
-    }
-    for (ObjectId child : children(id)) {
-        const Bounds3 child_bounds = world_bounds(child);
-        if (finite_bounds(child_bounds)) {
-            result.expand(child_bounds);
-        }
-    }
-    return result;
+    const auto found = world_bounds_.find(id);
+    return found == world_bounds_.end() ? Bounds3() : found->second;
 }
 
 Bounds3 SceneDocument::scene_bounds() const {
-    ensure_render_scene();
-    return render_bounds_;
+    if (spatial_cache_dirty_) {
+        rebuild_spatial_cache();
+    }
+    Bounds3 bounds;
+    for (const SceneObject& object : state_.objects) {
+        if (object.type != SceneObjectType::Mesh ||
+            !is_effectively_visible(object.id)) {
+            continue;
+        }
+        const auto found = world_bounds_.find(object.id);
+        if (found != world_bounds_.end() && finite_bounds(found->second)) {
+            bounds.expand(found->second);
+        }
+    }
+    if (!finite_bounds(bounds)) {
+        return Bounds3(
+            Vec3(-0.5f, -0.5f, -0.5f),
+            Vec3(0.5f, 0.5f, 0.5f));
+    }
+    return bounds;
 }
 
 std::optional<ScenePickResult> SceneDocument::pick(const Ray& ray) const {
@@ -1220,46 +1553,38 @@ std::optional<ScenePickResult> SceneDocument::pick(const Ray& ray) const {
         const Vec4 direction4 = inverse * Vec4(
             ray.direction.x(), ray.direction.y(), ray.direction.z(), 0.0f);
         const Ray local_ray(local_origin, direction4.head<3>());
-        for (const Triangle& triangle : asset->local_scene.triangles) {
-            HitRecord hit;
-            if (triangle.intersect(
-                    local_ray,
-                    0.0f,
-                    best ? best->distance : std::numeric_limits<float>::infinity(),
-                    hit)) {
-                best = ScenePickResult{object.id, hit.t};
-            }
+        if (!asset->picking_intersector) {
+            continue;
+        }
+        HitRecord hit;
+        if (asset->picking_intersector->intersect(
+                local_ray,
+                0.0f,
+                best ? best->distance : std::numeric_limits<float>::infinity(),
+                hit)) {
+            best = ScenePickResult{object.id, hit.t};
         }
     }
     return best;
 }
 
-void SceneDocument::ensure_render_scene() const {
-    if (render_dirty_) {
-        const_cast<SceneDocument*>(this)->rebuild_render_scene();
-    }
-}
-
-const Scene& SceneDocument::render_scene() const {
-    ensure_render_scene();
-    return render_scene_;
-}
-
-void SceneDocument::ensure_instanced_scene() const {
-    if (!instanced_dirty_) {
+void SceneDocument::ensure_render_scene_snapshot() const {
+    if (!snapshot_dirty_) {
         return;
     }
 
-    InstancedSceneView result;
+    RenderSceneSnapshot result;
+    result.revisions = revisions_;
     result.environment = state_.environment;
     result.environment_map = state_.environment_map;
     result.environment_intensity = state_.environment_intensity;
     result.environment_rotation_degrees = state_.environment_rotation_degrees;
     result.environment_background_visible = state_.environment_background_visible;
-    result.assets.reserve(assets_.size());
+    result.assets.reserve(assets_.size() + 1);
     result.instances.reserve(state_.objects.size());
     std::unordered_map<AssetId, int> asset_indices;
     std::unordered_map<AssetId, std::vector<int>> texture_remaps;
+    bool has_procedural_spheres = false;
 
     for (const SceneObject& object : state_.objects) {
         if (object.type != SceneObjectType::Mesh) {
@@ -1270,17 +1595,66 @@ void SceneDocument::ensure_instanced_scene() const {
             asset_indices.contains(asset->id)) {
             continue;
         }
-        const int asset_index =
-            static_cast<int>(result.assets.size());
-        asset_indices.emplace(asset->id, asset_index);
+        asset_indices.emplace(asset->id, -1);
+        has_procedural_spheres = has_procedural_spheres ||
+            !asset->procedural_spheres.empty();
         texture_remaps.emplace(
             asset->id,
-            append_unique_textures(result.textures, asset->local_scene.textures));
-        result.assets.push_back(
-            InstancedSceneAssetView{
-                asset->id,
-                &asset->local_scene,
-                asset->local_bounds});
+            append_unique_textures(
+                result.textures,
+                asset->local_scene.textures));
+        const std::shared_ptr<const Scene> render_geometry =
+            asset->render_geometry
+            ? asset->render_geometry
+            : std::shared_ptr<const Scene>(asset, &asset->local_scene);
+        if (render_geometry->spheres.empty() &&
+            render_geometry->triangles.empty()) {
+            continue;
+        }
+        const int asset_index =
+            static_cast<int>(result.assets.size());
+        asset_indices[asset->id] = asset_index;
+        RenderSceneAssetSnapshot asset_view;
+        asset_view.asset_id = asset->id;
+        asset_view.geometry_revision = asset->geometry_revision;
+        asset_view.local_scene = render_geometry;
+        asset_view.sphere_material_slots.reserve(
+            render_geometry->spheres.size());
+        for (const Sphere& sphere : render_geometry->spheres) {
+            asset_view.local_bounds.expand(sphere.bounds());
+            asset_view.sphere_material_slots.push_back(
+                validated_material_slot(
+                    sphere.material_id(),
+                    asset->local_scene.materials.size()));
+        }
+        asset_view.triangle_material_slots.reserve(
+            render_geometry->triangles.size());
+        for (const Triangle& triangle : render_geometry->triangles) {
+            asset_view.local_bounds.expand(triangle.bounds());
+            asset_view.triangle_material_slots.push_back(
+                validated_material_slot(
+                    triangle.material_id(),
+                    asset->local_scene.materials.size()));
+        }
+        result.assets.push_back(std::move(asset_view));
+    }
+
+    int unit_sphere_asset_index = -1;
+    if (has_procedural_spheres) {
+        const auto& unit_geometry = canonical_unit_sphere_geometry();
+        RenderSceneAssetSnapshot sphere_asset;
+        sphere_asset.asset_id = std::numeric_limits<AssetId>::max();
+        sphere_asset.geometry_revision = 1;
+        sphere_asset.local_scene = unit_geometry;
+        sphere_asset.local_bounds = Bounds3(
+            -Vec3::Ones(),
+            Vec3::Ones());
+        sphere_asset.triangle_material_slots.assign(
+            unit_geometry->triangles.size(),
+            MaterialSlot::bound(0));
+        unit_sphere_asset_index =
+            static_cast<int>(result.assets.size());
+        result.assets.push_back(std::move(sphere_asset));
     }
 
     for (const SceneObject& object : state_.objects) {
@@ -1323,197 +1697,112 @@ void SceneDocument::ensure_instanced_scene() const {
         if (!asset) {
             continue;
         }
-        const int asset_index =
-            asset_indices.at(asset->id);
-
-        InstancedSceneInstanceView instance;
-        instance.object_id = object.id;
-        instance.asset_index = asset_index;
-        instance.object_to_world = world;
-        instance.world_to_object = world.inverse();
-        instance.normal_to_world =
-            world.topLeftCorner<3, 3>().inverse().transpose();
-        instance.world_bounds =
-            transform_bounds(asset->local_bounds, world);
-        instance.materials = asset->local_scene.materials;
-        for (Material& material : instance.materials) {
-            remap_material_textures(material, texture_remaps.at(asset->id));
-        }
-        for (const SceneMaterialOverride& material_override :
-             object.material_overrides) {
-            if (material_override.material_slot >=
-                instance.materials.size()) {
-                continue;
+        const int asset_index = asset_indices.at(asset->id);
+        if (asset_index >= 0) {
+            RenderSceneInstanceSnapshot instance;
+            instance.object_id = object.id;
+            instance.asset_index = asset_index;
+            instance.object_to_world = world;
+            instance.world_to_object = world.inverse();
+            instance.normal_to_world =
+                world.topLeftCorner<3, 3>().inverse().transpose();
+            instance.world_bounds = transform_bounds(
+                result.assets[static_cast<std::size_t>(asset_index)]
+                    .local_bounds,
+                world);
+            instance.materials = asset->local_scene.materials;
+            for (Material& material : instance.materials) {
+                remap_material_textures(
+                    material,
+                    texture_remaps.at(asset->id));
             }
-            apply_material_override(
-                instance.materials[material_override.material_slot],
-                material_override);
+            for (const SceneMaterialOverride& material_override :
+                 object.material_overrides) {
+                if (material_override.material_slot >=
+                    instance.materials.size()) {
+                    continue;
+                }
+                apply_material_override(
+                    instance.materials[material_override.material_slot],
+                    material_override);
+            }
+            result.instances.push_back(std::move(instance));
         }
-        result.instances.push_back(std::move(instance));
+
+        for (const Sphere& sphere : asset->procedural_spheres) {
+            if (unit_sphere_asset_index < 0) {
+                throw std::logic_error(
+                    "procedural sphere asset is missing canonical geometry");
+            }
+            const MaterialSlot material_slot = validated_material_slot(
+                sphere.material_id(),
+                asset->local_scene.materials.size());
+            Material material = diagnostic_material();
+            if (material_slot.has_value()) {
+                material = asset->local_scene.materials[material_slot.value()];
+                remap_material_textures(
+                    material,
+                    texture_remaps.at(asset->id));
+                const auto material_override = std::find_if(
+                    object.material_overrides.begin(),
+                    object.material_overrides.end(),
+                    [&material_slot](const SceneMaterialOverride& candidate) {
+                        return candidate.material_slot == material_slot.value();
+                    });
+                if (material_override != object.material_overrides.end()) {
+                    apply_material_override(material, *material_override);
+                }
+            }
+
+            Mat4 local_sphere = Mat4::Identity();
+            local_sphere.topLeftCorner<3, 3>() *= sphere.radius();
+            local_sphere.topRightCorner<3, 1>() = sphere.center();
+            RenderSceneInstanceSnapshot instance;
+            instance.object_id = object.id;
+            instance.asset_index = unit_sphere_asset_index;
+            instance.object_to_world = world * local_sphere;
+            instance.world_to_object = instance.object_to_world.inverse();
+            instance.normal_to_world = instance.object_to_world
+                .topLeftCorner<3, 3>()
+                .inverse()
+                .transpose();
+            instance.world_bounds = transform_bounds(
+                result.assets[
+                    static_cast<std::size_t>(unit_sphere_asset_index)]
+                    .local_bounds,
+                instance.object_to_world);
+            instance.materials.push_back(std::move(material));
+            result.instances.push_back(std::move(instance));
+        }
     }
 
-    instanced_scene_ = std::move(result);
-    instanced_dirty_ = false;
+    render_scene_snapshot_ = std::move(result);
+    snapshot_dirty_ = false;
 }
 
-const InstancedSceneView& SceneDocument::instanced_render_scene() const {
-    ensure_instanced_scene();
-    return instanced_scene_;
+const RenderSceneSnapshot& SceneDocument::render_scene_snapshot() const {
+    ensure_render_scene_snapshot();
+    return render_scene_snapshot_;
 }
 
-bool SceneDocument::rebuild_render_scene() {
-    Scene result;
-    result.environment = state_.environment;
-    result.environment_map = state_.environment_map;
-    result.environment_intensity = state_.environment_intensity;
-    result.environment_rotation_degrees = state_.environment_rotation_degrees;
-    result.environment_background_visible = state_.environment_background_visible;
-    Bounds3 bounds;
-    std::unordered_map<AssetId, std::vector<int>> texture_remaps;
-    std::unordered_map<AssetId, int> default_material_bases;
-
-    const auto ensure_texture_remap =
-        [&result, &texture_remaps](const SceneMeshAsset& asset) -> const std::vector<int>& {
-            const auto found = texture_remaps.find(asset.id);
-            if (found != texture_remaps.end()) {
-                return found->second;
-            }
-            return texture_remaps.emplace(
-                asset.id,
-                append_unique_textures(result.textures, asset.local_scene.textures)).first->second;
-        };
-    const auto append_materials =
-        [&result](
-            const SceneMeshAsset& asset,
-            const SceneObject* object,
-            const std::vector<int>& texture_remap) {
-            const int material_base = static_cast<int>(result.materials.size());
-            for (std::size_t index = 0;
-                 index < asset.local_scene.materials.size();
-                 ++index) {
-                Material material = asset.local_scene.materials[index];
-                if (object) {
-                    const auto found = std::find_if(
-                        object->material_overrides.begin(),
-                        object->material_overrides.end(),
-                        [index](const SceneMaterialOverride& candidate) {
-                            return candidate.material_slot == index;
-                        });
-                    if (found != object->material_overrides.end()) {
-                        apply_material_override(material, *found);
-                    }
-                }
-                remap_material_textures(material, texture_remap);
-                result.materials.push_back(material);
-            }
-            return material_base;
-        };
-
-    for (const SceneObject& object : state_.objects) {
-        if (!is_effectively_visible(object.id) ||
-            object.type != SceneObjectType::Mesh) {
-            continue;
-        }
-        const auto asset = find_asset(object.asset_id);
-        if (!asset) {
-            continue;
-        }
-        const std::vector<int>& texture_remap = ensure_texture_remap(*asset);
-        int material_base = 0;
-        if (object.material_overrides.empty()) {
-            const auto found = default_material_bases.find(asset->id);
-            if (found == default_material_bases.end()) {
-                material_base = append_materials(*asset, nullptr, texture_remap);
-                default_material_bases.emplace(asset->id, material_base);
-            } else {
-                material_base = found->second;
-            }
-        } else {
-            material_base = append_materials(*asset, &object, texture_remap);
-        }
-
-        const Mat4 world = world_matrix(object.id);
-        const Mat3 linear = world.topLeftCorner<3, 3>();
-        const Mat3 normal_matrix = linear.inverse().transpose();
-        const float orientation_sign = linear.determinant() < 0.0f ? -1.0f : 1.0f;
-        for (const Triangle& triangle : asset->local_scene.triangles) {
-            TriangleVertex vertices[3];
-            for (int index = 0; index < 3; ++index) {
-                const TriangleVertex& source = triangle.vertex(index);
-                vertices[index] = source;
-                vertices[index].position = transform_point(world, source.position);
-                if (source.has_normal) {
-                    vertices[index].normal = (normal_matrix * source.normal).normalized();
-                }
-                if (source.has_tangent) {
-                    const Vec3 transformed_tangent = linear * source.tangent.head<3>();
-                    vertices[index].has_tangent = usable_direction(transformed_tangent);
-                    vertices[index].tangent = vertices[index].has_tangent
-                        ? Vec4(
-                              transformed_tangent.normalized().x(),
-                              transformed_tangent.normalized().y(),
-                              transformed_tangent.normalized().z(),
-                              source.tangent.w() * orientation_sign)
-                        : Vec4::Zero();
-                }
-                bounds.expand(vertices[index].position);
-            }
-            result.triangles.emplace_back(
-                vertices[0],
-                vertices[1],
-                vertices[2],
-                material_base + triangle.material_id());
-        }
-    }
-
-    for (const SceneObject& object : state_.objects) {
-        if (!is_effectively_visible(object.id)) {
-            continue;
-        }
-        const Mat4 world = world_matrix(object.id);
-        if (object.type == SceneObjectType::PointLight) {
-            result.point_lights.push_back(
-                PointLight{
-                    transform_point(world, Vec3::Zero()),
-                    object.light_color,
-                    object.light_range});
-        } else if (object.type == SceneObjectType::DirectionalLight) {
-            const Vec3 direction =
-                (world.topLeftCorner<3, 3>() * Vec3(0.0f, 0.0f, -1.0f)).normalized();
-            result.directional_lights.push_back(
-                DirectionalLight{direction, object.light_color});
-        } else if (object.type == SceneObjectType::SpotLight) {
-            const Vec3 direction =
-                (world.topLeftCorner<3, 3>() * Vec3(0.0f, 0.0f, -1.0f)).normalized();
-            result.spot_lights.push_back(SpotLight{
-                transform_point(world, Vec3::Zero()),
-                direction,
-                object.light_color,
-                object.light_range,
-                object.spot_inner_cone_radians,
-                object.spot_outer_cone_radians});
-        }
-    }
-
-    if (!finite_bounds(bounds)) {
-        bounds = Bounds3(
-            Vec3(-0.5f, -0.5f, -0.5f),
-            Vec3(0.5f, 0.5f, 0.5f));
-    }
-    render_scene_ = std::move(result);
-    render_bounds_ = bounds;
-    render_dirty_ = false;
-    return true;
-}
-
-Color& SceneDocument::environment() {
-    render_dirty_ = true;
-    instanced_dirty_ = true;
-    return state_.environment;
+const SceneRevisions& SceneDocument::revisions() const {
+    return revisions_;
 }
 
 const Color& SceneDocument::environment() const {
     return state_.environment;
+}
+
+void SceneDocument::set_environment(Color color) {
+    if (!color.allFinite()) {
+        return;
+    }
+    color = color.cwiseMax(Color::Zero());
+    if (state_.environment.isApprox(color, 0.0f)) {
+        return;
+    }
+    state_.environment = color;
+    mark_changed(SceneRevisionDomain::Environment);
 }
 
 void SceneDocument::set_environment_map(const std::filesystem::path& path) {
@@ -1523,15 +1812,15 @@ void SceneDocument::set_environment_map(const std::filesystem::path& path) {
     }
     state_.environment_map = loaded;
     state_.environment_path = loaded->source_path();
-    render_dirty_ = true;
-    instanced_dirty_ = true;
+    mark_changed(
+        SceneRevisionDomain::Environment | SceneRevisionDomain::Textures);
 }
 
 void SceneDocument::clear_environment_map() {
     state_.environment_map.reset();
     state_.environment_path.clear();
-    render_dirty_ = true;
-    instanced_dirty_ = true;
+    mark_changed(
+        SceneRevisionDomain::Environment | SceneRevisionDomain::Textures);
 }
 
 const std::shared_ptr<const EnvironmentMap>& SceneDocument::environment_map() const {
@@ -1542,40 +1831,187 @@ const std::filesystem::path& SceneDocument::environment_path() const {
     return state_.environment_path;
 }
 
-float& SceneDocument::environment_intensity() {
-    render_dirty_ = true;
-    instanced_dirty_ = true;
-    return state_.environment_intensity;
-}
-
 float SceneDocument::environment_intensity() const {
     return state_.environment_intensity;
 }
 
-float& SceneDocument::environment_rotation_degrees() {
-    render_dirty_ = true;
-    instanced_dirty_ = true;
-    return state_.environment_rotation_degrees;
+void SceneDocument::set_environment_intensity(float intensity) {
+    if (!std::isfinite(intensity)) {
+        return;
+    }
+    intensity = std::max(0.0f, intensity);
+    if (state_.environment_intensity == intensity) {
+        return;
+    }
+    state_.environment_intensity = intensity;
+    mark_changed(SceneRevisionDomain::Environment);
 }
 
 float SceneDocument::environment_rotation_degrees() const {
     return state_.environment_rotation_degrees;
 }
 
-bool& SceneDocument::environment_background_visible() {
-    render_dirty_ = true;
-    instanced_dirty_ = true;
-    return state_.environment_background_visible;
+void SceneDocument::set_environment_rotation_degrees(float rotation_degrees) {
+    if (!std::isfinite(rotation_degrees) ||
+        state_.environment_rotation_degrees == rotation_degrees) {
+        return;
+    }
+    state_.environment_rotation_degrees = rotation_degrees;
+    mark_changed(SceneRevisionDomain::Environment);
 }
 
 bool SceneDocument::environment_background_visible() const {
     return state_.environment_background_visible;
 }
 
+void SceneDocument::set_environment_background_visible(bool visible) {
+    if (state_.environment_background_visible == visible) {
+        return;
+    }
+    state_.environment_background_visible = visible;
+    mark_changed(SceneRevisionDomain::Environment);
+}
+
+struct SceneEditTransaction::Backup {
+    SceneDocument::State state;
+    std::vector<std::shared_ptr<SceneMeshAsset>> assets;
+    ObjectId next_object_id = 1;
+    AssetId next_asset_id = 1;
+    std::vector<SceneDocument::State> history;
+    std::size_t history_cursor = 0;
+    std::optional<std::size_t> saved_cursor;
+    bool uncheckpointed_changes = false;
+    std::filesystem::path file_path;
+    std::vector<std::string> warnings;
+    std::string last_checkpoint_merge_key;
+};
+
+SceneEditTransaction::SceneEditTransaction(
+    SceneDocument& document,
+    std::string merge_key)
+    : document_(&document),
+      backup_(std::make_unique<Backup>()),
+      merge_key_(std::move(merge_key)) {
+    if (document.edit_transaction_active_) {
+        throw std::logic_error("nested scene edit transactions are not supported");
+    }
+    backup_->state = document.state_;
+    backup_->assets = document.assets_;
+    backup_->next_object_id = document.next_object_id_;
+    backup_->next_asset_id = document.next_asset_id_;
+    backup_->history = document.history_;
+    backup_->history_cursor = document.history_cursor_;
+    backup_->saved_cursor = document.saved_cursor_;
+    backup_->uncheckpointed_changes = document.uncheckpointed_changes_;
+    backup_->file_path = document.file_path_;
+    backup_->warnings = document.warnings_;
+    backup_->last_checkpoint_merge_key =
+        document.last_checkpoint_merge_key_;
+    document.edit_transaction_active_ = true;
+}
+
+SceneEditTransaction::SceneEditTransaction(
+    SceneEditTransaction&& other) noexcept
+    : document_(std::exchange(other.document_, nullptr)),
+      backup_(std::move(other.backup_)),
+      merge_key_(std::move(other.merge_key_)) {}
+
+SceneEditTransaction& SceneEditTransaction::operator=(
+    SceneEditTransaction&& other) noexcept {
+    if (this == &other) {
+        return *this;
+    }
+    cancel();
+    document_ = std::exchange(other.document_, nullptr);
+    backup_ = std::move(other.backup_);
+    merge_key_ = std::move(other.merge_key_);
+    return *this;
+}
+
+SceneEditTransaction::~SceneEditTransaction() {
+    cancel();
+}
+
+bool SceneEditTransaction::active() const {
+    return document_ != nullptr;
+}
+
+void SceneEditTransaction::commit() {
+    if (!document_) {
+        return;
+    }
+    SceneDocument& document = *document_;
+    document.edit_transaction_active_ = false;
+    const bool changed = document.uncheckpointed_changes_;
+    const bool can_merge =
+        changed &&
+        !merge_key_.empty() &&
+        merge_key_ == document.last_checkpoint_merge_key_ &&
+        document.history_cursor_ > 0 &&
+        document.history_cursor_ + 1 == document.history_.size();
+    if (can_merge) {
+        if (document.saved_cursor_ &&
+            *document.saved_cursor_ == document.history_cursor_) {
+            document.saved_cursor_.reset();
+        }
+        document.history_[document.history_cursor_] = document.state_;
+        document.uncheckpointed_changes_ = false;
+    } else {
+        document.checkpoint();
+    }
+    if (changed) {
+        document.last_checkpoint_merge_key_ = merge_key_;
+    }
+    document_ = nullptr;
+    backup_.reset();
+}
+
+void SceneEditTransaction::cancel() {
+    if (!document_) {
+        return;
+    }
+    SceneDocument& document = *document_;
+    document.state_ = std::move(backup_->state);
+    document.assets_ = std::move(backup_->assets);
+    document.next_object_id_ = backup_->next_object_id;
+    document.next_asset_id_ = backup_->next_asset_id;
+    document.history_ = std::move(backup_->history);
+    document.history_cursor_ = backup_->history_cursor;
+    document.saved_cursor_ = backup_->saved_cursor;
+    document.uncheckpointed_changes_ =
+        backup_->uncheckpointed_changes;
+    document.file_path_ = std::move(backup_->file_path);
+    document.warnings_ = std::move(backup_->warnings);
+    document.last_checkpoint_merge_key_ =
+        std::move(backup_->last_checkpoint_merge_key);
+    document.edit_transaction_active_ = false;
+    document.object_index_dirty_ = true;
+    document.spatial_cache_dirty_ = true;
+    document.snapshot_dirty_ = true;
+    advance_scene_revisions(
+        document.revisions_,
+        SceneRevisionDomain::All);
+    document_ = nullptr;
+    backup_.reset();
+}
+
+SceneEditTransaction SceneDocument::begin_edit(
+    std::string merge_key) {
+    return SceneEditTransaction(*this, std::move(merge_key));
+}
+
 void SceneDocument::checkpoint() {
+    if (edit_transaction_active_) {
+        return;
+    }
+    last_checkpoint_merge_key_.clear();
     if (history_.empty()) {
         history_.push_back(state_);
         history_cursor_ = 0;
+        uncheckpointed_changes_ = false;
+        return;
+    }
+    if (!uncheckpointed_changes_) {
         return;
     }
     if (history_cursor_ + 1 < history_.size()) {
@@ -1586,6 +2022,7 @@ void SceneDocument::checkpoint() {
     }
     history_.push_back(state_);
     history_cursor_ = history_.size() - 1;
+    uncheckpointed_changes_ = false;
     if (history_.size() > kMaximumHistory) {
         history_.erase(history_.begin());
         --history_cursor_;
@@ -1604,8 +2041,11 @@ bool SceneDocument::undo() {
         return false;
     }
     state_ = history_[--history_cursor_];
-    render_dirty_ = true;
-    instanced_dirty_ = true;
+    object_index_dirty_ = true;
+    spatial_cache_dirty_ = true;
+    uncheckpointed_changes_ = false;
+    advance_scene_revisions(revisions_, SceneRevisionDomain::All);
+    snapshot_dirty_ = true;
     return true;
 }
 
@@ -1614,8 +2054,11 @@ bool SceneDocument::redo() {
         return false;
     }
     state_ = history_[++history_cursor_];
-    render_dirty_ = true;
-    instanced_dirty_ = true;
+    object_index_dirty_ = true;
+    spatial_cache_dirty_ = true;
+    uncheckpointed_changes_ = false;
+    advance_scene_revisions(revisions_, SceneRevisionDomain::All);
+    snapshot_dirty_ = true;
     return true;
 }
 
@@ -1628,10 +2071,12 @@ bool SceneDocument::can_redo() const {
 }
 
 bool SceneDocument::dirty() const {
-    return !saved_cursor_ || history_cursor_ != *saved_cursor_;
+    return uncheckpointed_changes_ || !saved_cursor_ ||
+        history_cursor_ != *saved_cursor_;
 }
 
 void SceneDocument::mark_saved() {
+    checkpoint();
     saved_cursor_ = history_cursor_;
 }
 
@@ -1662,7 +2107,7 @@ nlohmann::json SceneDocument::serialize_document(
         }
     }
     nlohmann::json root;
-    root["version"] = 3;
+    root["version"] = 4;
     nlohmann::json environment{
         {"color", vec3_json(state_.environment)},
         {"intensity", state_.environment_intensity},
@@ -1736,9 +2181,7 @@ nlohmann::json SceneDocument::serialize_document(
             {"parent", object.parent_id},
             {"name", object.name},
             {"type", object_type_name(object.type)},
-            {"translation", vec3_json(object.transform.translation)},
-            {"rotation_degrees", vec3_json(object.transform.rotation_degrees)},
-            {"scale", vec3_json(object.transform.scale)},
+            {"local_matrix", matrix_json(object.transform.matrix())},
             {"visible", object.visible},
             {"locked", object.locked},
             {"asset", object.asset_id},
@@ -1800,26 +2243,7 @@ void SceneDocument::save(const std::filesystem::path& path) {
     const std::filesystem::path absolute_path = normalized_absolute(path);
     const nlohmann::json root =
         serialize_document(absolute_path.parent_path(), false);
-    const std::filesystem::path temporary = absolute_path.string() + ".tmp";
-    std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-    if (!output) {
-        throw std::runtime_error("failed to open scene file for writing: " + temporary.string());
-    }
-    output << root.dump(2) << '\n';
-    output.close();
-    if (!output) {
-        throw std::runtime_error("failed to write scene file: " + temporary.string());
-    }
-    std::error_code error;
-    std::filesystem::rename(temporary, absolute_path, error);
-    if (error) {
-        std::filesystem::remove(absolute_path, error);
-        error.clear();
-        std::filesystem::rename(temporary, absolute_path, error);
-    }
-    if (error) {
-        throw std::runtime_error("failed to replace scene file: " + error.message());
-    }
+    write_file_atomically(absolute_path, root.dump(2) + '\n');
     file_path_ = absolute_path;
     mark_saved();
 }
@@ -1837,6 +2261,7 @@ void SceneDocument::restore_file_state(
     if (dirty_value) {
         saved_cursor_.reset();
     } else {
+        checkpoint();
         saved_cursor_ = history_cursor_;
     }
 }
@@ -1848,7 +2273,7 @@ SceneDocument SceneDocument::deserialize_document(
     int height,
     bool session_snapshot) {
     const int version = root.value("version", 0);
-    if (version < 1 || version > 3) {
+    if (version < 1 || version > 4) {
         throw std::runtime_error("unsupported scene file version");
     }
 
@@ -1983,6 +2408,7 @@ SceneDocument SceneDocument::deserialize_document(
                 for (const Sphere& sphere : asset->local_scene.spheres) {
                     asset->local_bounds.expand(sphere.bounds());
                 }
+                build_picking_acceleration(asset);
                 document.assets_.push_back(asset);
                 asset_ids[stored_id] = asset->id;
                 continue;
@@ -2046,10 +2472,20 @@ SceneDocument SceneDocument::deserialize_document(
         object.parent_id = object_json.value("parent", kInvalidObjectId);
         object.name = object_json.at("name").get<std::string>();
         object.type = parse_object_type(object_json.at("type").get<std::string>());
-        object.transform.translation = parse_vec3(object_json.at("translation"), "translation");
-        object.transform.rotation_degrees =
-            parse_vec3(object_json.at("rotation_degrees"), "rotation_degrees");
-        object.transform.scale = parse_vec3(object_json.at("scale"), "scale");
+        if (version >= 4) {
+            object.transform.local_matrix = parse_matrix(
+                object_json.at("local_matrix"),
+                "local_matrix");
+        } else {
+            SceneTrs legacy_transform;
+            legacy_transform.translation =
+                parse_vec3(object_json.at("translation"), "translation");
+            legacy_transform.rotation_degrees =
+                parse_vec3(object_json.at("rotation_degrees"), "rotation_degrees");
+            legacy_transform.scale =
+                parse_vec3(object_json.at("scale"), "scale");
+            object.transform = SceneTransform::from_trs(legacy_transform);
+        }
         if (!object.transform.valid()) {
             throw std::runtime_error("scene object has a singular or invalid transform");
         }
@@ -2204,8 +2640,13 @@ SceneDocument SceneDocument::deserialize_document(
     document.history_.assign(1, document.state_);
     document.history_cursor_ = 0;
     document.saved_cursor_ = 0;
-    document.render_dirty_ = true;
-    document.instanced_dirty_ = true;
+    document.uncheckpointed_changes_ = false;
+    document.object_index_dirty_ = true;
+    document.spatial_cache_dirty_ = true;
+    advance_scene_revisions(
+        document.revisions_,
+        SceneRevisionDomain::All);
+    document.snapshot_dirty_ = true;
     return document;
 }
 

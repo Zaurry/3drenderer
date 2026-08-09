@@ -18,7 +18,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <unordered_map>
 
 namespace renderer {
@@ -186,18 +185,6 @@ void draw_direction_label(
         ImVec2(minimum.x + padding.x, minimum.y + padding.y),
         IM_COL32(255, 239, 194, 255),
         text);
-}
-
-const char* backend_label(PathBackend backend) {
-    switch (backend) {
-        case PathBackend::Auto:
-            return "Auto";
-        case PathBackend::Cpu:
-            return "CPU";
-        case PathBackend::Cuda:
-            return "CUDA";
-    }
-    return "Unknown";
 }
 
 const char* tone_mapper_label(ToneMapper tone_mapper) {
@@ -422,41 +409,6 @@ void select_object(ViewerUiState& state, ObjectId id, bool additive) {
     state.active_object = id;
 }
 
-bool draw_path_backend(PathBackend& backend) {
-    bool changed = false;
-    if (!ImGui::BeginCombo("Path backend", backend_label(backend))) {
-        return false;
-    }
-
-    const auto draw_choice = [&](PathBackend choice, bool enabled) {
-        if (!enabled) {
-            ImGui::BeginDisabled();
-        }
-        const bool selected = backend == choice;
-        if (ImGui::Selectable(backend_label(choice), selected) && enabled) {
-            backend = choice;
-            changed = true;
-        }
-        if (selected) {
-            ImGui::SetItemDefaultFocus();
-        }
-        if (!enabled) {
-            ImGui::EndDisabled();
-        }
-    };
-
-    draw_choice(PathBackend::Auto, true);
-    draw_choice(PathBackend::Cpu, true);
-    std::string cuda_reason;
-    const bool cuda_available = cuda_path_backend_available(&cuda_reason);
-    draw_choice(PathBackend::Cuda, cuda_available);
-    if (!cuda_available && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip("CUDA unavailable: %s", cuda_reason.c_str());
-    }
-    ImGui::EndCombo();
-    return changed;
-}
-
 void build_default_dock_layout(ImGuiID dockspace_id, const ImGuiViewport& viewport) {
     ImGui::DockBuilderRemoveNode(dockspace_id);
     const ImGuiDockNodeFlags node_flags =
@@ -492,7 +444,6 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                const Bounds3& bounds,
                                const FrameRateSnapshot& performance,
                                int accumulated_path_samples,
-                               ExecutionBackend active_path_backend,
                                const CudaOpenGlInteropUiState& interop_state,
                                const CudaPathStatistics& cuda_statistics,
                                OpenGlShaderUiState& shader_state,
@@ -609,8 +560,8 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         RenderModeCapability::Progressive)) {
                     ImGui::Text("%d spp  |  %s",
                                 accumulated_path_samples,
-                                active_path_backend == ExecutionBackend::Cuda ? "CUDA" : "CPU");
-                    if (active_path_backend == ExecutionBackend::Cuda) {
+                                "CUDA");
+                    {
                         ImGui::Text("CUDA/OpenGL interop: %s", interop_state.status.c_str());
                         if (!interop_state.detail.empty()) {
                             ImGui::TextWrapped("%s", interop_state.detail.c_str());
@@ -714,15 +665,34 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 const RenderModeDescriptor& active_mode =
                     render_mode_descriptor(state.mode);
                 if (ImGui::BeginCombo("Mode", active_mode.label)) {
+                    std::string cuda_reason;
+                    const bool cuda_available =
+                        cuda_path_backend_available(&cuda_reason);
                     for (const RenderModeDescriptor& descriptor :
                          interactive_render_modes()) {
                         const bool selected = descriptor.mode == state.mode;
-                        if (ImGui::Selectable(descriptor.label, selected)) {
+                        const bool enabled =
+                            descriptor.mode != InteractiveRenderMode::Path ||
+                            cuda_available;
+                        if (!enabled) {
+                            ImGui::BeginDisabled();
+                        }
+                        if (ImGui::Selectable(descriptor.label, selected) && enabled) {
                             state.mode = descriptor.mode;
                             actions.mode_changed = true;
                         }
+                        if (!enabled &&
+                            ImGui::IsItemHovered(
+                                ImGuiHoveredFlags_AllowWhenDisabled)) {
+                            ImGui::SetTooltip(
+                                "CUDA Path unavailable: %s",
+                                cuda_reason.c_str());
+                        }
                         if (selected) {
                             ImGui::SetItemDefaultFocus();
+                        }
+                        if (!enabled) {
+                            ImGui::EndDisabled();
                         }
                     }
                     ImGui::EndCombo();
@@ -730,32 +700,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
 
                 if (has_capability(
                         active_capabilities,
-                        RenderModeCapability::PathBackendSelection) &&
-                    draw_path_backend(render_settings.path.backend)) {
-                    actions.path_backend_changed = true;
-                }
-                if (has_capability(
-                        active_capabilities,
-                        RenderModeCapability::PathBackendSelection) &&
-                    render_settings.path.backend != PathBackend::Cuda) {
-                    const int hardware_threads =
-                        static_cast<int>(std::max(1U, std::thread::hardware_concurrency()));
-                    ImGui::SliderInt(
-                        "CPU threads",
-                        &render_settings.path.thread_count,
-                        0,
-                        hardware_threads,
-                        "%d");
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("0 uses the hardware thread count");
-                    }
-                    ImGui::SliderInt(
-                        "Tile size",
-                        &render_settings.path.tile_size,
-                        4,
-                        64);
-                }
-                if (active_path_backend == ExecutionBackend::Cuda &&
+                        RenderModeCapability::Progressive) &&
                     ImGui::Checkbox(
                         "Auto interaction quality",
                         &state.automatic_interaction_quality)) {
@@ -763,7 +708,8 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 }
                 if (has_capability(
                         active_capabilities,
-                        RenderModeCapability::PathBackendSelection)) {
+                        RenderModeCapability::Progressive)) {
+                    ImGui::Text("CUDA device: %d", render_settings.path.cuda_device);
                     if (ImGui::SliderInt(
                             "Maximum bounces",
                             &render_settings.path.max_bounces,
@@ -958,30 +904,45 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 }
                 bool environment_changed = false;
                 bool environment_finished = false;
-                Color& environment = document.environment();
-                environment_changed = ImGui::ColorEdit3(
+                Color environment = document.environment();
+                if (ImGui::ColorEdit3(
                     "Environment tint",
                     environment.data(),
-                    ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR) || environment_changed;
+                    ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR)) {
+                    document.set_environment(environment);
+                    environment_changed = true;
+                }
                 environment_finished = ImGui::IsItemDeactivatedAfterEdit() || environment_finished;
-                environment_changed = ImGui::SliderFloat(
+                float environment_intensity = document.environment_intensity();
+                if (ImGui::SliderFloat(
                     "Environment intensity",
-                    &document.environment_intensity(),
+                    &environment_intensity,
                     0.0f,
                     32.0f,
                     "%.3f",
-                    ImGuiSliderFlags_Logarithmic) || environment_changed;
+                    ImGuiSliderFlags_Logarithmic)) {
+                    document.set_environment_intensity(environment_intensity);
+                    environment_changed = true;
+                }
                 environment_finished = ImGui::IsItemDeactivatedAfterEdit() || environment_finished;
-                environment_changed = ImGui::SliderFloat(
+                float environment_rotation = document.environment_rotation_degrees();
+                if (ImGui::SliderFloat(
                     "Environment rotation",
-                    &document.environment_rotation_degrees(),
+                    &environment_rotation,
                     -180.0f,
                     180.0f,
-                    "%.1f deg") || environment_changed;
+                    "%.1f deg")) {
+                    document.set_environment_rotation_degrees(environment_rotation);
+                    environment_changed = true;
+                }
                 environment_finished = ImGui::IsItemDeactivatedAfterEdit() || environment_finished;
-                environment_changed = ImGui::Checkbox(
+                bool background_visible = document.environment_background_visible();
+                if (ImGui::Checkbox(
                     "Show environment background",
-                    &document.environment_background_visible()) || environment_changed;
+                    &background_visible)) {
+                    document.set_environment_background_visible(background_visible);
+                    environment_changed = true;
+                }
                 if (environment_changed) {
                     actions.scene_changes |= SceneChange::Environment;
                 }
@@ -1215,7 +1176,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
 
     if (state.inspector_panel_visible) {
         if (ImGui::Begin("Inspector", &state.inspector_panel_visible)) {
-            SceneObject* active = document.find(state.active_object);
+            const SceneObject* active = document.find(state.active_object);
             if (active) {
                 char name_buffer[256]{};
                 const std::size_t name_size =
@@ -1223,14 +1184,14 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 std::memcpy(name_buffer, active->name.data(), name_size);
                 name_buffer[name_size] = '\0';
                 if (ImGui::InputText("Name", name_buffer, sizeof(name_buffer))) {
-                    active->name = name_buffer;
+                    document.set_object_name(active->id, name_buffer);
                 }
                 if (ImGui::IsItemDeactivatedAfterEdit()) {
                     document.checkpoint();
                 }
                 bool visibility = active->visible;
                 if (ImGui::Checkbox("Visible", &visibility)) {
-                    active->visible = visibility;
+                    document.set_object_visible(active->id, visibility);
                     document.checkpoint();
                     actions.scene_changes |= render_changes_for_subtree(
                         document,
@@ -1240,42 +1201,57 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 ImGui::SameLine();
                 bool locked = active->locked;
                 if (ImGui::Checkbox("Locked", &locked)) {
-                    active->locked = locked;
+                    document.set_object_locked(active->id, locked);
                     document.checkpoint();
                 }
 
                 ImGui::BeginDisabled(active->locked);
                 bool transform_changed = false;
                 bool transform_finished = false;
-                transform_changed = ImGui::DragFloat3("Translation",
-                                                      active->transform.translation.data(),
-                                                      scene_radius(bounds) * 0.0025f) ||
-                                    transform_changed;
-                transform_finished = ImGui::IsItemDeactivatedAfterEdit() || transform_finished;
-                transform_changed = ImGui::DragFloat3("Rotation",
-                                                      active->transform.rotation_degrees.data(),
-                                                      0.25f,
-                                                      -3600.0f,
-                                                      3600.0f,
-                                                      "%.2f deg") ||
-                                    transform_changed;
-                transform_finished = ImGui::IsItemDeactivatedAfterEdit() || transform_finished;
-                transform_changed =
-                    ImGui::DragFloat3(
-                        "Scale", active->transform.scale.data(), 0.01f, -1000.0f, 1000.0f) ||
-                    transform_changed;
-                transform_finished = ImGui::IsItemDeactivatedAfterEdit() || transform_finished;
-                if (transform_changed) {
+                std::optional<SceneTrs> editable_transform =
+                    document.local_trs(active->id);
+                if (editable_transform) {
+                    transform_changed = ImGui::DragFloat3(
+                        "Translation",
+                        editable_transform->translation.data(),
+                        scene_radius(bounds) * 0.0025f) || transform_changed;
+                    transform_finished =
+                        ImGui::IsItemDeactivatedAfterEdit() || transform_finished;
+                    transform_changed = ImGui::DragFloat3(
+                        "Rotation",
+                        editable_transform->rotation_degrees.data(),
+                        0.25f,
+                        -3600.0f,
+                        3600.0f,
+                        "%.2f deg") || transform_changed;
+                    transform_finished =
+                        ImGui::IsItemDeactivatedAfterEdit() || transform_finished;
+                    transform_changed = ImGui::DragFloat3(
+                        "Scale",
+                        editable_transform->scale.data(),
+                        0.01f,
+                        -1000.0f,
+                        1000.0f) || transform_changed;
+                    transform_finished =
+                        ImGui::IsItemDeactivatedAfterEdit() || transform_finished;
+                } else {
+                    ImGui::TextWrapped(
+                        "This object contains shear. Its affine matrix is preserved; "
+                        "use the gizmo to edit it without lossy TRS decomposition.");
+                }
+                if (transform_changed && editable_transform) {
                     for (int axis = 0; axis < 3; ++axis) {
-                        if (std::abs(active->transform.scale[axis]) < 1.0e-4f) {
-                            active->transform.scale[axis] =
-                                std::copysign(1.0e-4f, active->transform.scale[axis]);
+                        if (std::abs(editable_transform->scale[axis]) < 1.0e-4f) {
+                            editable_transform->scale[axis] =
+                                std::copysign(1.0e-4f, editable_transform->scale[axis]);
                         }
                     }
-                    actions.scene_changes |= render_changes_for_subtree(
-                        document,
-                        active->id,
-                        false);
+                    if (document.set_local_trs(active->id, *editable_transform)) {
+                        actions.scene_changes |= render_changes_for_subtree(
+                            document,
+                            active->id,
+                            false);
+                    }
                 }
                 if (transform_finished) {
                     document.checkpoint();
@@ -1309,11 +1285,19 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
 
                     bool camera_changed = false;
                     bool camera_edit_finished = false;
+                    SceneCameraProperties camera_properties{
+                        active->camera_projection,
+                        active->camera_vertical_fov_degrees,
+                        active->camera_aspect_ratio,
+                        active->camera_x_magnification,
+                        active->camera_y_magnification,
+                        active->camera_near_plane,
+                        active->camera_far_plane};
                     ImGui::BeginDisabled(active->locked);
                     if (active->camera_projection == SceneCameraProjection::Perspective) {
                         camera_changed = ImGui::SliderFloat(
                             "Camera vertical FOV",
-                            &active->camera_vertical_fov_degrees,
+                            &camera_properties.vertical_fov_degrees,
                             1.0f,
                             179.0f,
                             "%.2f deg") || camera_changed;
@@ -1322,7 +1306,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     } else {
                         camera_changed = ImGui::DragFloat(
                             "X magnification",
-                            &active->camera_x_magnification,
+                            &camera_properties.x_magnification,
                             0.01f,
                             1.0e-4f,
                             100000.0f) || camera_changed;
@@ -1330,7 +1314,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                             ImGui::IsItemDeactivatedAfterEdit() || camera_edit_finished;
                         camera_changed = ImGui::DragFloat(
                             "Y magnification",
-                            &active->camera_y_magnification,
+                            &camera_properties.y_magnification,
                             0.01f,
                             1.0e-4f,
                             100000.0f) || camera_changed;
@@ -1339,7 +1323,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     }
                     camera_changed = ImGui::DragFloat(
                         "Camera near plane",
-                        &active->camera_near_plane,
+                        &camera_properties.near_plane,
                         0.001f,
                         1.0e-5f,
                         100000.0f) || camera_changed;
@@ -1347,27 +1331,31 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         ImGui::IsItemDeactivatedAfterEdit() || camera_edit_finished;
                     camera_changed = ImGui::DragFloat(
                         "Camera far plane",
-                        &active->camera_far_plane,
+                        &camera_properties.far_plane,
                         0.1f,
-                        active->camera_near_plane + 1.0e-4f,
+                        camera_properties.near_plane + 1.0e-4f,
                         1000000.0f) || camera_changed;
                     camera_edit_finished =
                         ImGui::IsItemDeactivatedAfterEdit() || camera_edit_finished;
                     ImGui::EndDisabled();
 
                     if (camera_changed) {
-                        active->camera_vertical_fov_degrees = std::clamp(
-                            active->camera_vertical_fov_degrees, 1.0f, 179.0f);
-                        active->camera_x_magnification =
-                            std::max(active->camera_x_magnification, 1.0e-4f);
-                        active->camera_y_magnification =
-                            std::max(active->camera_y_magnification, 1.0e-4f);
-                        active->camera_near_plane =
-                            std::max(active->camera_near_plane, 1.0e-5f);
-                        active->camera_far_plane = std::max(
-                            active->camera_far_plane,
-                            active->camera_near_plane + 1.0e-4f);
-                        actions.scene_changes = SceneChange::All;
+                        camera_properties.vertical_fov_degrees = std::clamp(
+                            camera_properties.vertical_fov_degrees, 1.0f, 179.0f);
+                        camera_properties.x_magnification =
+                            std::max(camera_properties.x_magnification, 1.0e-4f);
+                        camera_properties.y_magnification =
+                            std::max(camera_properties.y_magnification, 1.0e-4f);
+                        camera_properties.near_plane =
+                            std::max(camera_properties.near_plane, 1.0e-5f);
+                        camera_properties.far_plane = std::max(
+                            camera_properties.far_plane,
+                            camera_properties.near_plane + 1.0e-4f);
+                        if (document.set_camera_properties(
+                                active->id,
+                                camera_properties)) {
+                            actions.scene_changes = SceneChange::All;
+                        }
                     }
                     if (camera_edit_finished) {
                         document.checkpoint();
@@ -1530,7 +1518,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                     material_changed;
                                 material_edit_finished =
                                     ImGui::IsItemDeactivatedAfterEdit() || material_edit_finished;
-                                ImGui::TextDisabled("GGX roughness: OpenGL / CPU Path / CUDA Path");
+                                ImGui::TextDisabled("GGX roughness: OpenGL / CUDA Path");
                             } else if (properties->type == MaterialType::Dielectric) {
                                 material_changed =
                                     ImGui::SliderFloat(
@@ -1712,13 +1700,20 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 if (active->type == SceneObjectType::PointLight ||
                     active->type == SceneObjectType::DirectionalLight ||
                     active->type == SceneObjectType::SpotLight) {
+                    SceneLightProperties light_properties{
+                        active->light_color,
+                        active->light_range,
+                        active->spot_inner_cone_radians,
+                        active->spot_outer_cone_radians};
                     const ColorStrengthEditResult light_edit =
                         draw_color_and_strength(
                             "Light",
                             "Light color",
                             "Light intensity",
-                            active->light_color);
-                    if (light_edit.changed) {
+                            light_properties.color);
+                    if (light_edit.changed && document.set_light_properties(
+                            active->id,
+                            light_properties)) {
                         actions.scene_changes |= SceneChange::Lighting;
                     }
                     if (light_edit.finished) {
@@ -1728,12 +1723,17 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
 
                 if (active->type == SceneObjectType::PointLight ||
                     active->type == SceneObjectType::SpotLight) {
+                    SceneLightProperties light_properties{
+                        active->light_color,
+                        active->light_range,
+                        active->spot_inner_cone_radians,
+                        active->spot_outer_cone_radians};
                     bool shape_changed = false;
                     bool shape_finished = false;
                     ImGui::BeginDisabled(active->locked);
                     shape_changed = ImGui::DragFloat(
                         "Range (0 = unlimited)",
-                        &active->light_range,
+                        &light_properties.range,
                         0.05f,
                         0.0f,
                         1000000.0f,
@@ -1744,14 +1744,14 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     if (active->type == SceneObjectType::SpotLight) {
                         shape_changed = ImGui::SliderAngle(
                             "Inner cone",
-                            &active->spot_inner_cone_radians,
+                            &light_properties.spot_inner_cone_radians,
                             0.0f,
                             90.0f) || shape_changed;
                         shape_finished =
                             ImGui::IsItemDeactivatedAfterEdit() || shape_finished;
                         shape_changed = ImGui::SliderAngle(
                             "Outer cone",
-                            &active->spot_outer_cone_radians,
+                            &light_properties.spot_outer_cone_radians,
                             0.0f,
                             90.0f) || shape_changed;
                         shape_finished =
@@ -1759,16 +1759,20 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     }
                     ImGui::EndDisabled();
                     if (shape_changed) {
-                        active->light_range = std::max(0.0f, active->light_range);
-                        active->spot_inner_cone_radians = std::clamp(
-                            active->spot_inner_cone_radians,
+                        light_properties.range = std::max(0.0f, light_properties.range);
+                        light_properties.spot_inner_cone_radians = std::clamp(
+                            light_properties.spot_inner_cone_radians,
                             0.0f,
                             0.5f * kPi);
-                        active->spot_outer_cone_radians = std::clamp(
-                            active->spot_outer_cone_radians,
-                            active->spot_inner_cone_radians,
+                        light_properties.spot_outer_cone_radians = std::clamp(
+                            light_properties.spot_outer_cone_radians,
+                            light_properties.spot_inner_cone_radians,
                             0.5f * kPi);
-                        actions.scene_changes |= SceneChange::Lighting;
+                        if (document.set_light_properties(
+                                active->id,
+                                light_properties)) {
+                            actions.scene_changes |= SceneChange::Lighting;
+                        }
                     }
                     if (shape_finished) {
                         document.checkpoint();
@@ -1807,7 +1811,7 @@ SceneChangeSet ViewerUi::draw_scene_gizmo(
     SceneDocument& document,
     const Camera& camera,
     const Bounds3& bounds) {
-    SceneObject* active = document.find(state.active_object);
+    const SceneObject* active = document.find(state.active_object);
     if (!active || active->locked || state.selected_objects.empty()) {
         state.gizmo_was_using = false;
         state.gizmo_hovered = false;
@@ -1954,7 +1958,7 @@ void ViewerUi::draw_point_light_markers(
     const SceneDocument& document,
     const Camera& camera) const {
     const auto& point_lights =
-        document.instanced_render_scene().point_lights;
+        document.render_scene_snapshot().point_lights;
     if (!state.show_point_light_markers || point_lights.empty()) {
         return;
     }

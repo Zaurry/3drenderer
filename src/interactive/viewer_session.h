@@ -5,6 +5,7 @@
 #include "scene/scene_document.h"
 
 #include <filesystem>
+#include <string>
 
 namespace renderer {
 
@@ -26,6 +27,7 @@ struct ViewerSessionState {
     ViewerUiState ui;
     RenderSettings render_settings;
     ViewerCameraSessionState camera;
+    std::string migration_warning;
 };
 
 class ViewerSessionStore {

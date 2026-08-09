@@ -26,7 +26,7 @@
 直接以 glTF 启动 Viewer 时，第一台有效场景相机会成为初始视图。运行时选择 Camera
 对象后可在 Inspector 编辑参数，并用 `Look through camera` 切换到该视图。
 
-## 三条渲染链路
+## 两条渲染链路
 
 ### OpenGL
 
@@ -39,16 +39,10 @@
 材质使用 GGX/Trowbridge-Reitz NDF、Smith masking-shadowing 和 Fresnel-Schlick。
 alpha BLEND 使用 weighted blended OIT 的 accumulation/revealage 缓冲，避免按对象排序。
 
-### CPU Path
-
-CPU Path 对环境图构建 `luminance × texel solid angle` 的 PMF/CDF，执行环境 NEE；
-BSDF sample/pdf/evaluate 与环境样本使用 β=2 power heuristic 做 MIS。Diffuse、Metal 和
-glTF PBR 都走统一 GGX 求值。alpha BLEND 使用随机透射，MASK 与阴影可见性遵循 alpha。
-
 ### CUDA Path
 
 CUDA Wavefront 保留持久化资源与 CUDA/OpenGL interop；环境 texel、PMF、CDF 只在
-`SceneChange::Environment` 时上传。环境 NEE 与既有 emissive triangle/sphere NEE 组成
+`environment` revision 变化时上传。环境 NEE 与 emissive triangle NEE 组成
 混合策略，并与 visible-GGX BSDF 样本做 MIS。interop 活跃时仍直接写 GL texture，
 不会引入逐帧 framebuffer 下载。
 
@@ -66,7 +60,7 @@ CUDA Wavefront 保留持久化资源与 CUDA/OpenGL interop；环境 texel、PMF
   --mode opengl
 ```
 
-CUDA Path 离线输出（CPU 只需把 backend 改为 `cpu`）：
+CUDA Path 离线输出：
 
 ```powershell
 .\build\default\bin\renderer.exe `
@@ -78,7 +72,7 @@ CUDA Path 离线输出（CPU 只需把 backend 改为 `cpu`）：
   --width 1280 `
   --height 720 `
   --spp 256 `
-  --path-backend cuda `
+  --cuda-device 0 `
   --output output\model-hdri.png
 ```
 
@@ -103,7 +97,7 @@ transfer，因为当前目标是环境、材质和对象都可动态编辑；完
 
 - 不支持 animation、skin、morph target；发现时明确拒绝，不静默丢数据。
 - required Draco、meshopt、KTX2/BasisU 扩展会明确拒绝；核心未压缩 glTF/GLB 可加载。
-- 正交相机参数会保留和序列化，但当前 OpenGL/CPU/CUDA 相机射线均为透视模型，Viewer
+- 正交相机参数会保留和序列化，但当前 Path 相机射线为透视模型，Viewer
   用 45° 透视视图预览正交相机。
 - 环境预处理为 load-time、memory-only，不写磁盘缓存；更换 HDRI 会重新预处理。
 - OpenGL weighted blended OIT 是顺序无关的实时近似，不等同于逐像素精确透明排序。

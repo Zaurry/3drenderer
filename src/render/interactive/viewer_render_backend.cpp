@@ -24,14 +24,16 @@ std::string interop_state_name(CudaOpenGlInteropState state) {
     }
 }
 
-class OpenGlViewerRenderBackend final : public ViewerRenderBackend {
+class OpenGlViewerRenderBackend final
+    : public ViewerRenderBackend,
+      public OpenGlShaderControl {
 public:
     OpenGlViewerRenderBackend(
         std::filesystem::path vertex_shader_path,
         std::filesystem::path fragment_shader_path)
-        : renderer_(
+        : renderer_(std::make_shared<OpenGlRasterRenderer>(
               std::move(vertex_shader_path),
-              std::move(fragment_shader_path)) {}
+              std::move(fragment_shader_path))) {}
 
     InteractiveRenderMode mode() const override {
         return InteractiveRenderMode::OpenGl;
@@ -42,23 +44,40 @@ public:
     }
 
     void reset(
-        const Scene& scene,
-        const RenderSettings&,
-        const InstancedSceneView*) override {
-        renderer_.reset(scene);
+        const RenderSceneSnapshot& snapshot,
+        const RenderSettings&) override {
+        render_scene_ = flatten_render_scene_snapshot(snapshot);
+        renderer_->reset(render_scene_);
+        revisions_ = snapshot.revisions;
+        has_revisions_ = !revisions_.empty();
         update_output();
     }
 
     const RenderFrameOutput& render(
-        const Scene& scene,
+        const RenderSceneSnapshot& snapshot,
         const Camera& camera,
         const RenderSettings& settings,
-        const InteractiveFrameState& frame_state,
-        const InstancedSceneView*) override {
-        if (frame_state.scene_changes != SceneChange::None) {
-            renderer_.sync_scene(scene, frame_state.scene_changes);
+        const InteractiveFrameState& frame_state) override {
+        const SceneRevisions current_revisions = snapshot.revisions;
+        SceneChangeSet changes = frame_state.scene_changes;
+        if (!current_revisions.empty()) {
+            changes = has_revisions_
+                ? scene_changes_between(revisions_, current_revisions)
+                : SceneChange::All;
+            revisions_ = current_revisions;
+            has_revisions_ = true;
         }
-        renderer_.render(scene, camera, settings, frame_state);
+        if (changes != SceneChange::None) {
+            render_scene_ = flatten_render_scene_snapshot(snapshot);
+            renderer_->sync_scene(render_scene_, changes);
+        }
+        InteractiveFrameState effective_frame_state = frame_state;
+        effective_frame_state.scene_changes = changes;
+        renderer_->render(
+            render_scene_,
+            camera,
+            settings,
+            effective_frame_state);
         update_output();
         return output_;
     }
@@ -68,36 +87,40 @@ public:
     }
 
     ViewerRenderBackendStatistics statistics() const override {
-        ViewerRenderBackendStatistics result;
-        result.shader_valid = renderer_.has_valid_shader();
-        result.shader_auto_reload = renderer_.auto_reload();
-        result.shader_error = renderer_.shader_error();
-        result.shader_vertex_path = renderer_.vertex_shader_path().string();
-        result.shader_fragment_path = renderer_.fragment_shader_path().string();
+        OpenGlViewerStatistics result;
+        result.shader_valid = renderer_->has_valid_shader();
+        result.shader_auto_reload = renderer_->auto_reload();
+        result.shader_error = renderer_->shader_error();
+        result.shader_vertex_path = renderer_->vertex_shader_path().string();
+        result.shader_fragment_path = renderer_->fragment_shader_path().string();
         return result;
     }
 
     void set_shader_auto_reload(bool enabled) override {
-        renderer_.set_auto_reload(enabled);
+        renderer_->set_auto_reload(enabled);
     }
 
     void request_shader_reload() override {
-        renderer_.request_shader_reload();
+        renderer_->request_shader_reload();
     }
 
 private:
-    OpenGlRasterRenderer renderer_;
+    std::shared_ptr<OpenGlRasterRenderer> renderer_;
+    Scene render_scene_;
     RenderFrameOutput output_;
+    SceneRevisions revisions_;
+    bool has_revisions_ = false;
 
     void update_output() {
-        if (renderer_.output_texture() == 0) {
+        if (renderer_->output_texture() == 0) {
             return;
         }
-        output_ = RenderFrameOutput::texture(RenderTextureView{
-            renderer_.output_texture(),
-            renderer_.output_width(),
-            renderer_.output_height(),
-            false});
+        output_ = OpenGlTextureHandle{
+            renderer_->output_texture(),
+            renderer_->output_width(),
+            renderer_->output_height(),
+            false,
+            renderer_};
     }
 };
 
@@ -112,88 +135,85 @@ public:
     }
 
     void reset(
-        const Scene& scene,
-        const RenderSettings& settings,
-        const InstancedSceneView* instanced_scene) override {
-        if (instanced_scene &&
-            resolve_path_backend(settings.path.backend) ==
-                ExecutionBackend::Cuda) {
-            session_.reset_instanced(scene, settings, *instanced_scene);
-        } else {
-            session_.reset(scene, settings);
+        const RenderSceneSnapshot& snapshot,
+        const RenderSettings& settings) override {
+        std::string selection_reason;
+        auto device_context =
+            select_cuda_device_for_current_opengl_context(
+                settings.path.cuda_device,
+                &selection_reason);
+        if (!device_context) {
+            throw std::runtime_error(
+                "CUDA Path cannot use the current OpenGL context: " +
+                selection_reason);
         }
-        framebuffer_.resize(settings.width, settings.height);
-        output_ = RenderFrameOutput::host(framebuffer_);
-        if (session_.active_backend() == ExecutionBackend::Cuda) {
-            interop_.initialize();
-        } else {
-            interop_.release_texture();
-        }
+        session_.reset(snapshot, settings);
+        revisions_ = snapshot.revisions;
+        has_revisions_ = !revisions_.empty();
+        framebuffer_->resize(settings.width, settings.height);
+        output_ = HostFrameHandle{framebuffer_};
+        interop_->initialize(*device_context);
     }
 
     const RenderFrameOutput& render(
-        const Scene& scene,
+        const RenderSceneSnapshot& snapshot,
         const Camera& camera,
         const RenderSettings& settings,
-        const InteractiveFrameState& frame_state,
-        const InstancedSceneView* instanced_scene) override {
-        if (session_.active_backend() == ExecutionBackend::Cuda &&
-            interop_.state() != CudaOpenGlInteropState::Fallback &&
-            interop_.state() != CudaOpenGlInteropState::Unavailable) {
+        const InteractiveFrameState& frame_state) override {
+        const SceneRevisions current_revisions = snapshot.revisions;
+        InteractiveFrameState effective_frame_state = frame_state;
+        if (!current_revisions.empty()) {
+            effective_frame_state.scene_changes = has_revisions_
+                ? scene_changes_between(revisions_, current_revisions)
+                : SceneChange::All;
+            revisions_ = current_revisions;
+            has_revisions_ = true;
+        }
+        if (interop_->state() != CudaOpenGlInteropState::Fallback &&
+            interop_->state() != CudaOpenGlInteropState::Unavailable) {
             const CudaStreamHandle stream = session_.cuda_stream_handle();
             CudaSurfaceHandle surface = 0;
-            if (interop_.begin_frame(
+            if (interop_->begin_frame(
                     settings.width,
                     settings.height,
                     stream,
                     surface)) {
                 try {
                     session_.render_next_frame_to_cuda_surface(
-                        scene,
+                        snapshot,
                         camera,
                         settings,
-                        frame_state,
-                        surface,
-                        instanced_scene);
+                        effective_frame_state,
+                        surface);
                 } catch (...) {
-                    interop_.cancel_frame();
+                    interop_->cancel_frame();
                     throw;
                 }
-                if (interop_.end_frame(stream)) {
+                if (interop_->end_frame(stream)) {
                     session_.set_cuda_presentation_state(true, false);
-                    output_ = RenderFrameOutput::texture(RenderTextureView{
-                        interop_.texture(),
-                        interop_.width(),
-                        interop_.height(),
-                        true});
+                    output_ = OpenGlTextureHandle{
+                        interop_->texture(),
+                        interop_->width(),
+                        interop_->height(),
+                        true,
+                        interop_};
                     return output_;
                 }
-                session_.download_current_cuda_frame(framebuffer_);
+                session_.download_current_cuda_frame(*framebuffer_);
                 session_.set_cuda_presentation_state(false, true);
-                output_ = RenderFrameOutput::host(framebuffer_);
+                output_ = HostFrameHandle{framebuffer_};
                 return output_;
             }
         }
 
-        if (instanced_scene &&
-            session_.active_backend() == ExecutionBackend::Cuda) {
-            session_.render_next_frame_instanced(
-                scene,
-                *instanced_scene,
-                camera,
-                settings,
-                frame_state,
-                framebuffer_);
-        } else {
-            session_.render_next_frame(
-                scene,
-                camera,
-                settings,
-                frame_state,
-                framebuffer_);
-        }
+        session_.render_next_frame(
+            snapshot,
+            camera,
+            settings,
+            effective_frame_state,
+            *framebuffer_);
         session_.set_cuda_presentation_state(false, true);
-        output_ = RenderFrameOutput::host(framebuffer_);
+        output_ = HostFrameHandle{framebuffer_};
         return output_;
     }
 
@@ -202,11 +222,10 @@ public:
     }
 
     ViewerRenderBackendStatistics statistics() const override {
-        ViewerRenderBackendStatistics result;
+        CudaPathViewerStatistics result;
         result.accumulated_samples = session_.accumulated_samples();
-        result.path_backend = session_.active_backend();
-        result.interop_status = interop_state_name(interop_.state());
-        result.interop_detail = interop_.reason();
+        result.interop_status = interop_state_name(interop_->state());
+        result.interop_detail = interop_->reason();
         if (const CudaPathStatistics* cuda = session_.cuda_statistics()) {
             result.cuda = *cuda;
         }
@@ -215,12 +234,20 @@ public:
 
 private:
     PathInteractiveSession session_;
-    CudaOpenGlInteropTexture interop_;
-    Framebuffer framebuffer_{1, 1};
+    std::shared_ptr<CudaOpenGlInteropTexture> interop_ =
+        std::make_shared<CudaOpenGlInteropTexture>();
+    std::shared_ptr<Framebuffer> framebuffer_ =
+        std::make_shared<Framebuffer>(1, 1);
     RenderFrameOutput output_;
+    SceneRevisions revisions_;
+    bool has_revisions_ = false;
 };
 
 }  // namespace
+
+OpenGlShaderControl* open_gl_shader_control(ViewerRenderBackend& backend) {
+    return dynamic_cast<OpenGlShaderControl*>(&backend);
+}
 
 std::unique_ptr<ViewerRenderBackend> make_viewer_render_backend(
     InteractiveRenderMode mode,

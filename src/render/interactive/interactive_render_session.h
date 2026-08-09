@@ -4,7 +4,8 @@
 #include "render/interactive/render_mode.h"
 #include "render/render_settings.h"
 #include "scene/camera.h"
-#include "scene/scene.h"
+#include "scene/instanced_scene.h"
+#include "scene/scene_revision.h"
 
 #include <cstdint>
 
@@ -47,6 +48,42 @@ constexpr bool has_scene_change(SceneChangeSet changes, SceneChange change) {
         static_cast<std::uint32_t>(change)) != 0U;
 }
 
+inline SceneChangeSet scene_changes_between(
+    const SceneRevisions& previous,
+    const SceneRevisions& current) {
+    SceneChangeSet changes = SceneChange::None;
+    if (previous.topology != current.topology) {
+        changes |= SceneChange::Geometry;
+        changes |= SceneChange::MaterialBindings;
+        changes |= SceneChange::InstanceTransforms;
+        changes |= SceneChange::Lighting;
+    }
+    if (previous.geometry != current.geometry) {
+        changes |= SceneChange::Geometry;
+        changes |= SceneChange::MaterialBindings;
+    }
+    if (previous.transforms != current.transforms) {
+        changes |= SceneChange::InstanceTransforms;
+        changes |= SceneChange::Lighting;
+    }
+    if (previous.material_bindings != current.material_bindings) {
+        changes |= SceneChange::MaterialBindings;
+    }
+    if (previous.materials != current.materials) {
+        changes |= SceneChange::Materials;
+    }
+    if (previous.textures != current.textures) {
+        changes |= SceneChange::Textures;
+    }
+    if (previous.lighting != current.lighting) {
+        changes |= SceneChange::Lighting;
+    }
+    if (previous.environment != current.environment) {
+        changes |= SceneChange::Environment;
+    }
+    return changes;
+}
+
 struct InteractiveFrameState {
     bool camera_changed = false;
     SceneChangeSet scene_changes = SceneChange::None;
@@ -59,9 +96,11 @@ struct InteractiveFrameState {
 class InteractiveRenderSession {
 public:
     virtual ~InteractiveRenderSession() = default;
-    virtual void reset(const Scene& scene, const RenderSettings& settings) = 0;
+    virtual void reset(
+        const RenderSceneSnapshot& snapshot,
+        const RenderSettings& settings) = 0;
     virtual void render_next_frame(
-        const Scene& scene,
+        const RenderSceneSnapshot& snapshot,
         const Camera& camera,
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state,

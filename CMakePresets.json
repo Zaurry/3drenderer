@@ -2,7 +2,7 @@
   "version": 3,
   "cmakeMinimumRequired": {
     "major": 3,
-    "minor": 21,
+    "minor": 24,
     "patch": 0
   },
   "configurePresets": [
@@ -11,57 +11,55 @@
       "hidden": true,
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
-        "RENDERER_NATIVE_ARCH": "OFF"
+        "RENDERER_NATIVE_ARCH": "OFF",
+        "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
       "name": "default",
-      "displayName": "Default (CUDA Auto)",
-      "description": "Daily development build; enables CUDA when a compiler is available.",
+      "displayName": "Default",
+      "description": "Daily build; enables CUDA when a compiler is available and uses the native GPU architecture.",
       "inherits": "base",
       "cacheVariables": {
         "RENDERER_CUDA": "AUTO"
       }
     },
     {
-      "name": "cpu",
-      "displayName": "CPU Only",
-      "description": "Disables CUDA for CPU-only development and regression testing.",
+      "name": "no-cuda",
+      "displayName": "No CUDA",
+      "description": "Builds scene/document, tests, and the OpenGL viewer without CUDA Path.",
       "inherits": "base",
       "cacheVariables": {
         "RENDERER_CUDA": "OFF"
       }
     },
     {
-      "name": "cuda",
-      "displayName": "CUDA Required",
-      "description": "Requires the CUDA toolchain and targets compute capability 12.0.",
+      "name": "cuda-native",
+      "displayName": "CUDA Native",
+      "description": "Requires CUDA and compiles for the GPU installed on the build host.",
       "inherits": "base",
       "cacheVariables": {
         "RENDERER_CUDA": "ON",
-        "CMAKE_CUDA_ARCHITECTURES": "120"
+        "CMAKE_CUDA_ARCHITECTURES": "native"
       }
     }
   ],
   "buildPresets": [
     {
       "name": "default-release",
-      "displayName": "Default Release",
       "configurePreset": "default",
       "configuration": "Release",
       "jobs": 4
     },
     {
-      "name": "cpu-release",
-      "displayName": "CPU Release",
-      "configurePreset": "cpu",
+      "name": "no-cuda-release",
+      "configurePreset": "no-cuda",
       "configuration": "Release",
       "jobs": 4
     },
     {
-      "name": "cuda-release",
-      "displayName": "CUDA Release",
-      "configurePreset": "cuda",
+      "name": "cuda-native-release",
+      "configurePreset": "cuda-native",
       "configuration": "Release",
       "jobs": 4
     }
@@ -69,42 +67,24 @@
   "testPresets": [
     {
       "name": "default-release",
-      "displayName": "Test Default Release",
       "configurePreset": "default",
       "configuration": "Release",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "jobs": 4,
-        "noTestsAction": "error"
-      }
+      "output": {"outputOnFailure": true},
+      "execution": {"jobs": 4, "noTestsAction": "error"}
     },
     {
-      "name": "cpu-release",
-      "displayName": "Test CPU Release",
-      "configurePreset": "cpu",
+      "name": "no-cuda-release",
+      "configurePreset": "no-cuda",
       "configuration": "Release",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "jobs": 4,
-        "noTestsAction": "error"
-      }
+      "output": {"outputOnFailure": true},
+      "execution": {"jobs": 4, "noTestsAction": "error"}
     },
     {
-      "name": "cuda-release",
-      "displayName": "Test CUDA Release",
-      "configurePreset": "cuda",
+      "name": "cuda-native-release",
+      "configurePreset": "cuda-native",
       "configuration": "Release",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "jobs": 4,
-        "noTestsAction": "error"
-      }
+      "output": {"outputOnFailure": true},
+      "execution": {"jobs": 4, "noTestsAction": "error"}
     }
   ]
 }

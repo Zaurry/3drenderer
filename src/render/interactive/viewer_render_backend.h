@@ -3,26 +3,39 @@
 #include "render/interactive/render_frame_output.h"
 #include "render/interactive/render_mode.h"
 #include "render/pathtracer/cuda_pathtracer.h"
-#include "render/pathtracer/path_backend.h"
 #include "scene/instanced_scene.h"
 
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <variant>
 
 namespace renderer {
 
-struct ViewerRenderBackendStatistics {
-    int accumulated_samples = 0;
-    ExecutionBackend path_backend = ExecutionBackend::Cpu;
+struct OpenGlViewerStatistics {
     bool shader_valid = false;
     bool shader_auto_reload = true;
     std::string shader_error;
     std::string shader_vertex_path;
     std::string shader_fragment_path;
+};
+
+struct CudaPathViewerStatistics {
+    int accumulated_samples = 0;
     std::string interop_status = "unavailable";
     std::string interop_detail;
     CudaPathStatistics cuda;
+};
+
+using ViewerRenderBackendStatistics = std::variant<
+    OpenGlViewerStatistics,
+    CudaPathViewerStatistics>;
+
+class OpenGlShaderControl {
+public:
+    virtual ~OpenGlShaderControl() = default;
+    virtual void set_shader_auto_reload(bool enabled) = 0;
+    virtual void request_shader_reload() = 0;
 };
 
 class ViewerRenderBackend {
@@ -32,21 +45,18 @@ public:
     virtual InteractiveRenderMode mode() const = 0;
     virtual RenderModeCapability capabilities() const = 0;
     virtual void reset(
-        const Scene& scene,
-        const RenderSettings& settings,
-        const InstancedSceneView* instanced_scene = nullptr) = 0;
+        const RenderSceneSnapshot& snapshot,
+        const RenderSettings& settings) = 0;
     virtual const RenderFrameOutput& render(
-        const Scene& scene,
+        const RenderSceneSnapshot& snapshot,
         const Camera& camera,
         const RenderSettings& settings,
-        const InteractiveFrameState& frame_state,
-        const InstancedSceneView* instanced_scene = nullptr) = 0;
+        const InteractiveFrameState& frame_state) = 0;
     virtual const RenderFrameOutput& output() const = 0;
     virtual ViewerRenderBackendStatistics statistics() const = 0;
-
-    virtual void set_shader_auto_reload(bool) {}
-    virtual void request_shader_reload() {}
 };
+
+OpenGlShaderControl* open_gl_shader_control(ViewerRenderBackend& backend);
 
 std::unique_ptr<ViewerRenderBackend> make_viewer_render_backend(
     InteractiveRenderMode mode,

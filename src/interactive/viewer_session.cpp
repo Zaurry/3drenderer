@@ -1,5 +1,8 @@
 #include "interactive/viewer_session.h"
 
+#include "core/io/atomic_file.h"
+#include "render/pathtracer/cuda_pathtracer.h"
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -7,11 +10,6 @@
 #include <fstream>
 #include <stdexcept>
 #include <string>
-
-#ifdef _WIN32
-#define NOMINMAX
-#include <windows.h>
-#endif
 
 namespace renderer {
 
@@ -61,31 +59,6 @@ ViewerCameraMode parse_camera_mode(const std::string& value) {
     throw std::runtime_error("unknown viewer camera mode: " + value);
 }
 
-const char* path_backend_name(PathBackend backend) {
-    switch (backend) {
-        case PathBackend::Auto:
-            return "auto";
-        case PathBackend::Cpu:
-            return "cpu";
-        case PathBackend::Cuda:
-            return "cuda";
-    }
-    return "auto";
-}
-
-PathBackend parse_stored_path_backend(const std::string& value) {
-    if (value == "auto") {
-        return PathBackend::Auto;
-    }
-    if (value == "cpu") {
-        return PathBackend::Cpu;
-    }
-    if (value == "cuda") {
-        return PathBackend::Cuda;
-    }
-    throw std::runtime_error("unknown stored path backend: " + value);
-}
-
 const char* tone_mapper_name(ToneMapper tone_mapper) {
     switch (tone_mapper) {
         case ToneMapper::None:
@@ -123,51 +96,6 @@ float finite_clamped(
     return std::clamp(value, minimum, maximum);
 }
 
-void replace_file_atomically(
-    const std::filesystem::path& path,
-    const nlohmann::json& root) {
-    if (path.empty()) {
-        throw std::runtime_error("viewer session path is empty");
-    }
-    std::error_code error;
-    std::filesystem::create_directories(path.parent_path(), error);
-    if (error) {
-        throw std::runtime_error(
-            "failed to create viewer session directory: " + error.message());
-    }
-    const std::filesystem::path temporary = path.string() + ".tmp";
-    std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-    if (!output) {
-        throw std::runtime_error(
-            "failed to open viewer session for writing: " + temporary.string());
-    }
-    output << root.dump(2) << '\n';
-    output.close();
-    if (!output) {
-        throw std::runtime_error(
-            "failed to write viewer session: " + temporary.string());
-    }
-#ifdef _WIN32
-    if (!MoveFileExW(
-            temporary.c_str(),
-            path.c_str(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        const unsigned long windows_error = GetLastError();
-        std::filesystem::remove(temporary, error);
-        throw std::runtime_error(
-            "failed to replace viewer session, Windows error " +
-            std::to_string(windows_error));
-    }
-#else
-    std::filesystem::rename(temporary, path, error);
-    if (error) {
-        std::filesystem::remove(temporary, error);
-        throw std::runtime_error(
-            "failed to replace viewer session: " + error.message());
-    }
-#endif
-}
-
 }  // namespace
 
 ViewerSessionState ViewerSessionStore::load(
@@ -179,7 +107,8 @@ ViewerSessionState ViewerSessionStore::load(
     }
     nlohmann::json root;
     input >> root;
-    if (root.value("version", 0) != 1) {
+    const int version = root.value("version", 0);
+    if (version < 1 || version > 2) {
         throw std::runtime_error("unsupported viewer session version");
     }
 
@@ -256,10 +185,6 @@ ViewerSessionState ViewerSessionStore::load(
         parse_tone_mapper(display.at("tone_mapper").get<std::string>());
 
     const auto& render = root.at("render");
-    state.render_settings.path.tile_size =
-        std::clamp(render.at("tile_size").get<int>(), 4, 64);
-    state.render_settings.path.thread_count =
-        std::clamp(render.at("thread_count").get<int>(), 0, 4096);
     state.render_settings.path.max_bounces = std::clamp(
         render.value("max_bounces", 64),
         1,
@@ -276,9 +201,29 @@ ViewerSessionState ViewerSessionStore::load(
         render.value("rr_max_probability", 0.95f),
         state.render_settings.path.russian_roulette_min_probability,
         1.0f);
-    state.render_settings.path.backend =
-        parse_stored_path_backend(render.at("path_backend").get<std::string>());
+    state.render_settings.path.cuda_device = std::max(
+        0,
+        render.value("cuda_device", 0));
     state.render_settings.path.samples_per_pixel = 1;
+    if (state.ui.mode == InteractiveRenderMode::Path) {
+        std::string reason;
+        if (!cuda_path_backend_available(
+                state.render_settings.path.cuda_device,
+                &reason)) {
+            state.ui.mode = InteractiveRenderMode::OpenGl;
+            state.migration_warning =
+                "Saved Path session opened in OpenGL because CUDA Path is "
+                "unavailable: " + reason;
+        } else if (version == 1) {
+            const std::string legacy_backend =
+                render.value("path_backend", std::string("auto"));
+            if (legacy_backend != "cuda") {
+                state.migration_warning =
+                    "Migrated v1 " + legacy_backend +
+                    " Path session to the CUDA-only Path backend";
+            }
+        }
+    }
 
     const auto& camera = root.at("camera");
     state.camera.eye = parse_vec3(camera.at("eye"), "camera.eye");
@@ -305,7 +250,7 @@ void ViewerSessionStore::save(
     const SceneDocument& document,
     const ViewerSessionState& state) {
     nlohmann::json root;
-    root["version"] = 1;
+    root["version"] = 2;
     root["document"] = {
         {"file_path", state.document_path.generic_string()},
         {"dirty", state.document_dirty},
@@ -346,10 +291,8 @@ void ViewerSessionStore::save(
         {"tone_mapper", tone_mapper_name(state.ui.display.tone_mapper)},
     };
     root["render"] = {
-        {"tile_size", state.render_settings.path.tile_size},
-        {"thread_count", state.render_settings.path.thread_count},
         {"max_bounces", state.render_settings.path.max_bounces},
-        {"path_backend", path_backend_name(state.render_settings.path.backend)},
+        {"cuda_device", state.render_settings.path.cuda_device},
         {
             "rr_start_bounce",
             state.render_settings.path.russian_roulette_start_bounce,
@@ -371,7 +314,7 @@ void ViewerSessionStore::save(
         {"orbit_distance", state.camera.orbit_distance},
         {"free_movement_speed", state.camera.free_movement_speed},
     };
-    replace_file_atomically(path, root);
+    write_file_atomically(path, root.dump(2) + '\n');
 }
 
 }  // namespace renderer

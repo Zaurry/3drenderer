@@ -1,0 +1,79 @@
+name: renderer-ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  no-cuda-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure no-CUDA Release
+        run: cmake --preset no-cuda
+      - name: Build no-CUDA Release
+        run: cmake --build --preset no-cuda-release
+      - name: Test no-CUDA Release
+        run: ctest --preset no-cuda-release
+
+  no-cuda-linux-mesa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OpenGL and virtual-display dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1-mesa-dev libx11-dev libxext-dev libxrandr-dev \
+            libxcursor-dev libxi-dev libxfixes-dev libxkbcommon-dev \
+            xvfb mesa-utils
+      - name: Configure no-CUDA Release
+        run: cmake --preset no-cuda
+      - name: Build no-CUDA Release
+        run: cmake --build --preset no-cuda-release
+      - name: Test no-CUDA Release
+        run: ctest --preset no-cuda-release
+      - name: Mesa OpenGL smoke
+        run: >-
+          xvfb-run -a build/no-cuda/bin/viewer
+          --scene builtin --mode opengl --frames 1 --no-restore-last
+      - name: Verify Path fails visibly without CUDA
+        shell: bash
+        run: |
+          set +e
+          output=$(xvfb-run -a build/no-cuda/bin/viewer \
+            --scene builtin --mode path --frames 1 --no-restore-last 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          test "$status" -eq 0
+          grep -q "switched to OpenGL" <<<"$output"
+
+  core-sanitizers-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure ASan and UBSan core
+        run: >-
+          cmake -S . -B build/sanitizers
+          -DRENDERER_CUDA=OFF
+          -DRENDERER_BUILD_VIEWER=OFF
+          -DRENDERER_BUILD_BENCHMARKS=OFF
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+      - name: Build sanitizer test domains
+        run: >-
+          cmake --build build/sanitizers --parallel 2 --target
+          scene_tests sampling_tests document_tests cuda_contract_tests
+      - name: Run sanitizer test domains
+        env:
+          ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: >-
+          ctest --test-dir build/sanitizers --output-on-failure
+          -R "scene_tests|sampling_tests|document_tests|cuda_contract_tests"
+
+# CUDA execution, CUDA/OpenGL interop, and Compute Sanitizer require a real
+# display-attached GPU and run on developer/self-hosted machines. They are not
+# represented as silently skipped green checks on ordinary hosted runners.

@@ -1,8 +1,13 @@
 #include "scene/scene.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace renderer {
 
 namespace {
+
+constexpr float kPi = 3.14159265358979323846f;
 
 Material diffuse(const Color& color) {
     Material material;
@@ -40,6 +45,97 @@ void add_quad(
 }
 
 }  // namespace
+
+void tessellate_spheres(
+    Scene& scene,
+    int longitude_segments,
+    int latitude_segments) {
+    longitude_segments = std::max(3, longitude_segments);
+    latitude_segments = std::max(2, latitude_segments);
+    if (scene.spheres.empty()) {
+        return;
+    }
+
+    const auto make_vertex = [](
+        const Sphere& sphere,
+        int longitude,
+        int latitude,
+        int longitude_count,
+        int latitude_count) {
+        const float u = static_cast<float>(longitude) /
+            static_cast<float>(longitude_count);
+        const float v = static_cast<float>(latitude) /
+            static_cast<float>(latitude_count);
+        const float phi = u * 2.0f * kPi;
+        const float theta = v * kPi;
+        const float sin_theta = std::sin(theta);
+        const Vec3 normal(
+            sin_theta * std::cos(phi),
+            std::cos(theta),
+            sin_theta * std::sin(phi));
+        TriangleVertex result;
+        result.position = sphere.center() + normal * sphere.radius();
+        result.uv = Vec2(u, v);
+        result.uv1 = result.uv;
+        result.has_uv1 = true;
+        result.normal = normal;
+        result.has_normal = true;
+        result.tangent = Vec4(-std::sin(phi), 0.0f, std::cos(phi), 1.0f);
+        result.has_tangent = true;
+        return result;
+    };
+
+    const std::vector<Sphere> spheres = std::move(scene.spheres);
+    scene.spheres.clear();
+    scene.triangles.reserve(
+        scene.triangles.size() +
+        spheres.size() * static_cast<std::size_t>(
+            2 * longitude_segments * (latitude_segments - 1)));
+    for (const Sphere& sphere : spheres) {
+        for (int latitude = 0; latitude < latitude_segments; ++latitude) {
+            for (int longitude = 0; longitude < longitude_segments; ++longitude) {
+                const TriangleVertex top_left = make_vertex(
+                    sphere,
+                    longitude,
+                    latitude,
+                    longitude_segments,
+                    latitude_segments);
+                const TriangleVertex top_right = make_vertex(
+                    sphere,
+                    longitude + 1,
+                    latitude,
+                    longitude_segments,
+                    latitude_segments);
+                const TriangleVertex bottom_left = make_vertex(
+                    sphere,
+                    longitude,
+                    latitude + 1,
+                    longitude_segments,
+                    latitude_segments);
+                const TriangleVertex bottom_right = make_vertex(
+                    sphere,
+                    longitude + 1,
+                    latitude + 1,
+                    longitude_segments,
+                    latitude_segments);
+                if (latitude > 0) {
+                    scene.triangles.emplace_back(
+                        top_left,
+                        top_right,
+                        bottom_right,
+                        sphere.material_id());
+                }
+                if (latitude + 1 < latitude_segments) {
+                    scene.triangles.emplace_back(
+                        top_left,
+                        bottom_right,
+                        bottom_left,
+                        sphere.material_id());
+                }
+            }
+        }
+    }
+}
 
 Scene make_gradient_sphere_scene() {
     Scene scene;

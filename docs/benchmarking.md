@@ -1,126 +1,116 @@
 # 规范化 Benchmark 流程
 
-Benchmark 是开发工具，与普通用户使用的 `viewer.exe` 隔离。默认配置
-`RENDERER_BUILD_BENCHMARKS=OFF`，因此常规构建和发布不会编译、链接或打包任何
-benchmark runner、报告代码或 CUDA 诊断计数。
+Benchmark 是开发工具，与普通 `viewer.exe` 隔离。默认 `RENDERER_BUILD_BENCHMARKS=OFF`；正式 timing target 不包含 CUDA ray/bounce 诊断计数，instrumented diagnostics 使用独立 target。
 
-## 标准运行
+## 标准 case
 
-当前标准 case 是 `benchmarks/cases/san_miguel_first_scene.json`。它冻结了
-2026-08-08 捕获的 San Miguel、Sun、HDRI、相机、分辨率和完整 Path 设置，运行时
-不会读取 `%APPDATA%` 或恢复 Viewer 的当前会话。
-
-资产仍位于被 Git 忽略的 `Computer Graphics Archive`。运行前需要存在：
+当前标准 case 为 `benchmarks/cases/san_miguel_first_scene.json`，冻结 San Miguel、Sun、HDRI、相机、输出分辨率、Path 设置和 phase 次数。资产位于 Git 忽略的 `Computer Graphics Archive`，至少需要：
 
 - `San_Miguel/san-miguel-low-poly.obj` 及其 MTL/纹理；
 - `environment map/quarry_04_puresky_4k.exr`。
 
-标准命令：
+runner 不读取 `%APPDATA%`，也不恢复 Viewer 会话。
+
+## 运行
 
 ```powershell
+# OpenGL + CUDA timing，并单独运行 CUDA diagnostics
 .\tools\run_benchmarks.ps1
-```
 
-脚本使用 CUDA Release preset，构建并运行：
-
-- `viewer_benchmark.exe`：无插桩 OpenGL/CUDA timing；
-- `viewer_benchmark_diagnostics.exe`：带 CUDA ray/bounce 计数；
-- `benchmark_tests.exe` 与 `benchmark_diagnostics_tests.exe`。
-
-只测单个后端：
-
-```powershell
+# 只测一个 backend
 .\tools\run_benchmarks.ps1 -Backend opengl
 .\tools\run_benchmarks.ps1 -Backend cuda
-```
 
-与既有 timing `raw.json` 比较：
-
-```powershell
+# 与已有 timing/raw.json 记录比较
 .\tools\run_benchmarks.ps1 `
-  -Baseline benchmarks/results/20260809-120000Z-abcdef123456/timing/raw.json
+  -Backend cuda `
+  -Baseline benchmarks/results/<run>/timing/raw.json
 ```
 
-首版只记录差异，不因回退自动返回失败。只有 compatibility key 相同的结果会比较；
-key 包含 case/schema、完整渲染参数、输入 SHA-256 和硬件身份。
+脚本会：
 
-## 测量口径
+1. 用 `cuda-native` + `RENDERER_BUILD_BENCHMARKS=ON` 配置；
+2. 构建 `viewer_benchmark`、`viewer_benchmark_diagnostics` 和两类 benchmark tests；
+3. 先运行 benchmark contract tests；
+4. 分别执行无插桩 timing 和有插桩 diagnostics；
+5. 保存原始样本、统计摘要、Git dirty 状态、工具链和硬件信息。
 
-标准完整档按以下 phase 输出独立数据：
+## Phase 和指标
 
 | Phase | 内容 |
 |---|---|
-| `asset_load` | `.rscene`、OBJ/MTL/纹理、EXR 和环境重要性分布加载 |
-| `backend_prepare` | OpenGL shader/资源/IBL，或 CUDA scene/BVH/environment 上传 |
-| `first_frame` | 后端准备后的第一帧 |
-| `steady_opengl` | 预热 60 帧后测量 300 帧 CPU submit wall 与 GPU timer query |
-| `cuda_full` | 预热后 5 个原生完整帧，每帧同步后读取 CUDA event |
-| `cuda_interaction` | 30 个相机变化帧，排除第一个 warm-up |
-| `cuda_native_sweep` | 静止后至少 10 个完整 sweep 及其 native quantum |
-| `cuda_diagnostics` | 独立插桩构建中的 ray 分类与 bounce 分布 |
+| `asset_load` | `.rscene`、OBJ/MTL/纹理、EXR、环境重要性分布加载 |
+| `backend_prepare` | OpenGL shader/IBL 或 CUDA snapshot/BLAS/TLAS/environment 上传 |
+| `first_frame` | backend 准备后的第一帧 |
+| `steady_opengl` | 预热后测 CPU submit wall 和 GPU timer query |
+| `cuda_full` | 固定完整原生帧，显式等待 event 后取样 |
+| `cuda_interaction` | 连续相机交互帧，排除首个 warm-up |
+| `cuda_native_sweep` | 静止后的 native work quantum 和完整 sweep |
+| `cuda_diagnostics` | 独立插桩构建中的 ray 分类、bounce 和 termination histogram |
 
-CUDA timing runner 显式等待每个样本完成，再读取同一帧的 event；不会把异步提交耗时
-误记成 GPU trace。OpenGL 同时记录 CPU submit wall 和 `GL_TIME_ELAPSED`，二者口径
-不同，不互相替代。
+与场景增量同步相关的验收不只看 wall time，还检查 `CudaPathStatistics`：
 
-diagnostics 统计实际进入求交或 visibility 的 ray：
-
-- primary/camera ray；
-- 每个 bounce 的 continuation ray；
-- directional、point、spot、emissive、environment shadow ray；
-- primary hit/miss；
-- 0–64 bounce termination histogram。
-
-诊断构建标记为 `instrumented: true`，其耗时不能作为性能 baseline。生产
-`renderer_core` 不包含诊断 buffer、kernel 参数、原子计数或下载同步。
+- 纯 instance transform：BLAS build、geometry/material/texture upload 不增加；
+- TLAS `refit_count` 增加，`build_count` 不增加；
+- 单一 asset geometry revision：只增加该 asset 的一次 BLAS build；
+- material/texture/light/environment 修改只增加相应上传计数。
 
 ## 结果格式
 
-每次标准运行生成：
-
 ```text
 benchmarks/results/<UTC>-<commit>/
-  raw.json                 # timing + diagnostics 合并数据
-  summary.md               # 合并的人类可读报告
+  raw.json
+  summary.md
   timing/raw.json
   timing/summary.md
   diagnostics/raw.json
   diagnostics/summary.md
 ```
 
-每个 metric 使用稳定命名空间、单位、原始 samples 和 count/min/mean/median/P95/max/
-stddev。histogram 保留全部 bins，不只保存摘要。
+series metric 保存全部 samples 和 count/min/mean/median/P95/max/stddev，histogram 保存完整 bins。报告还记录：
 
-`output.width/height` 是 Viewer 窗口尺寸，`render_scale` 遵循 Viewer 的 25%–100%
-范围；报告中的 `effective_width/effective_height` 是后端实际渲染尺寸。
+- case schema 与 render settings；
+- 输入文件相对路径、字节数和 SHA-256；
+- effective render size；
+- Git commit/dirty；
+- compiler、build type、CPU、RAM、GPU、OpenGL、CUDA runtime/driver。
 
-输入指纹包含 case、`.rscene`、OBJ、MTL、MTL 实际引用的纹理和环境图的相对路径、
-字节数及 SHA-256。报告同时保存 Git commit/dirty、编译器、Release 配置、CPU、内存、
-GPU、OpenGL 和 CUDA runtime/driver。
+只有 compatibility key 相同的结果才适合由 runner 自动判定。若架构迁移同时改变 case schema 或输入指纹，必须在人工报告中明确列出相同 workload、命令和硬件，再进行手工 delta 计算，不能把不同 key 伪装成自动可比。
 
-## 从 Viewer 会话创建新 case
+## 当前验收门槛
 
-当前 `%APPDATA%` 会话会随普通使用持续变化，不能直接作为 benchmark。需要显式冻结：
+Renderer hardening 使用以下门槛：
+
+- `cuda_full` median 相对基线回退不超过 5%；
+- `cuda_interaction` median 不高于 16.7 ms；
+- `cuda_interaction` P95 不高于 20 ms；
+- 纯实例拖动不触发 BLAS、geometry/material/texture upload；
+- TLAS 只 refit。
+
+本次基线与结果见：
+
+- `benchmarks/results/baseline-75d1992-hot-cuda/`
+- `benchmarks/results/renderer-hardening-acceptance2-cuda/`
+- [Renderer hardening 报告](output/renderer-hardening-results.md)
+
+## Diagnostics 与 Sanitizer
+
+diagnostics target 使用 `instrumented: true`，耗时不能作为性能 baseline。它记录 primary/continuation、各类 shadow ray、hit/miss 和 bounce termination。
+
+Compute Sanitizer 必须单独运行真实 CUDA executable，例如：
 
 ```powershell
-$session = Join-Path $env:APPDATA 'Zaurry\3D Renderer\last-session.json'
-.\build\cuda\bin\viewer_benchmark.exe `
-  --import-session $session `
-  --write-case benchmarks\cases\my_scene.json
+compute-sanitizer --tool memcheck --error-exitcode 99 `
+  .\build\cuda-native\bin\cuda_contract_tests.exe
 ```
 
-该命令同时生成相邻的 `.rscene`。提交前应把其中资产路径调整为相对仓库根目录可解析的
-稳定路径，并检查完整 RenderSettings、相机、输出尺寸和 phase 次数。
+普通 GitHub-hosted CI 不具备受支持的显示连接 GPU，因此 GPU tests 不得以“检测不到设备后 return 0”的方式计为覆盖；应在开发机或 self-hosted runner 明确执行并保存结果。
 
 ## 扩展规则
 
-- 新场景只增加 case JSON/`.rscene`；runner 和报告 schema 不需要修改。
-- 新 phase 通过 benchmark backend adapter 实现，不能复用含义不同的旧指标名。
-- 新 metric 使用稳定命名空间并声明单位、是否插桩以及 scalar/series/histogram 形态。
-- 会改变 GPU 工作量的计数必须只进入 diagnostics target。
-- 新增 `RenderSettings` 字段时，case 读取、session import、结果 metadata 和
-  compatibility key 必须同步覆盖。
-- glTF/GLB case 已被 schema 和依赖指纹逻辑支持，但首版标准档暂不包含 PBR case。
-
-旧的 `cuda_path_benchmark` 和临时 bounce 分析脚本已经删除；`docs/output` 中引用它们
-的命令只代表历史测量环境，不再是当前入口。
+- 新场景优先增加 case JSON/`.rscene`，不要复制 runner。
+- 新 phase 使用新的稳定命名空间，不能复用语义不同的旧 metric。
+- 新 metric 必须声明单位、scalar/series/histogram 和是否插桩。
+- 会改变 GPU 工作量的计数只进入 diagnostics target。
+- 新增 `RenderSettings` 字段时，同步更新 case、session import、metadata 和 compatibility key。
+- 历史 `docs/output` 中的旧 runner/CLI 只代表当时环境，不是当前入口。

@@ -1,164 +1,138 @@
 # 当前像素生命周期
 
-当前项目只有 OpenGL 与 Path 两种渲染模式。两条链路最终都产出线性 HDR 颜色，并由同一个 OpenGL compositor 完成曝光、tone mapping 与 linear-to-sRGB 转换。
+项目只有 OpenGL 和 CUDA Path 两种渲染模式。两条链路都输出线性 HDR，最后由同一个 OpenGL compositor 执行 exposure、tone mapping 和 linear-to-sRGB。
 
-## 统一帧输出
+## 帧所有权
 
-交互后端返回 `RenderFrameOutput`，显示层只处理两种存储：
+交互后端返回 `RenderFrameOutput` variant：
 
 ```text
-Host Framebuffer
-  -> 上传到显示 texture
-  -> compositor
-  -> SDL/OpenGL swap
+HostFrameHandle
+  └─ shared_ptr<const Framebuffer>
 
-GL Texture view
-  -> compositor
-  -> SDL/OpenGL swap
+OpenGlTextureHandle
+  ├─ texture / width / height / flip_y
+  └─ shared lifetime lease
 ```
 
-OpenGL renderer 与 CUDA interop 都返回 texture view。CPU Path 或 CUDA interop fallback 返回 Host `Framebuffer`。
+显示层按 variant 分发，不识别具体 renderer。handle 持有资源 owner，保证 compositor 完成采样前 framebuffer 或 GL texture 不会被后端 reset/析构。统计信息同样使用 `OpenGlViewerStatistics | CudaPathViewerStatistics` 类型化 variant。
+
+## 从文档到帧
+
+每帧渲染输入是 `const RenderSceneSnapshot&`：
+
+```text
+SceneDocument typed edit
+  -> domain revision increment
+  -> immutable RenderSceneSnapshot
+  -> backend compares last consumed revisions
+  -> minimum required resource update
+  -> RenderFrameOutput lease
+  -> compositor
+  -> swap
+```
+
+相机、尺寸和 integrator settings 不放入场景 revision；CUDA 的 `ProgressiveRenderKey` 单独覆盖这些影响辐射分布的输入。
 
 ## OpenGL 像素
 
-OpenGL 链路适合实时预览：
-
 ```text
-SceneDocument
-  -> SceneChangeSet
-  -> OpenGlRasterRenderer resource sync
+RenderSceneSnapshot
+  -> flatten only when relevant revisions changed
+  -> VAO/VBO/material/texture/light/environment sync
   -> vertex shader
-  -> fixed-function triangle rasterization/depth test
-  -> fragment shader
-  -> GL_RGBA32F output texture
-  -> RenderFrameOutput
+  -> triangle rasterization and depth
+  -> opaque + weighted blended transparency passes
+  -> GL_RGBA32F linear output texture
+  -> OpenGlTextureHandle
 ```
 
-顶点 shader 完成坐标变换并传递法线、UV 与 tangent。硬件光栅化产生 fragment；fragment shader 读取材质与纹理，计算当前点光源/方向光贡献，将线性 HDR 颜色写入 `GL_RGBA32F`。
+OpenGL 只在快照 revision 变化时刷新派生批次。程序球已在快照边界转换为标准三角网格，不存在 OpenGL 特有 sphere 分支。
 
-shader 热重载失败时，`GlShaderProgram` 保留最后一个有效 program，因此预览不会因为一次编译错误而中断。
-
-## CPU Path 像素
-
-CPU Path 是无 CUDA 环境下的功能回退：
-
-```text
-pixel + sample seed
-  -> Camera::generate_ray()
-  -> SceneIntersector / BVH
-  -> material evaluation
-  -> direct point/directional light visibility
-  -> stochastic scatter
-  -> Russian roulette
-  -> sample radiance
-  -> progressive accumulation
-  -> Host Framebuffer
-```
-
-交互 session 每帧为每个像素增加一个样本。相机、尺寸或影响渲染的场景变更会清零累积；暂停累积后仍会在必要变更发生时生成一帧预览。
+shader 热重载属于 OpenGL backend capability。编译或链接失败时保留最后一个有效 program，并在 GLSL 面板显示完整 driver log。Path backend 不提供空的 reload 实现。
 
 ## CUDA Path 像素
 
-CUDA 与 CPU Path 保持同一采样和着色语义，但数据与生命周期针对 GPU 重构：
-
 ```text
-SceneChangeSet
-  -> incremental async upload
-  -> asset-local BLAS / instance TLAS
-  -> persistent CUDA stream
-  -> initialize_frame_kernel (仅 reset)
-  -> reusable conditional CUDA Graph
-  -> primary ray queue
-  -> compact intersection
-  -> shade / scatter
-  -> emissive-light sampling (有面积光时)
-  -> direct-light visibility
-  -> active / next queue swap
-  -> accumulate / resolve
+RenderSceneSnapshot revisions
+  -> validated host packing
+  -> changed asset BLAS rebuild / instance TLAS build or refit
+  -> persistent device-owned stream and buffers
+  -> initialize frame when ProgressiveRenderKey changes
+  -> reusable CUDA Graph wavefront stages
+       primary
+       intersection
+       alpha-aware surface reconstruction
+       shade / scatter
+       direct-light and emissive/environment NEE
+       visibility
+       accumulate / resolve
   -> accumulation buffer
-  -> GL surface 或 delayed resolve
+  -> CUDA/OpenGL surface or delayed host download
 ```
 
-### 命中数据流
+### 场景发布
 
-每条路径保留 ray、throughput、pixel/RNG 索引、上次 BSDF PDF 与 delta
-标记。active/next 队列双缓冲，存活路径以 warp 聚合原子操作紧凑入队。
+几何和 primitive-material slot table 作为一个已验证 schema 打包。正数越界 material slot 在 host 阶段失败；missing slot 映射诊断材质。只有所有需要的 upload 成功后，新 device scene view 才会发布。
 
-BVH 遍历与 intersection queue 只维护紧凑候选：
+资产由稳定 `AssetId + geometry_revision` 标识：
+
+- 某个资产几何变化：只重建该资产 BLAS。
+- 实例集合变化：重建 TLAS 拓扑。
+- 纯 world matrix/bounds 变化：只上传 instance 并 bottom-up refit TLAS。
+- 材质、纹理、灯光或环境变化：只更新对应资源，不重建无关 BVH。
+
+### Surface 和 alpha
+
+遍历、shading 与 emissive NEE 共用 `SurfaceInputs`/alpha evaluation 语义。输入包含 UV0、UV1、顶点颜色/alpha、纹理变换和有效 `AlphaMode`：
+
+- `Opaque` 忽略材质、顶点和纹理 alpha。
+- `Mask` 用组合 alpha 与 cutoff 决定命中/发光候选。
+- `Blend` 用 coverage 加权发光，并在路径可见性中使用同一 alpha。
+
+这样 emissive 直接采样不会再用错误 UV、忽略 vertex alpha，或把 Opaque 当成 cutout。
+
+### 环境采样
+
+环境 PMF 的 texel 权重为 `luminance × texel solid angle`。选中一行后，CPU 公共契约和 CUDA 都在该行的两个纬度边界之间均匀采样 `cos(theta)`，并在 phi 区间均匀采样。方向 PDF 为：
 
 ```text
-t + primitive kind/id + barycentric u/v
+texel_pmf / texel_solid_angle
 ```
 
-找到最近候选后，才重建 alpha cutout 与 two-sided 判断所需的材质 id、UV、几何朝向。最终最近可见命中确定后，才插值 shading normal。只有最终材质引用 bump texture 时才计算 tangent/bitangent。
+因此采样分布与报告的立体角 PDF 完全匹配；极区不会因为在 theta 中均匀采样而产生偏差。
 
-阴影射线只要求可见性，因此不会重建不需要的完整着色数据。
+### 渐进累积
 
-### 实例遍历
+`ProgressiveRenderKey` 至少包含：
 
-每个唯一 mesh asset 的局部求交数据、材质槽、纹理与 BVH4 只上传一次。continuation
-与 shadow ray 先遍历 TLAS，再用实例逆矩阵把未归一化射线变换到局部 BLAS，因此
-世界空间 `t` 与 shadow distance 保持不变。命中记录携带 instance、asset/local
-primitive 身份；法线使用 inverse-transpose，负缩放重新计算 world front-face。
+- 八个 snapshot revisions；
+- 完整相机 basis 与 viewport；
+- 输出尺寸；
+- CUDA device ID；
+- max bounce、Russian roulette 参数；
+- seed；
+- 自动交互质量策略。
 
-纯平移/旋转/缩放每帧只上传 instance buffer 并在 GPU 上 bottom-up refit TLAS。
-复制或隐藏已有 asset 的实例只重建 TLAS 拓扑；材质 override 与纹理更新不会重建
-BLAS。CPU Path、离线渲染与 OpenGL 仍使用原有扁平 `Scene`。
+任何改变辐射分布的 key 变化都会由后端自动清零累积。选中、面板开关、delta time 等非辐射 UI 状态不会清零。调用方的 `SceneChangeSet` 不能替代 revision，也不能强制上传不存在的数据变化。
 
-### Emissive NEE / MIS
+### Interop 与 fallback
 
-资产拓扑、材质绑定或材质变更时，CUDA scene upload 会重建有效 emissive
-三角形/球体的 CDF。权重为 `面积 × emission luminance × 发光面数`；
-三角形均匀采样面积，球体均匀采样表面积。
+Viewer 创建 CUDA 资源前，从当前 OpenGL context 查询兼容设备并创建 `CudaDeviceContext`。stream、buffer、interop registration 和 surface 必须属于相同 device ID；interop 层不会偷偷切换设备。
 
-实例平移/旋转只改变采样变换；缩放 emissive 实例时才更新面积权重与 CDF。非均匀
-变换下球体成为椭球，面积 PDF 使用表面变换 Jacobian，三角形使用世界空间面积。
-
-每个 diffuse bounce 最多生成一个 emissive shadow task。面积 PDF 转为立体角
-PDF 后，与 cosine-weighted diffuse PDF 使用 β=2 power heuristic。BSDF
-路径命中 emissive primitive 时使用互补 MIS 权重；主射线或 delta 路径命中
-权重为 1。显式点光/方向光仍逐灯确定性求和并发送 alpha-aware 阴影射线，
-不参与 MIS。
-
-### 直接 texture 输出
-
-CUDA/OpenGL interop 活跃时：
-
-```text
-accumulate / resolve stage
-  -> accumulation
-  -> cudaSurfaceObject
-  -> GL_RGBA32F texture
-```
-
-此时不分配永久 display buffer，也不下载 framebuffer。interop 不可用或离线输出时，后端才延迟创建 resolve buffer；交互 fallback 使用可复用 pinned host staging。
-
-### Reset
-
-同尺寸相机移动、手动 reset 或累积清零只在原有 buffer 上运行 `initialize_frame_kernel`。只有尺寸超过现有容量时才发生新分配。
-
-## SceneChangeSet 对链路的影响
-
-| 变更 | CPU 场景重建 | CUDA 上传 | BVH |
-|---|---|---|---|
-| 相机、选择、命名、锁定 | 否 | 无 | 不变 |
-| 灯光/环境色 | 更新 render scene | 灯光 | 不变 |
-| 材质参数 | 更新 render scene | 材质与 binding | 不变 |
-| 纹理数据 | 更新 render scene | 纹理 | 不变 |
-| 物体变换/几何 | 更新 render scene | 几何与 BVH | 重建 |
-| 导入、undo/redo | 完整重建 | All | 重建 |
+interop 活跃时，CUDA 直接写 `GL_RGBA32F` surface，并返回带资源租约的 texture handle。interop 不可用时才复用 pinned host staging 下载 framebuffer。离线 renderer 始终下载最终 image 并写 PNG。
 
 ## 显示变换
 
-曝光和 tone mapper 不改变 Path 累积。compositor 顺序为：
+compositor 顺序：
 
 ```text
 sanitize NaN/Inf
-  -> clamp negative values
+  -> clamp negative
   -> exposure EV
   -> None / Reinhard / ACES
   -> linear-to-sRGB
   -> display
 ```
 
-离线 PNG 仍由 `Image::write_png()` 完成输出转换；它不经过 Viewer compositor。
+Viewer display controls 不改变 Path 累积。离线 `Image::write_png()` 使用自己的输出转换，不经过 Viewer compositor。

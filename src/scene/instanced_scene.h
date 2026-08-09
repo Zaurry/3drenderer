@@ -5,19 +5,61 @@
 #include "scene/light.h"
 #include "scene/material.h"
 #include "scene/scene.h"
+#include "scene/scene_revision.h"
 
 #include <cstdint>
+#include <memory>
+#include <optional>
+#include <stdexcept>
 #include <vector>
 
 namespace renderer {
 
-struct InstancedSceneAssetView {
-    std::uint64_t asset_id = 0;
-    const Scene* local_scene = nullptr;
-    Bounds3 local_bounds;
+class MaterialSlot {
+public:
+    static MaterialSlot missing() {
+        return MaterialSlot();
+    }
+
+    static MaterialSlot bound(std::uint32_t index) {
+        MaterialSlot slot;
+        slot.index_ = index;
+        return slot;
+    }
+
+    bool has_value() const {
+        return index_.has_value();
+    }
+
+    std::uint32_t value() const {
+        if (!index_) {
+            throw std::logic_error("missing material slot has no index");
+        }
+        return *index_;
+    }
+
+    int device_value() const {
+        return index_
+            ? static_cast<int>(*index_)
+            : -1;
+    }
+
+    bool operator==(const MaterialSlot&) const = default;
+
+private:
+    std::optional<std::uint32_t> index_;
 };
 
-struct InstancedSceneInstanceView {
+struct RenderSceneAssetSnapshot {
+    std::uint64_t asset_id = 0;
+    std::uint64_t geometry_revision = 0;
+    std::shared_ptr<const Scene> local_scene;
+    Bounds3 local_bounds;
+    std::vector<MaterialSlot> sphere_material_slots;
+    std::vector<MaterialSlot> triangle_material_slots;
+};
+
+struct RenderSceneInstanceSnapshot {
     std::uint64_t object_id = 0;
     int asset_index = -1;
     Mat4 object_to_world = Mat4::Identity();
@@ -27,9 +69,10 @@ struct InstancedSceneInstanceView {
     std::vector<Material> materials;
 };
 
-struct InstancedSceneView {
-    std::vector<InstancedSceneAssetView> assets;
-    std::vector<InstancedSceneInstanceView> instances;
+struct RenderSceneSnapshot {
+    SceneRevisions revisions;
+    std::vector<RenderSceneAssetSnapshot> assets;
+    std::vector<RenderSceneInstanceSnapshot> instances;
     std::vector<ImageTexture> textures;
     std::vector<PointLight> point_lights;
     std::vector<DirectionalLight> directional_lights;
@@ -40,5 +83,12 @@ struct InstancedSceneView {
     float environment_rotation_degrees = 0.0f;
     bool environment_background_visible = true;
 };
+
+Scene flatten_render_scene_snapshot(
+    const RenderSceneSnapshot& snapshot);
+
+RenderSceneSnapshot make_render_scene_snapshot(Scene scene);
+
+const std::shared_ptr<const Scene>& canonical_unit_sphere_geometry();
 
 }  // namespace renderer

@@ -4,9 +4,19 @@
 
 namespace renderer {
 
+std::optional<CudaDeviceContext>
+select_cuda_device_for_current_opengl_context(
+    int,
+    std::string* reason) {
+    if (reason) {
+        *reason = "renderer was built without CUDA/OpenGL interop support";
+    }
+    return std::nullopt;
+}
+
 class CudaOpenGlInteropTexture::Impl {
 public:
-    bool initialize() {
+    bool initialize(const CudaDeviceContext&) {
         return false;
     }
 
@@ -48,6 +58,10 @@ public:
         return 0;
     }
 
+    int device_id() const {
+        return -1;
+    }
+
 private:
     CudaOpenGlInteropState state_ = CudaOpenGlInteropState::Unavailable;
     std::string reason_ = "renderer was built without CUDA/OpenGL interop support";
@@ -58,8 +72,9 @@ CudaOpenGlInteropTexture::CudaOpenGlInteropTexture()
 
 CudaOpenGlInteropTexture::~CudaOpenGlInteropTexture() = default;
 
-bool CudaOpenGlInteropTexture::initialize() {
-    return impl_->initialize();
+bool CudaOpenGlInteropTexture::initialize(
+    const CudaDeviceContext& device_context) {
+    return impl_->initialize(device_context);
 }
 
 bool CudaOpenGlInteropTexture::begin_frame(
@@ -104,6 +119,10 @@ int CudaOpenGlInteropTexture::width() const {
 
 int CudaOpenGlInteropTexture::height() const {
     return impl_->height();
+}
+
+int CudaOpenGlInteropTexture::device_id() const {
+    return impl_->device_id();
 }
 
 }  // namespace renderer

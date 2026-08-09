@@ -2,6 +2,7 @@
 
 #include "render/interactive/interactive_render_session.h"
 #include "render/renderer.h"
+#include "render/pathtracer/cuda_device_context.h"
 #include "scene/instanced_scene.h"
 
 #include <array>
@@ -21,6 +22,7 @@ enum class CudaPathWorkMode {
 };
 
 struct CudaPathStatistics {
+    int device_id = -1;
     float trace_milliseconds = 0.0f;
     float reset_milliseconds = 0.0f;
     float upload_milliseconds = 0.0f;
@@ -73,15 +75,17 @@ struct CudaPathDiagnosticProfile {
 
 bool cuda_path_backend_compiled();
 bool cuda_path_backend_available(std::string* reason = nullptr);
+bool cuda_path_backend_available(int device_id, std::string* reason);
 
 RenderResult render_cuda_path(
-    const Scene& scene,
+    const RenderSceneSnapshot& snapshot,
     const Camera& camera,
     const RenderSettings& settings);
 
 class CudaPathInteractiveRenderer {
 public:
     CudaPathInteractiveRenderer();
+    explicit CudaPathInteractiveRenderer(CudaDeviceContext device_context);
     ~CudaPathInteractiveRenderer();
     CudaPathInteractiveRenderer(CudaPathInteractiveRenderer&&) noexcept;
     CudaPathInteractiveRenderer& operator=(CudaPathInteractiveRenderer&&) noexcept;
@@ -90,26 +94,24 @@ public:
     CudaPathInteractiveRenderer& operator=(const CudaPathInteractiveRenderer&) = delete;
 
     void reset(
-        const Scene& scene,
-        const RenderSettings& settings,
-        const InstancedSceneView* instanced_scene = nullptr);
+        const RenderSceneSnapshot& snapshot,
+        const RenderSettings& settings);
     void render_next_frame(
-        const Scene& scene,
+        const RenderSceneSnapshot& snapshot,
         const Camera& camera,
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state,
-        Framebuffer& target,
-        const InstancedSceneView* instanced_scene = nullptr);
+        Framebuffer& target);
     void render_next_frame_to_surface(
-        const Scene& scene,
+        const RenderSceneSnapshot& snapshot,
         const Camera& camera,
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state,
-        CudaSurfaceHandle surface,
-        const InstancedSceneView* instanced_scene = nullptr);
+        CudaSurfaceHandle surface);
     void download_current_frame(Framebuffer& target);
     int accumulated_samples() const;
     CudaStreamHandle stream_handle() const;
+    int device_id() const;
     const CudaPathStatistics& statistics() const;
     CudaPathDiagnosticProfile download_diagnostic_profile();
     void set_presentation_state(bool interop_active, bool fallback_active);

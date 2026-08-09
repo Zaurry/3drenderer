@@ -37,54 +37,70 @@ void clear_gl_errors() {
 
 }  // namespace
 
+std::optional<CudaDeviceContext>
+select_cuda_device_for_current_opengl_context(
+    int requested_device,
+    std::string* reason) {
+    int cuda_device_count = 0;
+    cudaError_t result = cudaGetDeviceCount(&cuda_device_count);
+    if (result != cudaSuccess || cuda_device_count <= 0) {
+        if (reason) {
+            *reason = result == cudaSuccess
+                ? "no CUDA-capable device is available"
+                : cuda_error_message("cudaGetDeviceCount failed", result);
+        }
+        return std::nullopt;
+    }
+    std::vector<int> gl_devices(static_cast<std::size_t>(cuda_device_count));
+    unsigned int gl_device_count = 0;
+    result = cudaGLGetDevices(
+        &gl_device_count,
+        gl_devices.data(),
+        static_cast<unsigned int>(gl_devices.size()),
+        cudaGLDeviceListAll);
+    if (result != cudaSuccess || gl_device_count == 0) {
+        if (reason) {
+            *reason = result == cudaSuccess
+                ? "the current OpenGL context has no compatible CUDA device"
+                : cuda_error_message("cudaGLGetDevices failed", result);
+        }
+        return std::nullopt;
+    }
+    gl_devices.resize(gl_device_count);
+    const std::optional<int> selected = select_cuda_device_id(
+        requested_device,
+        cuda_device_count,
+        gl_devices,
+        true,
+        reason);
+    if (!selected) {
+        return std::nullopt;
+    }
+    return CudaDeviceContext::try_create(*selected, reason);
+}
+
 class CudaOpenGlInteropTexture::Impl {
 public:
     ~Impl() {
         release_texture();
     }
 
-    bool initialize() {
+    bool initialize(const CudaDeviceContext& device_context) {
         release_texture();
         state_ = CudaOpenGlInteropState::Unavailable;
         reason_.clear();
 
-        int cuda_device_count = 0;
-        cudaError_t result = cudaGetDeviceCount(&cuda_device_count);
-        if (result != cudaSuccess) {
-            return fail(cuda_error_message("cudaGetDeviceCount failed", result));
-        }
-        if (cuda_device_count <= 0) {
-            return fail("no CUDA-capable device is available");
-        }
-
-        std::vector<int> gl_devices(static_cast<std::size_t>(cuda_device_count));
-        unsigned int gl_device_count = 0;
-        result = cudaGLGetDevices(
-            &gl_device_count,
-            gl_devices.data(),
-            static_cast<unsigned int>(gl_devices.size()),
-            cudaGLDeviceListAll);
-        if (result != cudaSuccess) {
-            return fail(cuda_error_message("cudaGLGetDevices failed", result));
-        }
-        if (gl_device_count == 0) {
-            return fail("the current OpenGL context has no compatible CUDA device");
-        }
-        gl_devices.resize(gl_device_count);
-
-        int current_device = 0;
-        result = cudaGetDevice(&current_device);
+        int current_device = -1;
+        const cudaError_t result = cudaGetDevice(&current_device);
         if (result != cudaSuccess) {
             return fail(cuda_error_message("cudaGetDevice failed", result));
         }
-        if (std::find(gl_devices.begin(), gl_devices.end(), current_device) == gl_devices.end()) {
-            current_device = gl_devices.front();
-            result = cudaSetDevice(current_device);
-            if (result != cudaSuccess) {
-                return fail(cuda_error_message("cudaSetDevice failed", result));
-            }
+        if (!device_context.valid() ||
+            current_device != device_context.device_id()) {
+            return fail(
+                "CUDA/OpenGL interop context device does not match the current CUDA device");
         }
-
+        device_id_ = current_device;
         state_ = CudaOpenGlInteropState::Ready;
         return true;
     }
@@ -95,6 +111,11 @@ public:
         CudaStreamHandle stream_handle,
         CudaSurfaceHandle& output_surface) {
         output_surface = 0;
+        int current_device = -1;
+        if (cudaGetDevice(&current_device) != cudaSuccess ||
+            current_device != device_id_) {
+            return fail("CUDA/OpenGL interop used from a different CUDA device");
+        }
         if (state_ != CudaOpenGlInteropState::Ready &&
             state_ != CudaOpenGlInteropState::Active) {
             return false;
@@ -205,6 +226,10 @@ public:
         return height_;
     }
 
+    int device_id() const {
+        return device_id_;
+    }
+
 private:
     CudaOpenGlInteropState state_ = CudaOpenGlInteropState::Unavailable;
     std::string reason_ = "CUDA/OpenGL interop has not been initialized";
@@ -215,6 +240,7 @@ private:
     cudaStream_t mapped_stream_ = nullptr;
     int width_ = 0;
     int height_ = 0;
+    int device_id_ = -1;
 
     bool ensure_texture(int width, int height) {
         if (resource_ && texture_ != 0 && width == width_ && height == height_) {
@@ -294,8 +320,9 @@ CudaOpenGlInteropTexture::CudaOpenGlInteropTexture()
 
 CudaOpenGlInteropTexture::~CudaOpenGlInteropTexture() = default;
 
-bool CudaOpenGlInteropTexture::initialize() {
-    return impl_->initialize();
+bool CudaOpenGlInteropTexture::initialize(
+    const CudaDeviceContext& device_context) {
+    return impl_->initialize(device_context);
 }
 
 bool CudaOpenGlInteropTexture::begin_frame(
@@ -340,6 +367,10 @@ int CudaOpenGlInteropTexture::width() const {
 
 int CudaOpenGlInteropTexture::height() const {
     return impl_->height();
+}
+
+int CudaOpenGlInteropTexture::device_id() const {
+    return impl_->device_id();
 }
 
 }  // namespace renderer

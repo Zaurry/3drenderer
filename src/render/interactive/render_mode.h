@@ -13,8 +13,7 @@ enum class InteractiveRenderMode {
 enum class RenderModeCapability : unsigned int {
     None = 0,
     Progressive = 1U << 0U,
-    PathBackendSelection = 1U << 1U,
-    ShaderReload = 1U << 2U,
+    ShaderReload = 1U << 1U,
 };
 
 constexpr RenderModeCapability operator|(

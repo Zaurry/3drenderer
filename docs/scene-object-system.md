@@ -1,92 +1,117 @@
 # 场景对象系统
 
-Viewer 编辑的是 `SceneDocument`。CPU Path 与 OpenGL 继续消费延迟生成的扁平
-`Scene`；CUDA Path Viewer 直接消费缓存的 `InstancedSceneView`。二者分离，使对象
-层级、身份、历史记录和文件语义不侵入 CPU/OpenGL，同时避免 CUDA 拖动时展开
-数百万三角形。
+## 单一渲染边界
 
-## 数据流
+Viewer 编辑 `SceneDocument`，OpenGL、CUDA Path、CPU 拾取和离线渲染都消费由它生成的同一类不可变数据：`RenderSceneSnapshot`。
 
 ```text
 SceneDocument
-  +-- assets
-  +-- objects / hierarchy
-  +-- transforms
-  +-- material overrides
-  +-- undo / redo
-  +-- file/session state
-          |
-          v
-      /                         \
-     v                           v
-rebuild_render_scene()    instanced_render_scene()
-  (lazy)                    (cached metadata)
-     |                           |
-     v                           v
-   Scene                  asset BLAS + instance TLAS
-  /     \                         |
-OpenGL  CPU Path               CUDA Path
+  ├─ objects / hierarchy
+  ├─ shared mesh assets
+  ├─ canonical local matrices
+  ├─ material overrides
+  ├─ environment and lights
+  ├─ undo / redo / saved identity
+  └─ domain revisions
+          │
+          ▼
+RenderSceneSnapshot
+  ├─ shared immutable geometry
+  ├─ instances and material tables
+  ├─ textures, lights and environment
+  └─ eight monotonic revisions
+          ├─ OpenGL
+          ├─ CUDA Path
+          ├─ picking BVH
+          └─ offline CUDA renderer
 ```
 
-## 对象身份与层级
+项目不再维护“文档对象 + 扁平 Scene + CUDA instance view”三套可独立漂移的数据。OpenGL 如需批处理，可在后端内部从当前快照生成临时扁平数据；这个派生结果不是公共编辑接口，也不能反向修改文档。
 
-每个对象都有稳定的 `ObjectId`。父子关系、独立 transform、visible、locked、名称与材质 override 都保留在文档层；导入多个 OBJ 不会把对象身份压平。
+## 身份、索引和层级缓存
 
-对象世界矩阵由父级到子级组合。mesh 顶点与法线在生成 `Scene` 时变换；点光源位置和方向光方向同样由对象世界矩阵得到。
+每个对象和资产分别拥有稳定 `ObjectId`、`AssetId`。`SceneDocument` 维护：
 
-## Asset
+- `ObjectId -> vector index` 哈希索引；
+- 父对象到子对象的邻接表；
+- 按拓扑顺序生成的 world matrix 和 world bounds 缓存；
+- 每个 mesh asset 的持久化 CPU `SceneIntersector`，供拾取复用。
 
-`SceneMeshAsset` 保存导入源、局部几何、局部材质、纹理与局部 bounds。多个对象可引用同一个 asset，同时保留独立 transform 与材质 override。
+对象查找不再扫描整个 vector，world matrix/bounds 也不再由每个查询重复递归。层级或空间数据变化会集中使对应缓存失效。
 
-目录导入会递归发现支持的资产，并保持每个导入对象的独立身份。默认资产场景会添加一个方向光，便于首次预览。
+## 变换真值
 
-## 材质 override
+`SceneObject::transform.local_matrix` 是对象变换的权威数据，必须满足：
 
-override 以对象和 material slot 为粒度。生成扁平 `Scene` 时：
+- 所有元素有限；
+- 最后一行为仿射形式 `[0, 0, 0, 1]`；
+- 左上 3×3 线性部分可逆。
 
-1. 解析 asset 的基础材质与纹理索引。
-2. 对对象覆盖的 slot 应用 override。
-3. 生成全局 material 数组。
-4. 写入 primitive-material binding。
+TRS 只是矩阵可无损分解时提供给 Inspector 的编辑视图。含剪切的矩阵不会被静默近似为 TRS。重父级直接计算：
 
-因此材质编辑需要更新材质与 binding，但不需要重建 BVH。
+```text
+new_local = inverse(new_parent_world) * old_world
+```
 
-## SceneChangeSet
+候选矩阵先整体验证，验证失败时不修改 parent、matrix、history 或 dirty 状态。成功后才能作为一次事务提交。因此剪切、负缩放和非均匀缩放可以经过导入、重父级、undo/redo 和保存回读而不丢失。
 
-编辑器操作必须返回足够精确的变更分类：
+## 编辑事务和只读视图
 
-| 操作 | 变更 |
-|---|---|
-| 相机、选择、命名、locked | `None` |
-| 环境色、点光源、方向光 | `Lighting` |
-| 材质 override | `Materials | MaterialBindings` |
-| mesh/group transform | `InstanceTransforms`，若包含 light 还包括 `Lighting` |
-| visible 改变 | 对受影响子树按拓扑分类 |
-| 导入、删除、复制、reparent、undo/redo | `All` |
+公共读取接口只返回只读数据：
 
-`viewer_main` 只负责将 UI 与外部导入产生的变更合并。实际后端同步由统一 Viewer backend 完成。
+- `objects()` 返回 `const vector<SceneObject>&`；
+- `find()`、`asset_for_object()` 返回 `const` 指针；
+- `assets()` 返回 `shared_ptr<const SceneMeshAsset>`；
+- 环境和快照均为只读视图。
 
-## 保存与会话
+修改通过类型化 setter 或 `SceneEditTransaction` 完成。事务启动时保存完整回滚状态；`commit()` 统一创建历史节点，`cancel()` 或析构未提交时整体恢复。连续 gizmo 拖动可使用相同 merge key 合并为一个 undo group，但每次预览 setter 仍立即：
 
-`.rscene` 保存文档结构、asset 引用、对象层级、transform、材质 override 与灯光。Viewer 会话在此基础上额外保存：
+- 增加相应 revision；
+- 使快照/空间缓存失效；
+- 更新 dirty 状态；
+- 让渲染后端看到最新值。
 
-- 主窗口尺寸，以及由 `imgui.ini` 保存的 docking、面板尺寸和外置多视口绝对位置。
-- 当前模式（仅 `opengl` / `path`）。
-- Path backend 与 CPU 参数。
-- 相机状态。
-- 选择、gizmo 与显示设置。
+这样不存在“先取得可变指针，再绕过 revision、dirty 或 history”的写入路径。
 
-运行时资产表可以暂时保留无对象引用的资产以支持 undo/redo；`.rscene` 和 Viewer 会话只序列化当前 mesh 对象引用的资产。恢复旧快照时也会跳过孤立资产，避免重新加载已经删除的模型。
+## Revision 契约
 
-会话格式版本保持为 1。旧 `max_depth` 会被忽略；旧 `raster` / `ray` 模式会话被拒绝。
+`SceneRevisions` 包含八个单调计数器：
 
-## 渲染边界
+| Domain | 内容 | 典型 CUDA 行为 |
+|---|---|---|
+| `topology` | 资产/实例集合与父子结构 | 重建 TLAS 拓扑 |
+| `geometry` | 顶点、索引、primitive 数量 | 仅重建变化 asset 的 BLAS |
+| `transforms` | 实例 world/inverse/normal matrix 与 bounds | 上传 instance，refit TLAS |
+| `material_bindings` | primitive 到材质槽的映射 | 与几何一致地上传绑定 |
+| `materials` | 材质参数和发光状态 | 更新材质与 emissive 表 |
+| `textures` | 纹理描述、texel、alpha | 更新纹理资源 |
+| `lighting` | point/directional/spot lights | 更新灯光 buffer |
+| `environment` | HDRI、强度、旋转、背景可见性 | 更新环境分布和资源 |
 
-后端不得直接依赖编辑器对象：
+后端保存上次已消费的 revisions 并自行比较。`InteractiveFrameState::scene_changes` 仅保留为内部兼容状态，不再是场景同步真值；UI 传错或漏传 change flag 都不能制造旧缓存。
 
-- OpenGL backend 根据 `SceneChangeSet` 更新 GL 资源。
-- CPU Path 使用扁平 `Scene` 与 `SceneIntersector`。
-- CUDA Path Viewer 使用 asset-local BLAS 与 instance TLAS；只有切换到 CPU/OpenGL
-  或真正需要扁平数据时才延迟生成 `Scene`。
+## 资产、实例和材质槽
 
-这个边界允许后续增加新的对象组件或渲染后端，而不要求修改显示层或破坏现有对象身份。
+`RenderSceneAssetSnapshot` 持有 `shared_ptr<const Scene>`，因此快照中的共享几何在帧租约结束前不会悬空。资产有稳定 ID 和独立 geometry revision；CUDA BLAS cache 以两者识别变化。
+
+材质槽使用 `MaterialSlot`：
+
+- `missing()` 明确表示未绑定；
+- `bound(index)` 表示有效的本地材质索引；
+- `-1` 只在 GPU 打包边界表示 missing，不能先加 instance material offset；
+- 正数越界在快照构建时抛错；
+- missing 始终映射到全局诊断材质。
+
+几何与材质槽表必须具有相同 primitive 数量。CUDA 先在 host 构建并验证完整候选 device scene，只有上传成功后才发布新 view，因此 geometry 数量变化不会与上一版本绑定表混用。
+
+## 程序球
+
+程序球进入快照时统一引用一份 64×32 平滑单位球网格，包含稳定 winding、平滑法线、UV0/UV1 和 tangent；center/radius 被编码为实例矩阵。多个程序球只上传/构建一次共享几何和 BLAS。文档拾取缓存使用由同一单位网格变换得到的三角形，因此运行时没有 OpenGL/CUDA/拾取各自解析 sphere 的分支。负缩放和非均匀缩放由实例矩阵、逆矩阵和 inverse-transpose normal matrix 统一处理。
+
+## 文件和会话
+
+`.rscene` 当前写入 v4，local matrix 保存为明确的四个 4 元行数组。v1–v3 仍可读取并迁移，保存时升级到 v4。
+
+Viewer 会话当前写入 v2。v1 中的 `path_backend` 只用于生成迁移提示，不恢复 CPU/Auto backend。若会话请求 Path 但 CUDA 设备或探测 kernel 不可用，Viewer 切到 OpenGL 并显示原因。
+
+场景和会话保存都经过共享原子写入工具：同目录唯一临时文件完成 flush/close 后，Windows 使用 replace + write-through，POSIX 使用 rename。替换前失败会删除临时文件，目标原字节保持不变。

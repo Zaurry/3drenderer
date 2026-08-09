@@ -64,7 +64,6 @@ struct CudaOpenGlInteropUiState {
 
 struct ViewerUiActions {
     bool mode_changed = false;
-    bool path_backend_changed = false;
     bool camera_mode_changed = false;
     bool camera_parameters_changed = false;
     bool camera_reset_requested = false;
@@ -89,7 +88,6 @@ struct ViewerUiActions {
 
     bool resets_path_accumulation() const {
         return mode_changed ||
-            path_backend_changed ||
             camera_mode_changed ||
             camera_parameters_changed ||
             camera_reset_requested ||
@@ -113,7 +111,6 @@ public:
         const Bounds3& scene_bounds,
         const FrameRateSnapshot& performance,
         int accumulated_path_samples,
-        ExecutionBackend active_path_backend,
         const CudaOpenGlInteropUiState& interop_state,
         const CudaPathStatistics& cuda_statistics,
         OpenGlShaderUiState& shader_state,

@@ -5,6 +5,7 @@
 #include "scene/environment.h"
 #include "scene/material.h"
 #include "scene/primitive.h"
+#include "scene/scene_revision.h"
 #include "scene/texture.h"
 
 #include <vector>
@@ -13,6 +14,7 @@
 namespace renderer {
 
 struct Scene {
+    SceneRevisions revisions;
     std::vector<Material> materials;
     std::vector<ImageTexture> textures;
     std::vector<Sphere> spheres;
@@ -31,5 +33,9 @@ Scene make_gradient_sphere_scene();
 Scene make_triangle_scene();
 Scene make_mirror_spheres_scene();
 Scene make_cornell_box_scene();
+void tessellate_spheres(
+    Scene& scene,
+    int longitude_segments = 64,
+    int latitude_segments = 32);
 
 }  // namespace renderer

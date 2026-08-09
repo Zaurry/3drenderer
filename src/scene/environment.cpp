@@ -287,9 +287,16 @@ EnvironmentMapSample EnvironmentMap::sample(
         pmf_.size() - 1U);
     const int x = static_cast<int>(index % static_cast<std::size_t>(width_));
     const int y = static_cast<int>(index / static_cast<std::size_t>(width_));
+    const float theta0 = kPi * static_cast<float>(y) / static_cast<float>(height_);
+    const float theta1 = kPi * static_cast<float>(y + 1) / static_cast<float>(height_);
+    const float cos_theta = std::lerp(
+        std::cos(theta0),
+        std::cos(theta1),
+        clamp_unit(jitter_v));
+    const float theta = std::acos(std::clamp(cos_theta, -1.0f, 1.0f));
     const Vec2 uv(
         (static_cast<float>(x) + clamp_unit(jitter_u)) / static_cast<float>(width_),
-        (static_cast<float>(y) + clamp_unit(jitter_v)) / static_cast<float>(height_));
+        theta / kPi);
     EnvironmentMapSample result;
     result.direction = uv_to_direction(uv);
     result.radiance = sample_direction(result.direction);

@@ -25,17 +25,17 @@ $diagnosticDirectory = Join-Path $runDirectory "diagnostics"
 
 Push-Location $sourceRoot
 try {
-cmake --preset cuda -DRENDERER_BUILD_BENCHMARKS=ON
+cmake --preset cuda-native -DRENDERER_BUILD_BENCHMARKS=ON
 if ($LASTEXITCODE -ne 0) { throw "benchmark configure failed" }
 
-cmake --build --preset cuda-release --target `
+cmake --build --preset cuda-native-release --target `
     viewer_benchmark viewer_benchmark_diagnostics benchmark_tests `
     benchmark_diagnostics_tests
 if ($LASTEXITCODE -ne 0) { throw "benchmark build failed" }
 
-& (Join-Path $sourceRoot "build/cuda/bin/benchmark_tests.exe")
+& (Join-Path $sourceRoot "build/cuda-native/bin/benchmark_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "benchmark tests failed" }
-& (Join-Path $sourceRoot "build/cuda/bin/benchmark_diagnostics_tests.exe")
+& (Join-Path $sourceRoot "build/cuda-native/bin/benchmark_diagnostics_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "benchmark diagnostics tests failed" }
 
 $commonArguments = @(
@@ -51,7 +51,7 @@ $timingArguments = $commonArguments + @(
 if (-not [string]::IsNullOrWhiteSpace($Baseline)) {
     $timingArguments += @("--baseline", (Resolve-FromSource $Baseline))
 }
-& (Join-Path $sourceRoot "build/cuda/bin/viewer_benchmark.exe") @timingArguments
+& (Join-Path $sourceRoot "build/cuda-native/bin/viewer_benchmark.exe") @timingArguments
 if ($LASTEXITCODE -ne 0) { throw "timing benchmark failed" }
 
 if ($Backend -ne "opengl") {
@@ -59,7 +59,7 @@ if ($Backend -ne "opengl") {
         "--backend", "cuda",
         "--output-dir", $diagnosticDirectory
     )
-    & (Join-Path $sourceRoot "build/cuda/bin/viewer_benchmark_diagnostics.exe") `
+    & (Join-Path $sourceRoot "build/cuda-native/bin/viewer_benchmark_diagnostics.exe") `
         @diagnosticArguments
     if ($LASTEXITCODE -ne 0) { throw "diagnostics benchmark failed" }
 }

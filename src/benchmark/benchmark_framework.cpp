@@ -1,6 +1,5 @@
 #include "benchmark/benchmark_framework.h"
 
-#include "render/pathtracer/path_backend.h"
 
 #include <algorithm>
 #include <array>
@@ -424,8 +423,6 @@ CaseConfig load_case(
     config.render_settings.height = render_height;
     const auto& path = root.at("render_settings").at("path");
     config.render_settings.path.samples_per_pixel = path.value("samples_per_pixel", 1);
-    config.render_settings.path.tile_size = path.value("tile_size", 16);
-    config.render_settings.path.thread_count = path.value("thread_count", 0);
     config.render_settings.path.max_bounces = path.value("max_bounces", 64);
     config.render_settings.path.russian_roulette_start_bounce =
         path.value("rr_start_bounce", 3);
@@ -435,8 +432,8 @@ CaseConfig load_case(
         path.value("rr_max_probability", 0.95f);
     config.render_settings.path.sample_seed_offset =
         path.value("sample_seed_offset", std::uint64_t{0});
-    config.render_settings.path.backend = parse_path_backend(
-        path.value("backend", std::string("cuda")));
+    config.render_settings.path.cuda_device =
+        std::max(0, path.value("cuda_device", 0));
 
     const auto& phases = root.at("phases");
     config.opengl_warmup_frames = phases.value("opengl_warmup_frames", 60);

@@ -2,46 +2,27 @@
 
 #include "render/framebuffer.h"
 
+#include <memory>
+#include <variant>
+
 namespace renderer {
 
-enum class RenderFrameOutputKind {
-    None,
-    HostFramebuffer,
-    OpenGlTexture,
+struct HostFrameHandle {
+    std::shared_ptr<const Framebuffer> framebuffer;
 };
 
-struct RenderTextureView {
+struct OpenGlTextureHandle {
     unsigned int texture = 0;
     int width = 0;
     int height = 0;
     bool flip_y = false;
+    // Keeps the backend resource owner alive until presentation completes.
+    std::shared_ptr<const void> lifetime;
 };
 
-class RenderFrameOutput {
-public:
-    static RenderFrameOutput host(const Framebuffer& framebuffer) {
-        RenderFrameOutput output;
-        output.kind_ = RenderFrameOutputKind::HostFramebuffer;
-        output.framebuffer_ = &framebuffer;
-        return output;
-    }
-
-    static RenderFrameOutput texture(RenderTextureView texture) {
-        RenderFrameOutput output;
-        output.kind_ = RenderFrameOutputKind::OpenGlTexture;
-        output.texture_ = texture;
-        return output;
-    }
-
-    RenderFrameOutputKind kind() const { return kind_; }
-    const Framebuffer* framebuffer() const { return framebuffer_; }
-    const RenderTextureView& texture() const { return texture_; }
-    bool valid() const { return kind_ != RenderFrameOutputKind::None; }
-
-private:
-    RenderFrameOutputKind kind_ = RenderFrameOutputKind::None;
-    const Framebuffer* framebuffer_ = nullptr;
-    RenderTextureView texture_;
-};
+using RenderFrameOutput = std::variant<
+    std::monostate,
+    HostFrameHandle,
+    OpenGlTextureHandle>;
 
 }  // namespace renderer

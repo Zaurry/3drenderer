@@ -57,4 +57,13 @@ struct Material {
     TextureTransform specular_glossiness_texture_transform;
 };
 
+inline Material diagnostic_material() {
+    Material material;
+    material.type = MaterialType::Diffuse;
+    material.base_color = Color(1.0f, 0.0f, 1.0f);
+    material.roughness = 1.0f;
+    material.two_sided = true;
+    return material;
+}
+
 }  // namespace renderer

@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cfloat>
 #include <climits>
@@ -20,6 +21,7 @@
 #include <numeric>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -311,6 +313,11 @@ struct DHit {
     int instance_index;
     float barycentric_u;
     float barycentric_v;
+};
+
+struct DAlphaEvaluation {
+    int mode;
+    float coverage;
 };
 
 struct DCompactHit {
@@ -954,6 +961,16 @@ __device__ float material_surface_opacity(
     const DScene& scene,
     const DMaterial& material,
     const DHit& hit);
+__device__ int effective_alpha_mode(const DMaterial& material);
+__device__ DAlphaEvaluation evaluate_alpha(
+    const DScene& scene,
+    const DMaterial& material,
+    const DHit& hit);
+__device__ DAlphaEvaluation evaluate_alpha(
+    const DScene& scene,
+    const DMaterial& material,
+    const DHit& hit,
+    int mode);
 
 __device__ unsigned int alpha_hash(unsigned int value) {
     value ^= value >> 16U;
@@ -1099,6 +1116,11 @@ __device__ int triangle_material_id(
     int primitive_index) {
     const int material_slot =
         scene.triangle_material_ids[primitive_index];
+    if (material_slot < 0) {
+        return instance_index >= 0
+            ? 0
+            : -1;
+    }
     return instance_index >= 0
         ? scene.instances[instance_index].material_offset +
             material_slot
@@ -1111,6 +1133,11 @@ __device__ int sphere_material_id(
     int primitive_index) {
     const int material_slot =
         scene.sphere_material_ids[primitive_index];
+    if (material_slot < 0) {
+        return instance_index >= 0
+            ? 0
+            : -1;
+    }
     return instance_index >= 0
         ? scene.instances[instance_index].material_offset +
             material_slot
@@ -1176,7 +1203,11 @@ __device__ bool triangle_candidate_visible(
     opacity_hit.vertex_alpha = (shading.color_mask & 0x7U) == 0x7U
         ? shading.alphas[0] * w + shading.alphas[1] * u + shading.alphas[2] * v
         : 1.0f;
-    const float opacity = material_surface_opacity(scene, material, opacity_hit);
+    const float opacity = evaluate_alpha(
+        scene,
+        material,
+        opacity_hit,
+        alpha_mode).coverage;
     return alpha_mode == static_cast<int>(AlphaMode::Blend)
         ? candidate_alpha_sample(
               local_ray,
@@ -1240,7 +1271,11 @@ __device__ bool sphere_candidate_visible(
     opacity_hit.uv = DVec2{0.0f, 0.0f};
     opacity_hit.uv1 = opacity_hit.uv;
     opacity_hit.vertex_alpha = 1.0f;
-    const float opacity = material_surface_opacity(scene, material, opacity_hit);
+    const float opacity = evaluate_alpha(
+        scene,
+        material,
+        opacity_hit,
+        alpha_mode).coverage;
     return alpha_mode == static_cast<int>(AlphaMode::Blend)
         ? candidate_alpha_sample(
               local_ray,
@@ -2328,6 +2363,80 @@ __device__ float material_surface_opacity(
     return fminf(fmaxf(opacity, 0.0f), 1.0f);
 }
 
+void hash_geometry_value(std::uint64_t& hash, std::uint32_t value) {
+    hash ^= value;
+    hash *= 1099511628211ULL;
+}
+
+void hash_geometry_float(std::uint64_t& hash, float value) {
+    hash_geometry_value(hash, std::bit_cast<std::uint32_t>(value));
+}
+
+template <typename Vector>
+void hash_geometry_vector(std::uint64_t& hash, const Vector& value) {
+    for (int index = 0; index < value.size(); ++index) {
+        hash_geometry_float(hash, value[index]);
+    }
+}
+
+std::uint64_t scene_geometry_fingerprint(const Scene& scene) {
+    std::uint64_t hash = 1469598103934665603ULL;
+    hash_geometry_value(hash, static_cast<std::uint32_t>(scene.spheres.size()));
+    hash_geometry_value(hash, static_cast<std::uint32_t>(scene.triangles.size()));
+    for (const Sphere& sphere : scene.spheres) {
+        hash_geometry_vector(hash, sphere.center());
+        hash_geometry_float(hash, sphere.radius());
+    }
+    for (const Triangle& triangle : scene.triangles) {
+        for (int vertex_index = 0; vertex_index < 3; ++vertex_index) {
+            const TriangleVertex& vertex = triangle.vertex(vertex_index);
+            hash_geometry_vector(hash, vertex.position);
+            hash_geometry_vector(hash, vertex.uv);
+            hash_geometry_vector(hash, vertex.uv1);
+            hash_geometry_vector(hash, vertex.normal);
+            hash_geometry_vector(hash, vertex.tangent);
+            hash_geometry_vector(hash, vertex.color);
+            hash_geometry_float(hash, vertex.alpha);
+            hash_geometry_value(hash, vertex.has_normal ? 1U : 0U);
+            hash_geometry_value(hash, vertex.has_uv1 ? 1U : 0U);
+            hash_geometry_value(hash, vertex.has_tangent ? 1U : 0U);
+            hash_geometry_value(hash, vertex.has_color ? 1U : 0U);
+        }
+    }
+    return hash;
+}
+
+__device__ int effective_alpha_mode(const DMaterial& material) {
+    return material.type == static_cast<int>(MaterialType::Pbr)
+        ? material.alpha_mode
+        : ((material.opacity_texture_id >= 0 || material.opacity < 1.0f)
+              ? static_cast<int>(AlphaMode::Mask)
+              : static_cast<int>(AlphaMode::Opaque));
+}
+
+__device__ DAlphaEvaluation evaluate_alpha(
+    const DScene& scene,
+    const DMaterial& material,
+    const DHit& hit) {
+    return evaluate_alpha(
+        scene,
+        material,
+        hit,
+        effective_alpha_mode(material));
+}
+
+__device__ DAlphaEvaluation evaluate_alpha(
+    const DScene& scene,
+    const DMaterial& material,
+    const DHit& hit,
+    int mode) {
+    return DAlphaEvaluation{
+        mode,
+        mode == static_cast<int>(AlphaMode::Opaque)
+            ? 1.0f
+            : material_surface_opacity(scene, material, hit)};
+}
+
 struct DEnvironmentSample {
     DVec3 direction;
     DVec3 radiance;
@@ -2348,13 +2457,6 @@ __device__ DVec2 environment_uv(DVec3 direction) {
     float u = atan2f(direction.z, direction.x) / (2.0f * kPi) + 0.5f;
     u -= floorf(u);
     return DVec2{u, acosf(fminf(fmaxf(direction.y, -1.0f), 1.0f)) / kPi};
-}
-
-__device__ DVec3 environment_direction(DVec2 uv) {
-    const float phi = (uv.x - floorf(uv.x) - 0.5f) * 2.0f * kPi;
-    const float theta = fminf(fmaxf(uv.y, 0.0f), 1.0f) * kPi;
-    const float sine = sinf(theta);
-    return v3(cosf(phi) * sine, cosf(theta), sinf(phi) * sine);
 }
 
 __device__ DVec3 sample_environment_map(const DScene& scene, DVec3 local_direction) {
@@ -2442,13 +2544,22 @@ __device__ DEnvironmentSample sample_environment(
     }
     const int x = low % scene.environment_width;
     const int y = low / scene.environment_width;
-    const DVec2 uv{
-        (static_cast<float>(x) + random_float(rng)) /
-            static_cast<float>(scene.environment_width),
-        (static_cast<float>(y) + random_float(rng)) /
-            static_cast<float>(scene.environment_height)};
+    const float theta0 = kPi * static_cast<float>(y) /
+        static_cast<float>(scene.environment_height);
+    const float theta1 = kPi * static_cast<float>(y + 1) /
+        static_cast<float>(scene.environment_height);
+    const float cos_theta = cosf(theta0) +
+        (cosf(theta1) - cosf(theta0)) * random_float(rng);
+    const float u = (static_cast<float>(x) + random_float(rng)) /
+        static_cast<float>(scene.environment_width);
+    const float phi = (u - 0.5f) * 2.0f * kPi;
+    const float sin_theta = sqrtf(fmaxf(0.0f, 1.0f - cos_theta * cos_theta));
+    const DVec3 local_direction = v3(
+        cosf(phi) * sin_theta,
+        cos_theta,
+        sinf(phi) * sin_theta);
     const DVec3 direction = rotate_y(
-        environment_direction(uv),
+        local_direction,
         scene.environment_rotation_radians);
     return DEnvironmentSample{
         direction,
@@ -3300,6 +3411,8 @@ __device__ bool sample_emissive_shadow_task(
     DVec3 light_position{};
     DVec3 outward_normal{};
     DVec2 light_uv{0.0f, 0.0f};
+    DVec2 light_uv1{0.0f, 0.0f};
+    float light_vertex_alpha = 1.0f;
     float sampled_area = light.area;
     if (light.primitive_kind == 0) {
         if (light.primitive_index < 0 ||
@@ -3373,13 +3486,35 @@ __device__ bool sample_emissive_shadow_task(
             shading.uvs[0].y * w0 +
                 shading.uvs[1].y * w1 +
                 shading.uvs[2].y * w2};
+        light_uv1 = (shading.uv1_mask & 0x7U) == 0x7U
+            ? DVec2{
+                  shading.uv1s[0].x * w0 +
+                      shading.uv1s[1].x * w1 +
+                      shading.uv1s[2].x * w2,
+                  shading.uv1s[0].y * w0 +
+                      shading.uv1s[1].y * w1 +
+                      shading.uv1s[2].y * w2}
+            : light_uv;
+        light_vertex_alpha = (shading.color_mask & 0x7U) == 0x7U
+            ? shading.alphas[0] * w0 +
+                shading.alphas[1] * w1 +
+                shading.alphas[2] * w2
+            : 1.0f;
     } else {
         return false;
     }
 
     const DMaterial light_material = scene.materials[light.material_id];
-    if (material_opacity(scene, light_material, light_uv) <
-        light_material.alpha_cutoff) {
+    DHit light_surface_hit{};
+    light_surface_hit.uv = light_uv;
+    light_surface_hit.uv1 = light_uv1;
+    light_surface_hit.vertex_alpha = light_vertex_alpha;
+    const DAlphaEvaluation light_alpha = evaluate_alpha(
+        scene,
+        light_material,
+        light_surface_hit);
+    if (light_alpha.mode == static_cast<int>(AlphaMode::Mask) &&
+        light_alpha.coverage < light_material.alpha_cutoff) {
         return false;
     }
 
@@ -3422,13 +3557,16 @@ __device__ bool sample_emissive_shadow_task(
         light_material.emissive_texture_id < scene.texture_count) {
         const DVec2 emissive_uv = transformed_uv(
             light_uv,
-            light_uv,
+            light_uv1,
             light_material.emissive_texture_transform,
             light_material.emissive_texture_rotation,
             light_material.emissive_texture_texcoord);
         light_emission = product(
             light_emission,
             sample_texture(scene, light_material.emissive_texture_id, emissive_uv));
+    }
+    if (light_alpha.mode == static_cast<int>(AlphaMode::Blend)) {
+        light_emission = mul(light_emission, light_alpha.coverage);
     }
     const DVec3 contribution = mul(
         product(
@@ -3718,11 +3856,10 @@ __global__ void shade_wavefront_kernel(
     const DSurface surface = evaluate_surface(frame.scene, material, hit);
     const int random_index = frame.pixel_offset + path.pixel_index;
     DPcgState rng = frame.random_states[random_index];
-    const int alpha_mode = material.type == static_cast<int>(MaterialType::Pbr)
-        ? material.alpha_mode
-        : ((material.opacity_texture_id >= 0 || material.opacity < 1.0f)
-              ? static_cast<int>(AlphaMode::Mask)
-              : static_cast<int>(AlphaMode::Opaque));
+    // evaluate_surface() already computed coverage. Only the effective mode is
+    // needed here; sampling the opacity textures again is both redundant and
+    // a measurable cost in foliage-heavy scenes.
+    const int alpha_mode = effective_alpha_mode(material);
     const bool transparent_passthrough =
         alpha_mode == static_cast<int>(AlphaMode::Blend) &&
         random_float(rng) >= surface.opacity;
@@ -4460,15 +4597,7 @@ private:
 class CudaSceneStorage {
 public:
     CudaSceneStorage(
-        const Scene& scene,
-        cudaStream_t stream,
-        CudaPathStatistics& statistics)
-        : stream_(stream), statistics_(statistics) {
-        sync(scene, SceneChange::All);
-    }
-
-    CudaSceneStorage(
-        const InstancedSceneView& scene,
+        const RenderSceneSnapshot& scene,
         cudaStream_t stream,
         CudaPathStatistics& statistics)
         : stream_(stream), statistics_(statistics) {
@@ -4477,283 +4606,8 @@ public:
 
     DScene view() const { return view_; }
 
-    void sync(const Scene& scene, SceneChangeSet changes) {
-        upload_timer_.finish(statistics_.upload_milliseconds);
-        upload_timer_.begin(stream_);
-        if (has_scene_change(changes, SceneChange::Materials)) {
-            materials_host_.clear();
-            materials_host_.reserve(scene.materials.size());
-            for (const Material& material : scene.materials) {
-                materials_host_.push_back(pack_material(material, 0));
-            }
-            statistics_.material_upload_bytes +=
-                materials_.upload(materials_host_, stream_, statistics_);
-        }
-
-        if (has_scene_change(changes, SceneChange::Textures)) {
-            textures_host_.clear();
-            texels_host_.clear();
-            texture_alphas_host_.clear();
-            textures_host_.reserve(scene.textures.size());
-            std::size_t texel_count = 0;
-            for (const ImageTexture& texture : scene.textures) {
-                texel_count += texture.pixels().size();
-            }
-            texels_host_.reserve(texel_count);
-            texture_alphas_host_.reserve(texel_count);
-            for (const ImageTexture& texture : scene.textures) {
-                const int first = static_cast<int>(texels_host_.size());
-                const int first_alpha = static_cast<int>(texture_alphas_host_.size());
-                textures_host_.push_back(
-                    DTexture{
-                        texture.width(),
-                        texture.height(),
-                        first,
-                        first_alpha,
-                        static_cast<int>(texture.wrap_s()),
-                        static_cast<int>(texture.wrap_t()),
-                        texture.mag_filter() == TextureFilter::Nearest ? 1 : 0,
-                        texture.uv_origin() == TextureUvOrigin::TopLeft ? 1 : 0});
-                for (const Color& color : texture.pixels()) {
-                    texels_host_.push_back(to_device(color));
-                }
-                texture_alphas_host_.insert(
-                    texture_alphas_host_.end(),
-                    texture.alphas().begin(),
-                    texture.alphas().end());
-            }
-            statistics_.texture_upload_bytes +=
-                textures_.upload(textures_host_, stream_, statistics_);
-            statistics_.texture_upload_bytes +=
-                texels_.upload(texels_host_, stream_, statistics_);
-            statistics_.texture_upload_bytes +=
-                texture_alphas_.upload(texture_alphas_host_, stream_, statistics_);
-        }
-
-        if (has_scene_change(changes, SceneChange::Geometry)) {
-            spheres_host_.clear();
-            spheres_host_.reserve(scene.spheres.size());
-            const bool pack_bindings =
-                has_scene_change(changes, SceneChange::MaterialBindings);
-            if (pack_bindings) {
-                sphere_material_ids_host_.clear();
-                sphere_material_ids_host_.reserve(scene.spheres.size());
-            }
-            for (const Sphere& sphere : scene.spheres) {
-                spheres_host_.push_back(
-                    DSphere{to_device(sphere.center()), sphere.radius()});
-                if (pack_bindings) {
-                    sphere_material_ids_host_.push_back(sphere.material_id());
-                }
-            }
-            statistics_.geometry_upload_bytes +=
-                spheres_.upload(spheres_host_, stream_, statistics_);
-
-            traversal_triangles_host_.clear();
-            shading_triangles_host_.clear();
-            traversal_triangles_host_.reserve(scene.triangles.size());
-            shading_triangles_host_.reserve(scene.triangles.size());
-            if (pack_bindings) {
-                triangle_material_ids_host_.clear();
-                triangle_material_ids_host_.reserve(scene.triangles.size());
-            }
-            for (const Triangle& triangle : scene.triangles) {
-                const TriangleVertex& first = triangle.vertex(0);
-                const TriangleVertex& second = triangle.vertex(1);
-                const TriangleVertex& third = triangle.vertex(2);
-                const Vec3 edge1 = second.position - first.position;
-                const Vec3 edge2 = third.position - first.position;
-                traversal_triangles_host_.push_back(
-                    DTraversalTriangle{
-                        to_device(first.position),
-                        to_device(edge1),
-                        to_device(edge2)});
-                DShadingTriangle shading{};
-                for (int vertex_index = 0; vertex_index < 3; ++vertex_index) {
-                    const TriangleVertex& vertex = triangle.vertex(vertex_index);
-                    shading.uvs[vertex_index] = to_device(vertex.uv);
-                    shading.uv1s[vertex_index] = to_device(vertex.uv1);
-                    shading.normals[vertex_index] =
-                        to_device(vertex.normal);
-                    shading.tangents[vertex_index] = to_device(vertex.tangent);
-                    shading.colors[vertex_index] = to_device(vertex.color);
-                    shading.alphas[vertex_index] = vertex.alpha;
-                    if (vertex.has_normal) {
-                        shading.normal_mask |=
-                            1U << static_cast<unsigned int>(vertex_index);
-                    }
-                    if (vertex.has_uv1) {
-                        shading.uv1_mask |=
-                            1U << static_cast<unsigned int>(vertex_index);
-                    }
-                    if (vertex.has_tangent) {
-                        shading.tangent_mask |=
-                            1U << static_cast<unsigned int>(vertex_index);
-                    }
-                    if (vertex.has_color) {
-                        shading.color_mask |=
-                            1U << static_cast<unsigned int>(vertex_index);
-                    }
-                }
-                shading_triangles_host_.push_back(shading);
-                if (pack_bindings) {
-                    triangle_material_ids_host_.push_back(
-                        triangle.material_id());
-                }
-            }
-            statistics_.geometry_upload_bytes +=
-                traversal_triangles_.upload(
-                    traversal_triangles_host_,
-                    stream_,
-                    statistics_);
-            statistics_.geometry_upload_bytes +=
-                shading_triangles_.upload(
-                    shading_triangles_host_,
-                    stream_,
-                    statistics_);
-
-            GpuBvh4Layout bvh = build_gpu_bvh4(scene.triangles);
-            bvh_nodes_host_ = std::move(bvh.nodes);
-            statistics_.bvh_upload_bytes +=
-                bvh_nodes_.upload(bvh_nodes_host_, stream_, statistics_);
-            primitive_indices_host_ =
-                std::move(bvh.primitive_indices);
-            statistics_.bvh_upload_bytes +=
-                primitive_indices_.upload(
-                    primitive_indices_host_,
-                    stream_,
-                    statistics_);
-        }
-
-        if (has_scene_change(changes, SceneChange::MaterialBindings)) {
-            if (!has_scene_change(changes, SceneChange::Geometry)) {
-                sphere_material_ids_host_.clear();
-                sphere_material_ids_host_.reserve(scene.spheres.size());
-                for (const Sphere& sphere : scene.spheres) {
-                    sphere_material_ids_host_.push_back(sphere.material_id());
-                }
-                triangle_material_ids_host_.clear();
-                triangle_material_ids_host_.reserve(scene.triangles.size());
-                for (const Triangle& triangle : scene.triangles) {
-                    triangle_material_ids_host_.push_back(
-                        triangle.material_id());
-                }
-            }
-            statistics_.material_binding_upload_bytes +=
-                sphere_material_ids_.upload(
-                    sphere_material_ids_host_,
-                    stream_,
-                    statistics_);
-            statistics_.material_binding_upload_bytes +=
-                triangle_material_ids_.upload(
-                    triangle_material_ids_host_,
-                    stream_,
-                    statistics_);
-        }
-
-        if (has_scene_change(changes, SceneChange::Geometry) ||
-            has_scene_change(changes, SceneChange::MaterialBindings) ||
-            has_scene_change(changes, SceneChange::Materials)) {
-            rebuild_emissive_lights(scene);
-        }
-
-        if (has_scene_change(changes, SceneChange::Lighting)) {
-            point_lights_host_.clear();
-            point_lights_host_.reserve(scene.point_lights.size());
-            for (const PointLight& light : scene.point_lights) {
-                point_lights_host_.push_back(
-                    DPointLight{
-                        to_device(light.position),
-                        to_device(light.intensity),
-                        light.range});
-            }
-            directional_lights_host_.clear();
-            directional_lights_host_.reserve(scene.directional_lights.size());
-            for (const DirectionalLight& light : scene.directional_lights) {
-                directional_lights_host_.push_back(
-                    DDirectionalLight{
-                        to_device(light.direction),
-                        to_device(light.radiance)});
-            }
-            spot_lights_host_.clear();
-            spot_lights_host_.reserve(scene.spot_lights.size());
-            for (const SpotLight& light : scene.spot_lights) {
-                spot_lights_host_.push_back(DSpotLight{
-                    to_device(light.position),
-                    to_device(light.direction),
-                    to_device(light.intensity),
-                    light.range,
-                    std::cos(light.inner_cone_radians),
-                    std::cos(light.outer_cone_radians)});
-            }
-            statistics_.lighting_upload_bytes +=
-                point_lights_.upload(
-                    point_lights_host_,
-                    stream_,
-                    statistics_);
-            statistics_.lighting_upload_bytes +=
-                directional_lights_.upload(
-                    directional_lights_host_,
-                    stream_,
-                    statistics_);
-            statistics_.lighting_upload_bytes +=
-                spot_lights_.upload(
-                    spot_lights_host_,
-                    stream_,
-                    statistics_);
-            statistics_.lighting_upload_bytes += sizeof(DVec3);
-        }
-
-        if (has_scene_change(changes, SceneChange::Environment)) {
-            upload_environment(
-                scene.environment,
-                scene.environment_map,
-                scene.environment_intensity,
-                scene.environment_rotation_degrees,
-                scene.environment_background_visible);
-        }
-
-        view_.materials = materials_.get();
-        view_.material_count = static_cast<int>(materials_.size());
-        view_.stochastic_alpha_test = 0;
-        view_.textures = textures_.get();
-        view_.texture_count = static_cast<int>(textures_.size());
-        view_.texels = texels_.get();
-        view_.texture_alphas = texture_alphas_.get();
-        view_.spheres = spheres_.get();
-        view_.sphere_material_ids = sphere_material_ids_.get();
-        view_.sphere_count = static_cast<int>(spheres_.size());
-        view_.traversal_triangles = traversal_triangles_.get();
-        view_.shading_triangles = shading_triangles_.get();
-        view_.triangle_material_ids = triangle_material_ids_.get();
-        view_.triangle_count =
-            static_cast<int>(traversal_triangles_.size());
-        view_.bvh_nodes = bvh_nodes_.get();
-        view_.bvh_node_count = static_cast<int>(bvh_nodes_.size());
-        view_.primitive_indices = primitive_indices_.get();
-        view_.point_lights = point_lights_.get();
-        view_.point_light_count = static_cast<int>(point_lights_.size());
-        view_.directional_lights = directional_lights_.get();
-        view_.directional_light_count = static_cast<int>(directional_lights_.size());
-        view_.spot_lights = spot_lights_.get();
-        view_.spot_light_count = static_cast<int>(spot_lights_.size());
-        view_.emissive_lights = emissive_lights_.get();
-        view_.emissive_light_count = static_cast<int>(emissive_lights_.size());
-        view_.sphere_light_indices = sphere_light_indices_.get();
-        view_.triangle_light_indices = triangle_light_indices_.get();
-        view_.assets = nullptr;
-        view_.asset_count = 0;
-        view_.instances = nullptr;
-        view_.instance_count = 0;
-        view_.tlas_nodes = nullptr;
-        view_.tlas_node_count = 0;
-        view_.tlas_primitive_indices = nullptr;
-        view_.instanced_mode = 0;
-        upload_timer_.end(stream_);
-    }
-
     void sync(
-        const InstancedSceneView& scene,
+        const RenderSceneSnapshot& scene,
         SceneChangeSet changes) {
         upload_timer_.finish(statistics_.upload_milliseconds);
         upload_timer_.begin(stream_);
@@ -4774,16 +4628,24 @@ public:
             if (rebuild_topology) {
                 rebuild_instanced_topology(scene);
             } else {
-                if (has_scene_change(
-                        changes,
-                        SceneChange::MaterialBindings) ||
+                const bool material_bindings_changed =
                     has_scene_change(
+                        changes,
+                        SceneChange::MaterialBindings);
+                if (material_bindings_changed) {
+                    update_instanced_material_bindings(scene);
+                }
+                if (has_scene_change(
                         changes,
                         SceneChange::Materials) ||
                     has_scene_change(
                         changes,
                         SceneChange::Textures)) {
                     update_instanced_materials(scene);
+                } else if (material_bindings_changed) {
+                    rebuild_instanced_emissive_lights(scene);
+                    has_instanced_emissive_candidates_ =
+                        !emissive_lights_host_.empty();
                 }
                 if (has_scene_change(
                         changes,
@@ -4817,6 +4679,12 @@ public:
     }
 
 private:
+    struct CachedAssetBlas {
+        std::uint64_t geometry_revision = 0;
+        std::uint64_t geometry_fingerprint = 0;
+        GpuBvh4Layout layout;
+    };
+
     void upload_environment(
         const Color& fallback,
         const std::shared_ptr<const EnvironmentMap>& map,
@@ -4853,10 +4721,14 @@ private:
     }
 
     bool same_instanced_asset_layout(
-        const InstancedSceneView& scene) const {
+        const RenderSceneSnapshot& scene) const {
         if (!instanced_assets_initialized_ ||
             scene.assets.size() !=
-                asset_ids_host_.size()) {
+                asset_ids_host_.size() ||
+            scene.assets.size() !=
+                asset_geometry_revisions_host_.size() ||
+            scene.assets.size() !=
+                asset_geometry_fingerprints_host_.size()) {
             return false;
         }
         for (std::size_t index = 0;
@@ -4864,8 +4736,14 @@ private:
              ++index) {
             if (scene.assets[index].asset_id !=
                     asset_ids_host_[index] ||
-                scene.assets[index].local_scene !=
-                    asset_scenes_host_[index]) {
+                scene.assets[index].geometry_revision !=
+                    asset_geometry_revisions_host_[index] ||
+                scene.assets[index].local_scene.get() !=
+                    asset_scenes_host_[index] ||
+                !scene.assets[index].local_scene ||
+                scene_geometry_fingerprint(
+                    *scene.assets[index].local_scene) !=
+                    asset_geometry_fingerprints_host_[index]) {
                 return false;
             }
         }
@@ -4934,7 +4812,7 @@ private:
     }
 
     static DInstance pack_instance(
-        const InstancedSceneInstanceView& instance,
+        const RenderSceneInstanceSnapshot& instance,
         int material_offset) {
         if (!instance.object_to_world.allFinite() ||
             !instance.world_to_object.allFinite() ||
@@ -5005,8 +4883,16 @@ private:
             material.emission.x * 0.2126f +
             material.emission.y * 0.7152f +
             material.emission.z * 0.0722f;
+        const int alpha_mode =
+            material.type == static_cast<int>(MaterialType::Pbr)
+            ? material.alpha_mode
+            : ((material.opacity_texture_id >= 0 || material.opacity < 1.0f)
+                  ? static_cast<int>(AlphaMode::Mask)
+                  : static_cast<int>(AlphaMode::Opaque));
         if (!(energy > 0.0f) || !std::isfinite(energy) ||
-            (material.opacity_texture_id < 0 &&
+            (alpha_mode == static_cast<int>(AlphaMode::Mask) &&
+             material.opacity_texture_id < 0 &&
+             material.base_color_texture_id < 0 &&
              material.opacity < material.alpha_cutoff)) {
             return 0.0f;
         }
@@ -5153,7 +5039,7 @@ private:
     }
 
     void rebuild_instanced_emissive_lights(
-        const InstancedSceneView& scene) {
+        const RenderSceneSnapshot& scene) {
         emissive_lights_host_.clear();
         for (std::size_t instance_index = 0;
              instance_index < scene.instances.size();
@@ -5176,11 +5062,12 @@ private:
                  ++offset) {
                 const int primitive_index =
                     asset.sphere_first + offset;
-                const int material_id =
-                    packed_instance.material_offset +
+                const int material_slot =
                     sphere_material_ids_host_[
-                        static_cast<std::size_t>(
-                            primitive_index)];
+                        static_cast<std::size_t>(primitive_index)];
+                const int material_id = material_slot < 0
+                    ? -1
+                    : packed_instance.material_offset + material_slot;
                 if (material_id < 0 ||
                     static_cast<std::size_t>(material_id) >=
                         materials_host_.size() ||
@@ -5210,11 +5097,12 @@ private:
                  ++offset) {
                 const int primitive_index =
                     asset.triangle_first + offset;
-                const int material_id =
-                    packed_instance.material_offset +
+                const int material_slot =
                     triangle_material_ids_host_[
-                        static_cast<std::size_t>(
-                            primitive_index)];
+                        static_cast<std::size_t>(primitive_index)];
+                const int material_id = material_slot < 0
+                    ? -1
+                    : packed_instance.material_offset + material_slot;
                 if (material_id < 0 ||
                     static_cast<std::size_t>(material_id) >=
                         materials_host_.size() ||
@@ -5239,7 +5127,7 @@ private:
     }
 
     void upload_instanced_lights(
-        const InstancedSceneView& scene) {
+        const RenderSceneSnapshot& scene) {
         point_lights_host_.clear();
         point_lights_host_.reserve(scene.point_lights.size());
         for (const PointLight& light : scene.point_lights) {
@@ -5288,12 +5176,12 @@ private:
     }
 
     void update_instanced_lighting(
-        const InstancedSceneView& scene) {
+        const RenderSceneSnapshot& scene) {
         upload_instanced_lights(scene);
     }
 
     void update_instanced_textures(
-        const InstancedSceneView& scene) {
+        const RenderSceneSnapshot& scene) {
         textures_host_.clear();
         texels_host_.clear();
         texture_alphas_host_.clear();
@@ -5339,17 +5227,19 @@ private:
     }
 
     void update_instanced_materials(
-        const InstancedSceneView& scene) {
+        const RenderSceneSnapshot& scene) {
         if (scene.instances.size() !=
             instances_host_.size()) {
             throw std::runtime_error(
                 "CUDA instance material update changed topology");
         }
         materials_host_.clear();
+        materials_host_.push_back(
+            pack_material(diagnostic_material(), 0));
         for (std::size_t index = 0;
              index < scene.instances.size();
              ++index) {
-            const InstancedSceneInstanceView& instance =
+            const RenderSceneInstanceSnapshot& instance =
                 scene.instances[index];
             if (instance.asset_index < 0 ||
                 static_cast<std::size_t>(
@@ -5383,12 +5273,64 @@ private:
             !emissive_lights_host_.empty();
     }
 
+    void update_instanced_material_bindings(
+        const RenderSceneSnapshot& scene) {
+        if (scene.assets.size() != assets_host_.size()) {
+            throw std::runtime_error(
+                "CUDA material-binding update changed asset topology");
+        }
+        std::vector<int> next_sphere_slots =
+            sphere_material_ids_host_;
+        std::vector<int> next_triangle_slots =
+            triangle_material_ids_host_;
+        for (std::size_t asset_index = 0;
+             asset_index < scene.assets.size();
+             ++asset_index) {
+            const RenderSceneAssetSnapshot& source =
+                scene.assets[asset_index];
+            const DAsset& target = assets_host_[asset_index];
+            if (source.sphere_material_slots.size() !=
+                    static_cast<std::size_t>(target.sphere_count) ||
+                source.triangle_material_slots.size() !=
+                    static_cast<std::size_t>(target.triangle_count)) {
+                throw std::runtime_error(
+                    "CUDA material-binding table does not match asset geometry");
+            }
+            for (int index = 0; index < target.sphere_count; ++index) {
+                next_sphere_slots[static_cast<std::size_t>(
+                    target.sphere_first + index)] =
+                    source.sphere_material_slots[
+                        static_cast<std::size_t>(index)].device_value();
+            }
+            for (int index = 0; index < target.triangle_count; ++index) {
+                next_triangle_slots[static_cast<std::size_t>(
+                    target.triangle_first + index)] =
+                    source.triangle_material_slots[
+                        static_cast<std::size_t>(index)].device_value();
+            }
+        }
+        sphere_material_ids_host_ = std::move(next_sphere_slots);
+        triangle_material_ids_host_ = std::move(next_triangle_slots);
+        statistics_.material_binding_upload_bytes +=
+            sphere_material_ids_.upload(
+                sphere_material_ids_host_,
+                stream_,
+                statistics_);
+        statistics_.material_binding_upload_bytes +=
+            triangle_material_ids_.upload(
+                triangle_material_ids_host_,
+                stream_,
+                statistics_);
+    }
+
     void rebuild_instanced_topology(
-        const InstancedSceneView& scene) {
+        const RenderSceneSnapshot& scene) {
         materials_host_.clear();
+        materials_host_.push_back(
+            pack_material(diagnostic_material(), 0));
         instances_host_.clear();
         instances_host_.reserve(scene.instances.size());
-        for (const InstancedSceneInstanceView& instance :
+        for (const RenderSceneInstanceSnapshot& instance :
              scene.instances) {
             if (instance.asset_index < 0 ||
                 static_cast<std::size_t>(
@@ -5420,7 +5362,7 @@ private:
 
         std::vector<Bounds3> instance_bounds;
         instance_bounds.reserve(scene.instances.size());
-        for (const InstancedSceneInstanceView& instance :
+        for (const RenderSceneInstanceSnapshot& instance :
              scene.instances) {
             instance_bounds.push_back(
                 instance.world_bounds);
@@ -5447,10 +5389,12 @@ private:
     }
 
     void rebuild_instanced_scene(
-        const InstancedSceneView& scene) {
+        const RenderSceneSnapshot& scene) {
         const auto blas_started =
             std::chrono::steady_clock::now();
         materials_host_.clear();
+        materials_host_.push_back(
+            pack_material(diagnostic_material(), 0));
         textures_host_.clear();
         texels_host_.clear();
         texture_alphas_host_.clear();
@@ -5464,9 +5408,16 @@ private:
         assets_host_.clear();
         asset_ids_host_.clear();
         asset_scenes_host_.clear();
+        asset_geometry_revisions_host_.clear();
+        asset_geometry_fingerprints_host_.clear();
         asset_ids_host_.reserve(scene.assets.size());
         asset_scenes_host_.reserve(scene.assets.size());
+        asset_geometry_revisions_host_.reserve(scene.assets.size());
+        asset_geometry_fingerprints_host_.reserve(scene.assets.size());
         assets_host_.reserve(scene.assets.size());
+        std::unordered_map<std::uint64_t, CachedAssetBlas>
+            next_blas_cache;
+        next_blas_cache.reserve(scene.assets.size());
 
         textures_host_.reserve(scene.textures.size());
         for (const ImageTexture& texture : scene.textures) {
@@ -5490,28 +5441,42 @@ private:
                 texture.alphas().end());
         }
 
-        for (const InstancedSceneAssetView& asset_view :
+        for (const RenderSceneAssetSnapshot& asset_view :
              scene.assets) {
             if (!asset_view.local_scene) {
                 throw std::runtime_error(
                     "CUDA instance asset has no local scene");
             }
             const Scene& asset_scene = *asset_view.local_scene;
+            if (asset_view.sphere_material_slots.size() !=
+                    asset_scene.spheres.size() ||
+                asset_view.triangle_material_slots.size() !=
+                    asset_scene.triangles.size()) {
+                throw std::runtime_error(
+                    "CUDA instance asset has an invalid material-slot table");
+            }
             asset_ids_host_.push_back(asset_view.asset_id);
             asset_scenes_host_.push_back(
-                asset_view.local_scene);
+                asset_view.local_scene.get());
+            asset_geometry_revisions_host_.push_back(
+                asset_view.geometry_revision);
+            asset_geometry_fingerprints_host_.push_back(
+                scene_geometry_fingerprint(asset_scene));
             DAsset asset{};
             asset.sphere_first =
                 static_cast<int>(spheres_host_.size());
             asset.sphere_count =
                 static_cast<int>(asset_scene.spheres.size());
-            for (const Sphere& sphere : asset_scene.spheres) {
+            for (std::size_t sphere_index = 0;
+                 sphere_index < asset_scene.spheres.size();
+                 ++sphere_index) {
+                const Sphere& sphere = asset_scene.spheres[sphere_index];
                 spheres_host_.push_back(
                     DSphere{
                         to_device(sphere.center()),
                         sphere.radius()});
                 sphere_material_ids_host_.push_back(
-                    sphere.material_id());
+                    asset_view.sphere_material_slots[sphere_index].device_value());
             }
 
             asset.triangle_first =
@@ -5520,8 +5485,11 @@ private:
             asset.triangle_count =
                 static_cast<int>(
                     asset_scene.triangles.size());
-            for (const Triangle& triangle :
-                 asset_scene.triangles) {
+            for (std::size_t triangle_index = 0;
+                 triangle_index < asset_scene.triangles.size();
+                 ++triangle_index) {
+                const Triangle& triangle =
+                    asset_scene.triangles[triangle_index];
                 const TriangleVertex& first =
                     triangle.vertex(0);
                 const TriangleVertex& second =
@@ -5572,11 +5540,27 @@ private:
                 }
                 shading_triangles_host_.push_back(shading);
                 triangle_material_ids_host_.push_back(
-                    triangle.material_id());
+                    asset_view.triangle_material_slots[triangle_index].device_value());
             }
 
-            GpuBvh4Layout blas =
-                build_gpu_bvh4(asset_scene.triangles);
+            const std::uint64_t geometry_fingerprint =
+                asset_geometry_fingerprints_host_.back();
+            GpuBvh4Layout raw_blas;
+            const auto cached = asset_blas_cache_.find(
+                asset_view.asset_id);
+            if (cached != asset_blas_cache_.end() &&
+                cached->second.geometry_revision ==
+                    asset_view.geometry_revision &&
+                cached->second.geometry_fingerprint ==
+                    geometry_fingerprint) {
+                raw_blas = cached->second.layout;
+            } else {
+                raw_blas = build_gpu_bvh4(asset_scene.triangles);
+                if (!raw_blas.nodes.empty()) {
+                    ++statistics_.blas_build_count;
+                }
+            }
+            GpuBvh4Layout blas = raw_blas;
             const int node_offset =
                 static_cast<int>(bvh_nodes_host_.size());
             const int primitive_offset =
@@ -5608,11 +5592,15 @@ private:
                 bvh_nodes_host_.end(),
                 blas.nodes.begin(),
                 blas.nodes.end());
-            if (!blas.nodes.empty()) {
-                ++statistics_.blas_build_count;
-            }
+            next_blas_cache.emplace(
+                asset_view.asset_id,
+                CachedAssetBlas{
+                    asset_view.geometry_revision,
+                    geometry_fingerprint,
+                    std::move(raw_blas)});
             assets_host_.push_back(asset);
         }
+        asset_blas_cache_ = std::move(next_blas_cache);
         const auto blas_finished =
             std::chrono::steady_clock::now();
         statistics_.blas_build_milliseconds =
@@ -5621,7 +5609,7 @@ private:
 
         instances_host_.clear();
         instances_host_.reserve(scene.instances.size());
-        for (const InstancedSceneInstanceView& instance :
+        for (const RenderSceneInstanceSnapshot& instance :
              scene.instances) {
             if (instance.asset_index < 0 ||
                 static_cast<std::size_t>(
@@ -5640,7 +5628,6 @@ private:
             instances_host_.push_back(
                 pack_instance(instance, material_offset));
         }
-
         statistics_.material_upload_bytes +=
             materials_.upload(
                 materials_host_,
@@ -5709,7 +5696,7 @@ private:
 
         std::vector<Bounds3> instance_bounds;
         instance_bounds.reserve(scene.instances.size());
-        for (const InstancedSceneInstanceView& instance :
+        for (const RenderSceneInstanceSnapshot& instance :
              scene.instances) {
             instance_bounds.push_back(instance.world_bounds);
         }
@@ -5739,7 +5726,7 @@ private:
     }
 
     void update_instanced_transforms(
-        const InstancedSceneView& scene) {
+        const RenderSceneSnapshot& scene) {
         if (scene.instances.size() !=
             instances_host_.size()) {
             throw std::runtime_error(
@@ -5870,158 +5857,6 @@ private:
         view_.instanced_mode = 1;
     }
 
-    void rebuild_emissive_lights(const Scene& scene) {
-        emissive_lights_host_.clear();
-        const auto material_weight = [](const Material& material) {
-            if (!material.emission.allFinite() ||
-                (material.emission.array() < 0.0f).any()) {
-                return 0.0f;
-            }
-            const float energy =
-                material.emission.x() * 0.2126f +
-                material.emission.y() * 0.7152f +
-                material.emission.z() * 0.0722f;
-            if (!(energy > 0.0f) || !std::isfinite(energy)) {
-                return 0.0f;
-            }
-            if (material.opacity_texture_id < 0 &&
-                material.opacity < material.alpha_cutoff) {
-                return 0.0f;
-            }
-            return energy * (material.two_sided ? 2.0f : 1.0f);
-        };
-
-        std::vector<float> material_weights(scene.materials.size(), 0.0f);
-        bool has_emissive_material = false;
-        for (std::size_t index = 0; index < scene.materials.size(); ++index) {
-            material_weights[index] = material_weight(scene.materials[index]);
-            has_emissive_material =
-                has_emissive_material || material_weights[index] > 0.0f;
-        }
-        if (!has_emissive_material) {
-            sphere_light_indices_host_.clear();
-            triangle_light_indices_host_.clear();
-            statistics_.lighting_upload_bytes += emissive_lights_.upload(
-                emissive_lights_host_,
-                stream_,
-                statistics_);
-            statistics_.lighting_upload_bytes += sphere_light_indices_.upload(
-                sphere_light_indices_host_,
-                stream_,
-                statistics_);
-            statistics_.lighting_upload_bytes += triangle_light_indices_.upload(
-                triangle_light_indices_host_,
-                stream_,
-                statistics_);
-            return;
-        }
-
-        sphere_light_indices_host_.assign(scene.spheres.size(), -1);
-        triangle_light_indices_host_.assign(scene.triangles.size(), -1);
-        std::vector<float> weights;
-        weights.reserve(scene.spheres.size() + scene.triangles.size());
-
-        for (std::size_t index = 0; index < scene.spheres.size(); ++index) {
-            const Sphere& sphere = scene.spheres[index];
-            const int material_id = sphere.material_id();
-            if (material_id < 0 ||
-                static_cast<std::size_t>(material_id) >= scene.materials.size()) {
-                continue;
-            }
-            const float emission_weight = material_weights[material_id];
-            const float area =
-                4.0f * kPi * sphere.radius() * sphere.radius();
-            const float weight = emission_weight * area;
-            if (!(weight > 0.0f) || !std::isfinite(weight)) {
-                continue;
-            }
-            const int light_index =
-                static_cast<int>(emissive_lights_host_.size());
-            sphere_light_indices_host_[index] = light_index;
-            emissive_lights_host_.push_back(DEmissiveLight{
-                0,
-                static_cast<int>(index),
-                -1,
-                material_id,
-                area,
-                0.0f,
-                0.0f});
-            weights.push_back(weight);
-        }
-
-        for (std::size_t index = 0; index < scene.triangles.size(); ++index) {
-            const Triangle& triangle = scene.triangles[index];
-            const int material_id = triangle.material_id();
-            if (material_id < 0 ||
-                static_cast<std::size_t>(material_id) >= scene.materials.size()) {
-                continue;
-            }
-            const float emission_weight = material_weights[material_id];
-            const float area = 0.5f *
-                (triangle.b() - triangle.a())
-                    .cross(triangle.c() - triangle.a())
-                    .norm();
-            const float weight = emission_weight * area;
-            if (!(weight > 0.0f) || !std::isfinite(weight)) {
-                continue;
-            }
-            const int light_index =
-                static_cast<int>(emissive_lights_host_.size());
-            triangle_light_indices_host_[index] = light_index;
-            emissive_lights_host_.push_back(DEmissiveLight{
-                1,
-                static_cast<int>(index),
-                -1,
-                material_id,
-                area,
-                0.0f,
-                0.0f});
-            weights.push_back(weight);
-        }
-
-        float total_weight = 0.0f;
-        for (float weight : weights) {
-            total_weight += weight;
-        }
-        if (total_weight > 0.0f && std::isfinite(total_weight)) {
-            float cumulative = 0.0f;
-            for (std::size_t index = 0;
-                 index < emissive_lights_host_.size();
-                 ++index) {
-                const float probability = weights[index] / total_weight;
-                cumulative += probability;
-                emissive_lights_host_[index].selection_pdf = probability;
-                emissive_lights_host_[index].cumulative_probability =
-                    index + 1 == emissive_lights_host_.size()
-                    ? 1.0f
-                    : cumulative;
-            }
-        } else {
-            emissive_lights_host_.clear();
-            std::fill(
-                sphere_light_indices_host_.begin(),
-                sphere_light_indices_host_.end(),
-                -1);
-            std::fill(
-                triangle_light_indices_host_.begin(),
-                triangle_light_indices_host_.end(),
-                -1);
-        }
-
-        statistics_.lighting_upload_bytes += emissive_lights_.upload(
-            emissive_lights_host_,
-            stream_,
-            statistics_);
-        statistics_.lighting_upload_bytes += sphere_light_indices_.upload(
-            sphere_light_indices_host_,
-            stream_,
-            statistics_);
-        statistics_.lighting_upload_bytes += triangle_light_indices_.upload(
-            triangle_light_indices_host_,
-            stream_,
-            statistics_);
-    }
-
     cudaStream_t stream_ = nullptr;
     CudaPathStatistics& statistics_;
     CudaEventTimer upload_timer_;
@@ -6075,6 +5910,10 @@ private:
     std::vector<DInstance> instances_host_;
     std::vector<std::uint64_t> asset_ids_host_;
     std::vector<const Scene*> asset_scenes_host_;
+    std::vector<std::uint64_t> asset_geometry_revisions_host_;
+    std::vector<std::uint64_t> asset_geometry_fingerprints_host_;
+    std::unordered_map<std::uint64_t, CachedAssetBlas>
+        asset_blas_cache_;
     std::vector<DBvh4Node> tlas_nodes_host_;
     std::vector<int> tlas_primitive_indices_host_;
     bool has_instanced_emissive_candidates_ = false;
@@ -7165,35 +7004,25 @@ bool cuda_path_backend_compiled() {
 }
 
 bool cuda_path_backend_available(std::string* reason) {
-    int device_count = 0;
-    const cudaError_t result = cudaGetDeviceCount(&device_count);
-    if (result != cudaSuccess) {
-        if (reason) {
-            *reason = cudaGetErrorString(result);
-        }
-        cudaGetLastError();
-        return false;
-    }
-    if (device_count <= 0) {
-        if (reason) {
-            *reason = "no CUDA-capable device was found";
-        }
-        return false;
-    }
-    if (reason) {
-        reason->clear();
-    }
-    return true;
+    return cuda_path_backend_available(0, reason);
+}
+
+bool cuda_path_backend_available(int device_id, std::string* reason) {
+    return CudaDeviceContext::try_create(device_id, reason).has_value();
 }
 
 RenderResult render_cuda_path(
-    const Scene& scene,
+    const RenderSceneSnapshot& snapshot,
     const Camera& camera,
     const RenderSettings& settings) {
+    const CudaDeviceContext device_context =
+        CudaDeviceContext::create(settings.path.cuda_device);
+    device_context.activate();
     Timer timer;
     CudaPathStatistics statistics;
+    statistics.device_id = device_context.device_id();
     CudaFrameStorage frame(statistics);
-    CudaSceneStorage device_scene(scene, frame.stream(), statistics);
+    CudaSceneStorage device_scene(snapshot, frame.stream(), statistics);
     frame.reset(settings.width, settings.height, settings.path.sample_seed_offset);
     const int sample_count = std::max(1, settings.path.samples_per_pixel);
     frame.render_samples(
@@ -7208,26 +7037,23 @@ RenderResult render_cuda_path(
 
 class CudaPathInteractiveRenderer::Impl {
 public:
-    Impl()
-        : frame_(statistics_),
-          preview_frame_(statistics_, frame_.stream()) {}
+    explicit Impl(CudaDeviceContext device_context)
+        : device_context_(activate(std::move(device_context))),
+          frame_(statistics_),
+          preview_frame_(statistics_, frame_.stream()) {
+        statistics_.device_id = device_context_.device_id();
+    }
 
     void reset(
-        const Scene& scene,
-        const RenderSettings& settings,
-        const InstancedSceneView* instanced_scene) {
-        scene_is_instanced_ = instanced_scene != nullptr;
-        if (instanced_scene) {
-            scene_ = std::make_unique<CudaSceneStorage>(
-                *instanced_scene,
-                frame_.stream(),
-                statistics_);
-        } else {
-            scene_ = std::make_unique<CudaSceneStorage>(
-                scene,
-                frame_.stream(),
-                statistics_);
-        }
+        const RenderSceneSnapshot& snapshot,
+        const RenderSettings& settings) {
+        require_device(settings.path.cuda_device);
+        scene_ = std::make_unique<CudaSceneStorage>(
+            snapshot,
+            frame_.stream(),
+            statistics_);
+        uploaded_revisions_ = snapshot.revisions;
+        has_uploaded_revisions_ = !uploaded_revisions_.empty();
         frame_.reset(
             settings.width,
             settings.height,
@@ -7237,62 +7063,63 @@ public:
             settings.height,
             scene_->view().triangle_count);
         preview_has_run_ = false;
+        has_progressive_key_ = false;
     }
 
     void render_next_frame(
-        const Scene& scene,
+        const RenderSceneSnapshot& snapshot,
         const Camera& camera,
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state,
-        Framebuffer& target,
-        const InstancedSceneView* instanced_scene) {
+        Framebuffer& target) {
         render_next_frame_to_surface(
-            scene,
+            snapshot,
             camera,
             settings,
             frame_state,
-            0,
-            instanced_scene);
+            0);
         download_current_frame(target);
     }
 
     void render_next_frame_to_surface(
-        const Scene& scene,
+        const RenderSceneSnapshot& snapshot,
         const Camera& camera,
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state,
-        CudaSurfaceHandle surface,
-        const InstancedSceneView* instanced_scene) {
-        const bool wants_instanced = instanced_scene != nullptr;
-        if (!scene_ || wants_instanced != scene_is_instanced_) {
-            scene_is_instanced_ = wants_instanced;
-            scene_ = instanced_scene
-                ? std::make_unique<CudaSceneStorage>(
-                    *instanced_scene,
-                    frame_.stream(),
-                    statistics_)
-                : std::make_unique<CudaSceneStorage>(
-                    scene,
-                    frame_.stream(),
-                    statistics_);
-        } else if (frame_state.scene_changes != SceneChange::None) {
-            if (instanced_scene) {
-                scene_->sync(
-                    *instanced_scene,
-                    frame_state.scene_changes);
-            } else {
-                scene_->sync(
-                    scene,
-                    frame_state.scene_changes);
-            }
+        CudaSurfaceHandle surface) {
+        require_device(settings.path.cuda_device);
+        const SceneRevisions current_revisions = snapshot.revisions;
+        SceneChangeSet scene_changes = frame_state.scene_changes;
+        if (!current_revisions.empty()) {
+            scene_changes = has_uploaded_revisions_
+                ? scene_changes_between(
+                    uploaded_revisions_,
+                    current_revisions)
+                : SceneChange::All;
         }
+        if (!scene_) {
+            scene_ = std::make_unique<CudaSceneStorage>(
+                snapshot,
+                frame_.stream(),
+                statistics_);
+        } else if (scene_changes != SceneChange::None) {
+            scene_->sync(snapshot, scene_changes);
+        }
+        uploaded_revisions_ = current_revisions;
+        has_uploaded_revisions_ = !current_revisions.empty();
+        const ProgressiveRenderKey progressive_key =
+            ProgressiveRenderKey::from(
+                camera,
+                settings,
+                frame_state.automatic_interaction_quality,
+                current_revisions);
+        const bool progressive_key_changed =
+            !has_progressive_key_ ||
+            !(progressive_key == progressive_key_);
         const bool reset_accumulation =
-            frame_.width() != settings.width ||
-            frame_.height() != settings.height ||
-            frame_state.automatic_interaction_quality !=
-                automatic_quality_enabled_ ||
+            progressive_key_changed ||
             frame_state.camera_changed ||
-            frame_state.scene_changes != SceneChange::None ||
+            scene_changes != SceneChange::None ||
             frame_state.framebuffer_resized ||
             frame_state.reset_requested;
         if (reset_accumulation) {
@@ -7312,6 +7139,8 @@ public:
                 scene_->view().triangle_count);
             automatic_quality_enabled_ =
                 frame_state.automatic_interaction_quality;
+            progressive_key_ = progressive_key;
+            has_progressive_key_ = true;
         }
         output_width_ = settings.width;
         output_height_ = settings.height;
@@ -7337,15 +7166,16 @@ public:
         }
 
         const bool interaction_changed =
+            progressive_key_changed ||
             frame_state.camera_changed ||
-            frame_state.scene_changes != SceneChange::None ||
+            scene_changes != SceneChange::None ||
             frame_state.framebuffer_resized ||
             frame_state.reset_requested;
         if (interaction_changed) {
             idle_frames_ = 0;
             preview_dirty_ = true;
             if (!preview_has_run_ ||
-                frame_state.scene_changes != SceneChange::None) {
+                scene_changes != SceneChange::None) {
                 preview_scale_tier_ =
                     initial_preview_scale_tier(
                         scene_->view().triangle_count);
@@ -7455,6 +7285,89 @@ public:
     }
 
 private:
+    static CudaDeviceContext activate(CudaDeviceContext context) {
+        context.activate();
+        return context;
+    }
+
+    void require_device(int requested_device) {
+        if (requested_device != device_context_.device_id()) {
+            throw std::runtime_error(
+                "CUDA renderer belongs to device " +
+                std::to_string(device_context_.device_id()) +
+                " but settings request device " +
+                std::to_string(requested_device));
+        }
+        device_context_.activate();
+        statistics_.device_id = device_context_.device_id();
+    }
+
+    struct ProgressiveRenderKey {
+        Vec3 eye = Vec3::Zero();
+        Vec3 forward = Vec3::Zero();
+        Vec3 right = Vec3::Zero();
+        Vec3 up = Vec3::Zero();
+        float viewport_width = 0.0f;
+        float viewport_height = 0.0f;
+        float roulette_min = 0.0f;
+        float roulette_max = 0.0f;
+        std::uint64_t seed = 0;
+        int device_id = -1;
+        int width = 0;
+        int height = 0;
+        int max_bounces = 0;
+        int roulette_start = 0;
+        bool automatic_quality = false;
+        SceneRevisions revisions;
+
+        static ProgressiveRenderKey from(
+            const Camera& camera,
+            const RenderSettings& settings,
+            bool automatic_quality_value,
+            const SceneRevisions& revision_value) {
+            ProgressiveRenderKey result;
+            result.eye = camera.eye();
+            result.forward = camera.forward();
+            result.right = camera.right();
+            result.up = camera.up();
+            result.viewport_width = camera.viewport_width();
+            result.viewport_height = camera.viewport_height();
+            result.roulette_min =
+                settings.path.russian_roulette_min_probability;
+            result.roulette_max =
+                settings.path.russian_roulette_max_probability;
+            result.seed = settings.path.sample_seed_offset;
+            result.device_id = settings.path.cuda_device;
+            result.width = settings.width;
+            result.height = settings.height;
+            result.max_bounces = settings.path.max_bounces;
+            result.roulette_start =
+                settings.path.russian_roulette_start_bounce;
+            result.automatic_quality = automatic_quality_value;
+            result.revisions = revision_value;
+            return result;
+        }
+
+        bool operator==(const ProgressiveRenderKey& other) const {
+            return eye == other.eye &&
+                forward == other.forward &&
+                right == other.right &&
+                up == other.up &&
+                viewport_width == other.viewport_width &&
+                viewport_height == other.viewport_height &&
+                roulette_min == other.roulette_min &&
+                roulette_max == other.roulette_max &&
+                seed == other.seed &&
+                device_id == other.device_id &&
+                width == other.width &&
+                height == other.height &&
+                max_bounces == other.max_bounces &&
+                roulette_start == other.roulette_start &&
+                automatic_quality == other.automatic_quality &&
+                revisions == other.revisions;
+        }
+    };
+
     static constexpr int kIdleFramesBeforeNative = 8;
     static constexpr int kPreviewBounceLimit = 2;
     static constexpr int kNativeArenaRows = 128;
@@ -7711,6 +7624,7 @@ private:
             static_cast<float>(settings.height);
     }
 
+    CudaDeviceContext device_context_;
     CudaPathStatistics statistics_;
     CudaFrameStorage frame_;
     CudaFrameStorage preview_frame_;
@@ -7741,57 +7655,58 @@ private:
     bool native_sweep_published_this_frame_ = false;
     bool host_presentation_initialized_ = false;
     bool automatic_quality_enabled_ = false;
-    bool scene_is_instanced_ = false;
+    bool has_progressive_key_ = false;
+    bool has_uploaded_revisions_ = false;
+    SceneRevisions uploaded_revisions_;
+    ProgressiveRenderKey progressive_key_;
     CudaPathWorkMode last_work_mode_ = CudaPathWorkMode::FullFrame;
     std::chrono::steady_clock::time_point sweep_started_{};
 };
 
 CudaPathInteractiveRenderer::CudaPathInteractiveRenderer()
-    : impl_(std::make_unique<Impl>()) {}
+    : CudaPathInteractiveRenderer(CudaDeviceContext::create(0)) {}
+CudaPathInteractiveRenderer::CudaPathInteractiveRenderer(
+    CudaDeviceContext device_context)
+    : impl_(std::make_unique<Impl>(std::move(device_context))) {}
 CudaPathInteractiveRenderer::~CudaPathInteractiveRenderer() = default;
 CudaPathInteractiveRenderer::CudaPathInteractiveRenderer(CudaPathInteractiveRenderer&&) noexcept = default;
 CudaPathInteractiveRenderer& CudaPathInteractiveRenderer::operator=(CudaPathInteractiveRenderer&&) noexcept = default;
 
 void CudaPathInteractiveRenderer::reset(
-    const Scene& scene,
-    const RenderSettings& settings,
-    const InstancedSceneView* instanced_scene) {
-    impl_->reset(scene, settings, instanced_scene);
+    const RenderSceneSnapshot& snapshot,
+    const RenderSettings& settings) {
+    impl_->reset(snapshot, settings);
 }
 
 void CudaPathInteractiveRenderer::render_next_frame(
-    const Scene& scene,
+    const RenderSceneSnapshot& snapshot,
     const Camera& camera,
     const RenderSettings& settings,
     const InteractiveFrameState& frame_state,
-    Framebuffer& target,
-    const InstancedSceneView* instanced_scene) {
+    Framebuffer& target) {
     impl_->render_next_frame(
-        scene,
+        snapshot,
         camera,
         settings,
         frame_state,
-        target,
-        instanced_scene);
+        target);
 }
 
 void CudaPathInteractiveRenderer::render_next_frame_to_surface(
-    const Scene& scene,
+    const RenderSceneSnapshot& snapshot,
     const Camera& camera,
     const RenderSettings& settings,
     const InteractiveFrameState& frame_state,
-    CudaSurfaceHandle surface,
-    const InstancedSceneView* instanced_scene) {
+    CudaSurfaceHandle surface) {
     if (surface == 0) {
         throw std::invalid_argument("CUDA surface output requires a non-zero surface handle");
     }
     impl_->render_next_frame_to_surface(
-        scene,
+        snapshot,
         camera,
         settings,
         frame_state,
-        surface,
-        instanced_scene);
+        surface);
 }
 
 void CudaPathInteractiveRenderer::download_current_frame(Framebuffer& target) {
@@ -7804,6 +7719,10 @@ int CudaPathInteractiveRenderer::accumulated_samples() const {
 
 CudaStreamHandle CudaPathInteractiveRenderer::stream_handle() const {
     return impl_->stream_handle();
+}
+
+int CudaPathInteractiveRenderer::device_id() const {
+    return impl_->statistics().device_id;
 }
 
 const CudaPathStatistics& CudaPathInteractiveRenderer::statistics() const {

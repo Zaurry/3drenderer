@@ -661,18 +661,17 @@ void SdlDisplayBackend::present(
 void SdlDisplayBackend::present(
     const RenderFrameOutput& output,
     const DisplaySettings& display_settings) {
-    if (output.kind() == RenderFrameOutputKind::HostFramebuffer &&
-        output.framebuffer()) {
-        present(*output.framebuffer(), display_settings);
+    if (const auto* host = std::get_if<HostFrameHandle>(&output);
+        host && host->framebuffer) {
+        present(*host->framebuffer, display_settings);
         return;
     }
-    if (output.kind() == RenderFrameOutputKind::OpenGlTexture) {
-        const RenderTextureView& texture = output.texture();
+    if (const auto* texture = std::get_if<OpenGlTextureHandle>(&output)) {
         present_texture(
-            texture.texture,
-            texture.width,
-            texture.height,
-            texture.flip_y,
+            texture->texture,
+            texture->width,
+            texture->height,
+            texture->flip_y,
             display_settings);
         return;
     }

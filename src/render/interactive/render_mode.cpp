@@ -19,8 +19,7 @@ constexpr std::array<RenderModeDescriptor, 2> kRenderModes{{
         "path",
         "Path",
         2,
-        RenderModeCapability::Progressive |
-            RenderModeCapability::PathBackendSelection,
+        RenderModeCapability::Progressive,
     },
 }};
 

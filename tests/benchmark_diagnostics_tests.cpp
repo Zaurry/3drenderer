@@ -2,6 +2,7 @@
 #include "render/pathtracer/cuda_pathtracer.h"
 #include "render/render_settings.h"
 #include "scene/camera.h"
+#include "scene/instanced_scene.h"
 #include "scene/scene.h"
 
 #include <cstdint>
@@ -37,7 +38,6 @@ int main() {
         renderer::RenderSettings settings;
         settings.width = width;
         settings.height = height;
-        settings.path.backend = renderer::PathBackend::Cuda;
         settings.path.samples_per_pixel = 1;
         renderer::Camera camera(
             renderer::Vec3(0.0f, 0.0f, 2.5f),
@@ -46,13 +46,15 @@ int main() {
             45.0f,
             static_cast<float>(width) / static_cast<float>(height));
         renderer::CudaPathInteractiveRenderer renderer_instance;
-        renderer_instance.reset(scene, settings);
+        renderer::RenderSceneSnapshot snapshot =
+            renderer::make_render_scene_snapshot(std::move(scene));
+        renderer_instance.reset(snapshot, settings);
         renderer::Framebuffer framebuffer(width, height);
         renderer::InteractiveFrameState frame;
         frame.camera_changed = true;
         frame.automatic_interaction_quality = false;
         renderer_instance.render_next_frame(
-            scene,
+            snapshot,
             camera,
             settings,
             frame,

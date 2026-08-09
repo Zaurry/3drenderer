@@ -6,6 +6,7 @@
 #include "scene/light.h"
 #include "scene/instanced_scene.h"
 #include "scene/scene.h"
+#include "scene/scene_revision.h"
 
 #include <nlohmann/json_fwd.hpp>
 
@@ -14,11 +15,14 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace renderer {
 
 struct LoadedScene;
+class SceneEditTransaction;
+class SceneIntersector;
 
 using ObjectId = std::uint64_t;
 using AssetId = std::uint64_t;
@@ -37,7 +41,7 @@ enum class SceneObjectType {
 
 enum class SceneCameraProjection { Perspective, Orthographic };
 
-struct SceneTransform {
+struct SceneTrs {
     Vec3 translation = Vec3::Zero();
     Vec3 rotation_degrees = Vec3::Zero();
     Vec3 scale = Vec3::Ones();
@@ -46,12 +50,25 @@ struct SceneTransform {
     bool valid() const;
 };
 
+struct SceneTransform {
+    Mat4 local_matrix = Mat4::Identity();
+
+    Mat4 matrix() const;
+    bool valid() const;
+    static SceneTransform from_trs(const SceneTrs& trs);
+    std::optional<SceneTrs> trs() const;
+};
+
 struct SceneMeshAsset {
     AssetId id = kInvalidAssetId;
+    std::uint64_t geometry_revision = 1;
     std::filesystem::path source_path;
     std::string builtin_id;
     int source_mesh_index = -1;
     Scene local_scene;
+    std::shared_ptr<const Scene> render_geometry;
+    std::vector<Sphere> procedural_spheres;
+    std::shared_ptr<const SceneIntersector> picking_intersector;
     Bounds3 local_bounds;
     std::vector<std::string> warnings;
     std::vector<std::string> material_names;
@@ -110,6 +127,23 @@ struct ScenePickResult {
     float distance = 0.0f;
 };
 
+struct SceneCameraProperties {
+    SceneCameraProjection projection = SceneCameraProjection::Perspective;
+    float vertical_fov_degrees = 45.0f;
+    float aspect_ratio = 0.0f;
+    float x_magnification = 1.0f;
+    float y_magnification = 1.0f;
+    float near_plane = 0.01f;
+    float far_plane = 1000.0f;
+};
+
+struct SceneLightProperties {
+    Color color = Color(25.0f, 25.0f, 25.0f);
+    float range = 0.0f;
+    float spot_inner_cone_radians = 0.0f;
+    float spot_outer_cone_radians = 0.7853981634f;
+};
+
 class SceneDocument {
 public:
     SceneDocument();
@@ -130,12 +164,20 @@ public:
     std::vector<ObjectId> import_path(const std::filesystem::path& path, int width, int height);
 
     const std::vector<SceneObject>& objects() const;
-    std::vector<SceneObject>& objects();
-    const std::vector<std::shared_ptr<SceneMeshAsset>>& assets() const;
+    std::vector<std::shared_ptr<const SceneMeshAsset>> assets() const;
     const SceneMeshAsset* asset_for_object(ObjectId id) const;
     const SceneObject* find(ObjectId id) const;
-    SceneObject* find(ObjectId id);
     std::vector<ObjectId> children(ObjectId parent_id) const;
+
+    bool set_object_name(ObjectId id, std::string name);
+    bool set_object_visible(ObjectId id, bool visible);
+    bool set_object_locked(ObjectId id, bool locked);
+    bool set_camera_properties(
+        ObjectId id,
+        const SceneCameraProperties& properties);
+    bool set_light_properties(
+        ObjectId id,
+        const SceneLightProperties& properties);
 
     ObjectId create_group(std::string name, ObjectId parent_id = kInvalidObjectId);
     ObjectId create_point_light(
@@ -165,6 +207,8 @@ public:
     bool erase_subtree(ObjectId id);
     bool reparent(ObjectId id, ObjectId new_parent_id);
     bool set_world_matrix(ObjectId id, const Mat4& world);
+    std::optional<SceneTrs> local_trs(ObjectId id) const;
+    bool set_local_trs(ObjectId id, const SceneTrs& trs);
     std::optional<SceneMaterialOverride> material_properties(
         ObjectId id,
         std::size_t material_slot) const;
@@ -181,23 +225,23 @@ public:
     Bounds3 scene_bounds() const;
     std::optional<ScenePickResult> pick(const Ray& ray) const;
 
-    const Scene& render_scene() const;
-    const InstancedSceneView& instanced_render_scene() const;
-    bool rebuild_render_scene();
-    Color& environment();
+    const RenderSceneSnapshot& render_scene_snapshot() const;
+    const SceneRevisions& revisions() const;
     const Color& environment() const;
+    void set_environment(Color color);
     void set_environment_map(const std::filesystem::path& path);
     void clear_environment_map();
     const std::shared_ptr<const EnvironmentMap>& environment_map() const;
     const std::filesystem::path& environment_path() const;
-    float& environment_intensity();
     float environment_intensity() const;
-    float& environment_rotation_degrees();
+    void set_environment_intensity(float intensity);
     float environment_rotation_degrees() const;
-    bool& environment_background_visible();
+    void set_environment_rotation_degrees(float rotation_degrees);
     bool environment_background_visible() const;
+    void set_environment_background_visible(bool visible);
 
     void checkpoint();
+    SceneEditTransaction begin_edit(std::string merge_key = {});
     bool undo();
     bool redo();
     bool can_undo() const;
@@ -209,6 +253,8 @@ public:
     const std::vector<std::string>& warnings() const;
 
 private:
+    friend class SceneEditTransaction;
+
     struct State {
         std::vector<SceneObject> objects;
         Color environment = Color(0.02f, 0.025f, 0.03f);
@@ -221,11 +267,16 @@ private:
 
     State state_;
     std::vector<std::shared_ptr<SceneMeshAsset>> assets_;
-    mutable Scene render_scene_;
-    mutable InstancedSceneView instanced_scene_;
-    mutable Bounds3 render_bounds_;
-    mutable bool render_dirty_ = true;
-    mutable bool instanced_dirty_ = true;
+    mutable RenderSceneSnapshot render_scene_snapshot_;
+    mutable bool snapshot_dirty_ = true;
+    mutable bool object_index_dirty_ = true;
+    mutable bool spatial_cache_dirty_ = true;
+    mutable std::unordered_map<ObjectId, std::size_t> object_indices_;
+    mutable std::unordered_map<ObjectId, std::vector<ObjectId>> children_by_parent_;
+    mutable std::unordered_map<ObjectId, Mat4> world_matrices_;
+    mutable std::unordered_map<ObjectId, Bounds3> world_bounds_;
+    SceneRevisions revisions_;
+    bool uncheckpointed_changes_ = false;
     ObjectId next_object_id_ = 1;
     AssetId next_asset_id_ = 1;
     std::vector<State> history_;
@@ -233,8 +284,16 @@ private:
     std::optional<std::size_t> saved_cursor_ = 0;
     std::filesystem::path file_path_;
     std::vector<std::string> warnings_;
+    bool edit_transaction_active_ = false;
+    std::string last_checkpoint_merge_key_;
 
     std::shared_ptr<SceneMeshAsset> find_asset(AssetId id) const;
+    SceneObject* find_mutable(ObjectId id);
+    void rebuild_object_index() const;
+    void rebuild_spatial_cache() const;
+    void mark_changed(
+        SceneRevisionDomain domains = SceneRevisionDomain::All,
+        bool hierarchy_changed = false);
     std::shared_ptr<SceneMeshAsset> load_asset(
         const std::filesystem::path& path,
         int width,
@@ -258,7 +317,6 @@ private:
     bool is_descendant(ObjectId candidate, ObjectId ancestor) const;
     bool is_effectively_visible(ObjectId id) const;
     Mat4 world_matrix_recursive(ObjectId id, int depth) const;
-    static bool decompose_matrix(const Mat4& matrix, SceneTransform& transform);
     nlohmann::json serialize_document(
         const std::filesystem::path& base,
         bool session_snapshot) const;
@@ -268,8 +326,32 @@ private:
         int width,
         int height,
         bool session_snapshot);
-    void ensure_render_scene() const;
-    void ensure_instanced_scene() const;
+    void ensure_render_scene_snapshot() const;
+};
+
+class SceneEditTransaction {
+public:
+    SceneEditTransaction(SceneEditTransaction&& other) noexcept;
+    SceneEditTransaction& operator=(SceneEditTransaction&& other) noexcept;
+    SceneEditTransaction(const SceneEditTransaction&) = delete;
+    SceneEditTransaction& operator=(const SceneEditTransaction&) = delete;
+    ~SceneEditTransaction();
+
+    void commit();
+    void cancel();
+    bool active() const;
+
+private:
+    friend class SceneDocument;
+    struct Backup;
+
+    SceneEditTransaction(
+        SceneDocument& document,
+        std::string merge_key);
+
+    SceneDocument* document_ = nullptr;
+    std::unique_ptr<Backup> backup_;
+    std::string merge_key_;
 };
 
 }  // namespace renderer

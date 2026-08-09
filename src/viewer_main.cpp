@@ -3,10 +3,11 @@
 #include "interactive/orbit_camera_controller.h"
 #include "interactive/viewer_session.h"
 #include "interactive/viewer_ui.h"
+#include "platform/opengl/cuda_opengl_interop.h"
 #include "platform/sdl/sdl_display_backend.h"
 #include "render/interactive/render_mode.h"
 #include "render/interactive/viewer_render_backend.h"
-#include "render/pathtracer/path_backend.h"
+#include "render/pathtracer/cuda_pathtracer.h"
 #include "scene/scene.h"
 #include "scene/scene_asset_loader.h"
 #include "scene/scene_document.h"
@@ -37,7 +38,7 @@ struct ViewerOptions {
     int width = 960;
     int height = 540;
     int frame_limit = 0;
-    renderer::PathBackend path_backend = renderer::PathBackend::Auto;
+    int cuda_device = -1;
     std::filesystem::path gl_vertex_shader;
     std::filesystem::path gl_fragment_shader;
     std::filesystem::path environment_path;
@@ -49,7 +50,6 @@ struct ViewerOptions {
 
 struct ViewerScene {
     renderer::SceneDocument document;
-    renderer::Scene scene;
     renderer::Bounds3 bounds;
     renderer::Camera camera;
     bool camera_from_scene = false;
@@ -134,7 +134,7 @@ void print_help() {
         << "  --width integer    window width, default 960\n"
         << "  --height integer   window height, default 540\n"
         << "  --frames integer   render N frames then exit, default unlimited\n"
-        << "  --path-backend auto|cpu|cuda  path execution backend, default auto\n"
+        << "  --cuda-device N    CUDA device index for Path mode; default GL-compatible\n"
         << "  --gl-vertex-shader path    OpenGL vertex shader override\n"
         << "  --gl-fragment-shader path  OpenGL fragment shader override\n"
         << "  --no-restore-last  start the default scene without restoring the last session\n"
@@ -210,8 +210,10 @@ ViewerOptions parse_args(int argc, char** argv) {
             options.height = parse_positive_int(require_value(argc, argv, i, arg), arg);
         } else if (arg == "--frames") {
             options.frame_limit = parse_nonnegative_int(require_value(argc, argv, i, arg), arg);
-        } else if (arg == "--path-backend") {
-            options.path_backend = renderer::parse_path_backend(require_value(argc, argv, i, arg));
+        } else if (arg == "--cuda-device") {
+            options.cuda_device = parse_nonnegative_int(
+                require_value(argc, argv, i, arg),
+                arg);
         } else if (arg == "--gl-vertex-shader") {
             options.gl_vertex_shader = require_value(argc, argv, i, arg);
         } else if (arg == "--gl-fragment-shader") {
@@ -283,15 +285,6 @@ renderer::Camera make_camera_from_bounds(const renderer::Bounds3& bounds, int wi
         static_cast<float>(width) / static_cast<float>(height));
 }
 
-bool uses_cuda_instanced_scene(const ViewerOptions& options) {
-    if (options.mode != renderer::InteractiveRenderMode::Path ||
-        options.path_backend == renderer::PathBackend::Cpu) {
-        return false;
-    }
-    return options.path_backend == renderer::PathBackend::Cuda ||
-        renderer::cuda_path_backend_available();
-}
-
 ViewerScene load_viewer_scene(
     const ViewerOptions& options,
     const std::filesystem::path& executable_path) {
@@ -322,17 +315,14 @@ ViewerScene load_viewer_scene(
         if (!options.environment_path.empty()) {
             document.set_environment_map(options.environment_path);
         }
-        document.environment_intensity() = options.environment_intensity;
-        document.environment_rotation_degrees() = options.environment_yaw_degrees;
-        document.environment_background_visible() =
-            options.environment_background_visible;
+        document.set_environment_intensity(options.environment_intensity);
+        document.set_environment_rotation_degrees(options.environment_yaw_degrees);
+        document.set_environment_background_visible(
+            options.environment_background_visible);
         for (const std::string& warning : document.warnings()) {
             std::cerr << "warning: " << warning << '\n';
         }
         const renderer::Bounds3 bounds = document.scene_bounds();
-        renderer::Scene scene = uses_cuda_instanced_scene(options)
-            ? renderer::Scene{}
-            : document.render_scene();
         renderer::Camera camera =
             make_camera_from_bounds(bounds, options.width, options.height);
         bool camera_from_scene = false;
@@ -348,7 +338,6 @@ ViewerScene load_viewer_scene(
         }
         return ViewerScene{
             std::move(document),
-            std::move(scene),
             bounds,
             std::move(camera),
             camera_from_scene,
@@ -365,14 +354,12 @@ ViewerScene load_viewer_scene(
     if (!options.environment_path.empty()) {
         document.set_environment_map(options.environment_path);
     }
-    document.environment_intensity() = options.environment_intensity;
-    document.environment_rotation_degrees() = options.environment_yaw_degrees;
-    document.environment_background_visible() =
-        options.environment_background_visible;
-    scene = document.render_scene();
+    document.set_environment_intensity(options.environment_intensity);
+    document.set_environment_rotation_degrees(options.environment_yaw_degrees);
+    document.set_environment_background_visible(
+        options.environment_background_visible);
     return ViewerScene{
         std::move(document),
-        std::move(scene),
         bounds,
         make_camera_from_bounds(bounds, options.width, options.height)};
 }
@@ -421,10 +408,8 @@ struct ViewerSessionSignature {
         renderer::InteractiveRenderMode::OpenGl;
     renderer::ViewerCameraMode camera_mode =
         renderer::ViewerCameraMode::Orbit;
-    renderer::PathBackend path_backend = renderer::PathBackend::Auto;
     renderer::ToneMapper tone_mapper = renderer::ToneMapper::None;
-    int tile_size = 0;
-    int thread_count = 0;
+    int cuda_device = 0;
     int max_bounces = 64;
     int russian_roulette_start_bounce = 3;
     float russian_roulette_min_probability = 0.05f;
@@ -462,10 +447,8 @@ ViewerSessionSignature make_session_signature(
     ViewerSessionSignature signature;
     signature.mode = ui.mode;
     signature.camera_mode = ui.camera_mode;
-    signature.path_backend = settings.path.backend;
     signature.tone_mapper = ui.display.tone_mapper;
-    signature.tile_size = settings.path.tile_size;
-    signature.thread_count = settings.path.thread_count;
+    signature.cuda_device = settings.path.cuda_device;
     signature.max_bounces = settings.path.max_bounces;
     signature.russian_roulette_start_bounce =
         settings.path.russian_roulette_start_bounce;
@@ -517,9 +500,10 @@ int main(int argc, char** argv) {
                     options.width = restored_session->window_width;
                     options.height = restored_session->window_height;
                     options.mode = restored_session->ui.mode;
-                    options.path_backend =
-                        restored_session->render_settings.path.backend;
                     startup_status = "Restored last viewer session";
+                    if (!restored_session->migration_warning.empty()) {
+                        startup_status = restored_session->migration_warning;
+                    }
                 }
             } catch (const std::exception& error) {
                 startup_status =
@@ -547,9 +531,6 @@ int main(int argc, char** argv) {
             }
             renderer::SceneDocument document =
                 std::move(restored_session->document);
-            renderer::Scene scene = uses_cuda_instanced_scene(options)
-                ? renderer::Scene{}
-                : document.render_scene();
             const renderer::Bounds3 bounds = document.scene_bounds();
             const renderer::ViewerCameraSessionState& saved_camera =
                 restored_session->camera;
@@ -562,7 +543,6 @@ int main(int argc, char** argv) {
                     static_cast<float>(options.height));
             return ViewerScene{
                 std::move(document),
-                std::move(scene),
                 bounds,
                 std::move(camera)};
         }();
@@ -609,24 +589,33 @@ int main(int argc, char** argv) {
         settings.height = scaled_dimension(window_height, ui_state.render_scale);
         settings.path.samples_per_pixel = 1;
         if (!restored_session) {
-            settings.path.thread_count = 1;
-            settings.path.backend = options.path_backend;
-        } else if (settings.path.backend == renderer::PathBackend::Cuda) {
-            std::string reason;
-            if (!renderer::cuda_path_backend_available(&reason)) {
-                settings.path.backend = renderer::PathBackend::Auto;
-                ui_state.scene_status =
-                    "Saved CUDA backend is unavailable; using automatic fallback";
-                std::cerr << "warning: " << ui_state.scene_status
-                          << ": " << reason << '\n';
-            }
+            settings.path.cuda_device = options.cuda_device;
         }
-        if (ui_state.mode == renderer::InteractiveRenderMode::Path &&
-            settings.path.backend == renderer::PathBackend::Auto) {
+        if (ui_state.mode == renderer::InteractiveRenderMode::Path) {
             std::string reason;
-            if (!renderer::cuda_path_backend_available(&reason)) {
-                std::cerr << "warning: CUDA path backend unavailable, using CPU: "
-                          << reason << '\n';
+            auto device_context =
+                renderer::select_cuda_device_for_current_opengl_context(
+                    settings.path.cuda_device,
+                    &reason);
+            if (!device_context && restored_session) {
+                device_context =
+                    renderer::select_cuda_device_for_current_opengl_context(
+                        -1,
+                        &reason);
+                if (device_context) {
+                    ui_state.scene_status =
+                        "Saved CUDA device is not GL-compatible; selected device " +
+                        std::to_string(device_context->device_id());
+                }
+            }
+            if (device_context) {
+                settings.path.cuda_device = device_context->device_id();
+            } else {
+                settings.path.cuda_device = 0;
+                ui_state.mode = renderer::InteractiveRenderMode::OpenGl;
+                ui_state.scene_status =
+                    "CUDA Path unavailable; switched to OpenGL: " + reason;
+                std::cerr << "warning: " << ui_state.scene_status << '\n';
             }
         }
 
@@ -692,25 +681,13 @@ int main(int argc, char** argv) {
                 ui_state.mode,
                 options.gl_vertex_shader,
                 options.gl_fragment_shader);
-        const auto instanced_scene_for_cuda_path =
-            [&]() -> const renderer::InstancedSceneView* {
-                if (ui_state.mode != renderer::InteractiveRenderMode::Path ||
-                    renderer::resolve_path_backend(settings.path.backend) !=
-                        renderer::ExecutionBackend::Cuda) {
-                    return nullptr;
-                }
-                return &viewer_scene.document.instanced_render_scene();
+        const auto current_render_scene_snapshot =
+            [&]() -> const renderer::RenderSceneSnapshot& {
+                return viewer_scene.document.render_scene_snapshot();
             };
-        const renderer::InstancedSceneView* initial_instanced_scene =
-            instanced_scene_for_cuda_path();
-        if (!initial_instanced_scene) {
-            viewer_scene.scene =
-                viewer_scene.document.render_scene();
-        }
         render_backend->reset(
-            viewer_scene.scene,
-            settings,
-            initial_instanced_scene);
+            current_render_scene_snapshot(),
+            settings);
         renderer::OpenGlShaderUiState shader_ui_state;
         shader_ui_state.vertex_path = options.gl_vertex_shader.string();
         shader_ui_state.fragment_path = options.gl_fragment_shader.string();
@@ -722,10 +699,7 @@ int main(int argc, char** argv) {
                 frame_rate_counter.snapshot(),
                 path_samples);
             if (ui_state.mode == renderer::InteractiveRenderMode::Path) {
-                const renderer::ViewerRenderBackendStatistics statistics =
-                    render_backend->statistics();
-                title += std::string(" - ") +
-                    renderer::execution_backend_name(statistics.path_backend);
+                title += " - cuda";
             }
             title += std::string(" - camera=") + camera_mode_name(ui_state.camera_mode);
             display.set_title(title);
@@ -807,10 +781,6 @@ int main(int argc, char** argv) {
                         path,
                         settings.width,
                         settings.height);
-                    if (!instanced_scene_for_cuda_path()) {
-                        viewer_scene.scene =
-                            viewer_scene.document.render_scene();
-                    }
                     viewer_scene.bounds = viewer_scene.document.scene_bounds();
                     ui_state.scene_status = "Imported " + path.filename().string();
                     external_scene_changes = renderer::SceneChange::All;
@@ -825,12 +795,6 @@ int main(int argc, char** argv) {
                         path,
                         settings.width,
                         settings.height);
-                    if (!instanced_scene_for_cuda_path()) {
-                        viewer_scene.scene =
-                            viewer_scene.document.render_scene();
-                    } else {
-                        viewer_scene.scene = renderer::Scene{};
-                    }
                     viewer_scene.bounds = viewer_scene.document.scene_bounds();
                     ui_state.selected_objects.clear();
                     ui_state.active_object = renderer::kInvalidObjectId;
@@ -903,19 +867,27 @@ int main(int argc, char** argv) {
             const renderer::ViewerCameraMode previous_camera_mode = ui_state.camera_mode;
             const renderer::ViewerRenderBackendStatistics backend_statistics =
                 render_backend->statistics();
-            shader_ui_state.auto_reload = backend_statistics.shader_auto_reload;
-            shader_ui_state.valid = backend_statistics.shader_valid;
-            shader_ui_state.error = backend_statistics.shader_error;
-            if (!backend_statistics.shader_vertex_path.empty()) {
-                shader_ui_state.vertex_path =
-                    backend_statistics.shader_vertex_path;
+            int accumulated_samples = 0;
+            renderer::CudaPathStatistics cuda_statistics;
+            if (const auto* gl = std::get_if<renderer::OpenGlViewerStatistics>(
+                    &backend_statistics)) {
+                shader_ui_state.auto_reload = gl->shader_auto_reload;
+                shader_ui_state.valid = gl->shader_valid;
+                shader_ui_state.error = gl->shader_error;
+                if (!gl->shader_vertex_path.empty()) {
+                    shader_ui_state.vertex_path = gl->shader_vertex_path;
+                }
+                if (!gl->shader_fragment_path.empty()) {
+                    shader_ui_state.fragment_path = gl->shader_fragment_path;
+                }
+            } else if (const auto* path =
+                           std::get_if<renderer::CudaPathViewerStatistics>(
+                               &backend_statistics)) {
+                accumulated_samples = path->accumulated_samples;
+                interop_ui_state.status = path->interop_status;
+                interop_ui_state.detail = path->interop_detail;
+                cuda_statistics = path->cuda;
             }
-            if (!backend_statistics.shader_fragment_path.empty()) {
-                shader_ui_state.fragment_path =
-                    backend_statistics.shader_fragment_path;
-            }
-            interop_ui_state.status = backend_statistics.interop_status;
-            interop_ui_state.detail = backend_statistics.interop_detail;
             renderer::ViewerUiActions ui_actions = viewer_ui.draw(
                 ui_state,
                 settings,
@@ -924,10 +896,9 @@ int main(int argc, char** argv) {
                 free_camera,
                 viewer_scene.bounds,
                 frame_rate_counter.snapshot(),
-                backend_statistics.accumulated_samples,
-                backend_statistics.path_backend,
+                accumulated_samples,
                 interop_ui_state,
-                backend_statistics.cuda,
+                cuda_statistics,
                 shader_ui_state,
                 display.main_window_has_keyboard_focus());
 
@@ -967,10 +938,6 @@ int main(int argc, char** argv) {
                 scene_changes != renderer::SceneChange::None;
             if (document_scene_changed) {
                 viewer_scene.bounds = viewer_scene.document.scene_bounds();
-                if (!instanced_scene_for_cuda_path()) {
-                    viewer_scene.scene =
-                        viewer_scene.document.render_scene();
-                }
             }
 
             const bool keyboard_available = !display.wants_keyboard_capture();
@@ -982,8 +949,19 @@ int main(int argc, char** argv) {
                         input.render_mode_hotkey);
                 }
                 if (hotkey_mode != ui_state.mode) {
-                    ui_state.mode = hotkey_mode;
-                    ui_actions.mode_changed = true;
+                    if (hotkey_mode == renderer::InteractiveRenderMode::Path) {
+                        std::string reason;
+                        if (!renderer::cuda_path_backend_available(&reason)) {
+                            ui_state.scene_status =
+                                "CUDA Path unavailable: " + reason;
+                        } else {
+                            ui_state.mode = hotkey_mode;
+                            ui_actions.mode_changed = true;
+                        }
+                    } else {
+                        ui_state.mode = hotkey_mode;
+                        ui_actions.mode_changed = true;
+                    }
                 }
                 if (input.toggle_camera_mode) {
                     ui_state.camera_mode = ui_state.camera_mode == renderer::ViewerCameraMode::Orbit
@@ -1007,37 +985,24 @@ int main(int argc, char** argv) {
                     ui_state.mode,
                     options.gl_vertex_shader,
                     options.gl_fragment_shader);
-                const renderer::InstancedSceneView* instanced_scene =
-                    instanced_scene_for_cuda_path();
-                if (!instanced_scene) {
-                    viewer_scene.scene =
-                        viewer_scene.document.render_scene();
-                }
                 render_backend->reset(
-                    viewer_scene.scene,
-                    settings,
-                    instanced_scene);
+                    current_render_scene_snapshot(),
+                    settings);
                 frame_rate_counter.reset();
                 std::cout << "mode=" << mode_name(ui_state.mode) << '\n';
-            } else if (ui_actions.path_backend_changed &&
-                       ui_state.mode == renderer::InteractiveRenderMode::Path) {
-                const renderer::InstancedSceneView* instanced_scene =
-                    instanced_scene_for_cuda_path();
-                if (!instanced_scene) {
-                    viewer_scene.scene =
-                        viewer_scene.document.render_scene();
-                }
-                render_backend->reset(
-                    viewer_scene.scene,
-                    settings,
-                    instanced_scene);
             }
             if (ui_actions.shader_auto_reload_changed) {
-                render_backend->set_shader_auto_reload(
-                    shader_ui_state.auto_reload);
+                if (renderer::OpenGlShaderControl* shader_control =
+                        renderer::open_gl_shader_control(*render_backend)) {
+                    shader_control->set_shader_auto_reload(
+                        shader_ui_state.auto_reload);
+                }
             }
             if (ui_actions.shader_reload_requested) {
-                render_backend->request_shader_reload();
+                if (renderer::OpenGlShaderControl* shader_control =
+                        renderer::open_gl_shader_control(*render_backend)) {
+                    shader_control->request_shader_reload();
+                }
             }
 
             bool camera_changed = ui_actions.camera_parameters_changed;
@@ -1208,10 +1173,6 @@ int main(int argc, char** argv) {
                 viewer_scene.bounds = viewer_scene.document.scene_bounds();
                 document_scene_changed = true;
                 scene_changes |= gizmo_changes;
-                if (!instanced_scene_for_cuda_path()) {
-                    viewer_scene.scene =
-                        viewer_scene.document.render_scene();
-                }
             }
             frame_state.scene_changes = scene_changes;
             viewer_ui.draw_scene_selection(
@@ -1230,7 +1191,6 @@ int main(int argc, char** argv) {
             const bool path_needs_preview =
                 rendered_frames == 0 ||
                 mode_changed ||
-                ui_actions.path_backend_changed ||
                 ui_actions.automatic_interaction_quality_changed ||
                 ui_actions.path_depth_changed ||
                 ui_actions.path_roulette_changed ||
@@ -1244,20 +1204,22 @@ int main(int argc, char** argv) {
                 path_needs_preview;
             if (should_render) {
                 render_backend->render(
-                    viewer_scene.scene,
+                    current_render_scene_snapshot(),
                     camera,
                     settings,
-                    frame_state,
-                    instanced_scene_for_cuda_path());
+                    frame_state);
             }
             const renderer::ViewerRenderBackendStatistics current_statistics =
                 render_backend->statistics();
-            if (current_statistics.path_backend == renderer::ExecutionBackend::Cuda &&
-                current_statistics.interop_status == "fallback" &&
-                !current_statistics.interop_detail.empty() &&
-                current_statistics.interop_detail != reported_interop_reason) {
-                reported_interop_reason = current_statistics.interop_detail;
-                std::cerr << "warning: CUDA/OpenGL interop unavailable, using CPU staging: "
+            const auto* current_path =
+                std::get_if<renderer::CudaPathViewerStatistics>(
+                    &current_statistics);
+            if (current_path &&
+                current_path->interop_status == "fallback" &&
+                !current_path->interop_detail.empty() &&
+                current_path->interop_detail != reported_interop_reason) {
+                reported_interop_reason = current_path->interop_detail;
+                std::cerr << "warning: CUDA/OpenGL interop unavailable, using host staging: "
                           << reported_interop_reason << '\n';
             }
             display.present(render_backend->output(), ui_state.display);
@@ -1285,8 +1247,9 @@ int main(int argc, char** argv) {
             }
 
             ++rendered_frames;
-            const int path_samples =
-                render_backend->statistics().accumulated_samples;
+            const int path_samples = current_path
+                ? current_path->accumulated_samples
+                : 0;
             const auto frame_end = std::chrono::steady_clock::now();
             const float frame_seconds =
                 std::chrono::duration<float>(frame_end - frame_begin).count();
@@ -1311,34 +1274,36 @@ int main(int argc, char** argv) {
         const renderer::ViewerRenderBackendStatistics final_statistics =
             render_backend->statistics();
         if (ui_state.mode == renderer::InteractiveRenderMode::OpenGl) {
+            const auto& gl =
+                std::get<renderer::OpenGlViewerStatistics>(final_statistics);
             std::cout << " shader="
-                      << (final_statistics.shader_valid ? "active" : "invalid");
-            if (!final_statistics.shader_error.empty()) {
-                std::cerr << "\nshader error: " << final_statistics.shader_error;
+                      << (gl.shader_valid ? "active" : "invalid");
+            if (!gl.shader_error.empty()) {
+                std::cerr << "\nshader error: " << gl.shader_error;
             }
-        } else if (
-            ui_state.mode == renderer::InteractiveRenderMode::Path &&
-            final_statistics.path_backend == renderer::ExecutionBackend::Cuda) {
+        } else if (ui_state.mode == renderer::InteractiveRenderMode::Path) {
+            const auto& path =
+                std::get<renderer::CudaPathViewerStatistics>(final_statistics);
             std::cout << " interop="
-                      << final_statistics.interop_status;
-            std::cout << " trace_ms=" << final_statistics.cuda.trace_milliseconds
+                      << path.interop_status;
+            std::cout << " trace_ms=" << path.cuda.trace_milliseconds
                       << " present_ms="
-                      << final_statistics.cuda.presentation_milliseconds
+                      << path.cuda.presentation_milliseconds
                       << " published="
-                      << (final_statistics.cuda.presentation_updated ? 1 : 0)
-                      << " upload_ms=" << final_statistics.cuda.upload_milliseconds
+                      << (path.cuda.presentation_updated ? 1 : 0)
+                      << " upload_ms=" << path.cuda.upload_milliseconds
                       << " instance_ms="
-                      << final_statistics.cuda.instance_upload_milliseconds
+                      << path.cuda.instance_upload_milliseconds
                       << " tlas_refit_ms="
-                      << final_statistics.cuda.tlas_refit_milliseconds
+                      << path.cuda.tlas_refit_milliseconds
                       << " blas_builds="
-                      << final_statistics.cuda.blas_build_count
+                      << path.cuda.blas_build_count
                       << " tlas_refits="
-                      << final_statistics.cuda.tlas_refit_count
+                      << path.cuda.tlas_refit_count
                       << " allocations="
-                      << final_statistics.cuda.allocation_generation
+                      << path.cuda.allocation_generation
                       << " downloads="
-                      << final_statistics.cuda.framebuffer_downloads;
+                      << path.cuda.framebuffer_downloads;
         }
         std::cout << '\n';
         return 0;
