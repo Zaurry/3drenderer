@@ -125,6 +125,8 @@ std::string object_type_name(SceneObjectType type) {
             return "directional_light";
         case SceneObjectType::SpotLight:
             return "spot_light";
+        case SceneObjectType::RectAreaLight:
+            return "rect_area_light";
         case SceneObjectType::Camera:
             return "camera";
     }
@@ -146,6 +148,9 @@ SceneObjectType parse_object_type(const std::string& value) {
     }
     if (value == "spot_light") {
         return SceneObjectType::SpotLight;
+    }
+    if (value == "rect_area_light") {
+        return SceneObjectType::RectAreaLight;
     }
     if (value == "camera") {
         return SceneObjectType::Camera;
@@ -446,6 +451,19 @@ bool decompose_trs_matrix(const Mat4& matrix, SceneTrs& output) {
     return true;
 }
 
+bool canonicalize_affine_matrix(Mat4& matrix) {
+    constexpr float kAffineDriftTolerance = 1.0e-4f;
+    const Vec4 affine_row(0.0f, 0.0f, 0.0f, 1.0f);
+    if (!matrix.allFinite() ||
+        !matrix.row(3).transpose().isApprox(
+            affine_row,
+            kAffineDriftTolerance)) {
+        return false;
+    }
+    matrix.row(3) = affine_row.transpose();
+    return true;
+}
+
 }  // namespace
 
 Mat4 SceneTrs::matrix() const {
@@ -565,9 +583,12 @@ SceneDocument SceneDocument::from_scene(
     std::vector<DirectionalLight> directional_lights =
         std::move(scene.directional_lights);
     std::vector<SpotLight> spot_lights = std::move(scene.spot_lights);
+    std::vector<RectAreaLight> rect_area_lights =
+        std::move(scene.rect_area_lights);
     scene.point_lights.clear();
     scene.directional_lights.clear();
     scene.spot_lights.clear();
+    scene.rect_area_lights.clear();
     auto asset = std::make_shared<SceneMeshAsset>();
     asset->id = document.next_asset_id_++;
     asset->source_path.clear();
@@ -602,9 +623,13 @@ SceneDocument SceneDocument::from_scene(
             point_lights[index].position,
             point_lights[index].intensity);
         document.find_mutable(light_id)->light_range = point_lights[index].range;
+        SceneObject* light_object = document.find_mutable(light_id);
+        light_object->light_source_radius = point_lights[index].source_radius;
+        light_object->light_casts_shadows = point_lights[index].casts_shadows;
+        light_object->light_shadow_priority = point_lights[index].shadow_priority;
     }
     for (std::size_t index = 0; index < spot_lights.size(); ++index) {
-        document.create_spot_light(
+        const ObjectId light_id = document.create_spot_light(
             "Spot Light " + std::to_string(index + 1),
             spot_lights[index].position,
             spot_lights[index].direction,
@@ -612,15 +637,60 @@ SceneDocument SceneDocument::from_scene(
             spot_lights[index].range,
             spot_lights[index].inner_cone_radians,
             spot_lights[index].outer_cone_radians);
+        SceneObject* light_object = document.find_mutable(light_id);
+        light_object->light_source_radius = spot_lights[index].source_radius;
+        light_object->light_casts_shadows = spot_lights[index].casts_shadows;
+        light_object->light_shadow_priority = spot_lights[index].shadow_priority;
     }
     for (std::size_t index = 0;
          index < directional_lights.size();
          ++index) {
-        document.create_directional_light(
+        const ObjectId light_id = document.create_directional_light(
             "Directional Light " +
                 std::to_string(index + 1),
             directional_lights[index].direction,
             directional_lights[index].radiance);
+        SceneObject* light_object = document.find_mutable(light_id);
+        light_object->directional_angular_radius_radians =
+            directional_lights[index].angular_radius_radians;
+        light_object->light_casts_shadows =
+            directional_lights[index].casts_shadows;
+        light_object->light_shadow_priority =
+            directional_lights[index].shadow_priority;
+    }
+    for (std::size_t index = 0; index < rect_area_lights.size(); ++index) {
+        const RectAreaLight& source = rect_area_lights[index];
+        Vec3 direction = rect_area_light_emission_direction(source);
+        if (usable_direction(direction)) {
+            direction.normalize();
+        } else {
+            direction = Vec3(0.0f, 0.0f, -1.0f);
+        }
+        const ObjectId light_id = document.create_rect_area_light(
+            "Rect Area Light " + std::to_string(index + 1),
+            source.position,
+            direction,
+            source.radiance,
+            2.0f * source.axis_u.norm(),
+            2.0f * source.axis_v.norm(),
+            source.two_sided);
+        SceneObject* light_object = document.find_mutable(light_id);
+        light_object->light_casts_shadows = source.casts_shadows;
+        light_object->light_shadow_priority = source.shadow_priority;
+        if (usable_direction(source.axis_u) &&
+            usable_direction(source.axis_v)) {
+            const Vec3 unit_u = source.axis_u.normalized();
+            const Vec3 unit_v = source.axis_v.normalized();
+            const Vec3 unit_z = unit_u.cross(unit_v);
+            if (usable_direction(unit_z)) {
+                Mat4 local_matrix = Mat4::Identity();
+                local_matrix.topLeftCorner<3, 1>() = unit_u;
+                local_matrix.block<3, 1>(0, 1) = unit_v;
+                local_matrix.block<3, 1>(0, 2) = unit_z.normalized();
+                local_matrix.topRightCorner<3, 1>() = source.position;
+                light_object->transform.local_matrix = local_matrix;
+            }
+        }
     }
     document.history_.assign(1, document.state_);
     document.uncheckpointed_changes_ = false;
@@ -777,22 +847,63 @@ bool SceneDocument::set_light_properties(
     if (!object || object->locked ||
         (object->type != SceneObjectType::PointLight &&
          object->type != SceneObjectType::DirectionalLight &&
-         object->type != SceneObjectType::SpotLight) ||
+         object->type != SceneObjectType::SpotLight &&
+         object->type != SceneObjectType::RectAreaLight) ||
         !properties.color.allFinite() ||
         !std::isfinite(properties.range) ||
         !std::isfinite(properties.spot_inner_cone_radians) ||
-        !std::isfinite(properties.spot_outer_cone_radians)) {
+        !std::isfinite(properties.spot_outer_cone_radians) ||
+        !std::isfinite(properties.source_radius) ||
+        !std::isfinite(properties.directional_angular_radius_radians) ||
+        !std::isfinite(properties.area_width) ||
+        !std::isfinite(properties.area_height) ||
+        properties.area_width <= 0.0f ||
+        properties.area_height <= 0.0f) {
         return false;
     }
-    object->light_color = properties.color.cwiseMax(Color::Zero());
-    object->light_range = std::max(0.0f, properties.range);
-    object->spot_inner_cone_radians = std::clamp(
+    const Color next_color = properties.color.cwiseMax(Color::Zero());
+    const float next_range = std::max(0.0f, properties.range);
+    const float next_inner_cone = std::clamp(
         properties.spot_inner_cone_radians, 0.0f, kPi * 0.5f);
-    object->spot_outer_cone_radians = std::clamp(
+    const float next_outer_cone = std::clamp(
         properties.spot_outer_cone_radians,
-        object->spot_inner_cone_radians,
+        next_inner_cone,
         kPi * 0.5f);
-    mark_changed(SceneRevisionDomain::Lighting);
+    const float next_source_radius = std::max(0.0f, properties.source_radius);
+    const float next_angular_radius = std::clamp(
+        properties.directional_angular_radius_radians,
+        0.0f,
+        kPi * 0.5f);
+    const bool rect_color_changed =
+        object->type == SceneObjectType::RectAreaLight &&
+        !object->light_color.isApprox(next_color, 0.0f);
+    const bool rect_dimensions_changed =
+        object->type == SceneObjectType::RectAreaLight &&
+        (object->area_width != properties.area_width ||
+         object->area_height != properties.area_height);
+    const bool rect_sidedness_changed =
+        object->type == SceneObjectType::RectAreaLight &&
+        object->light_two_sided != properties.two_sided;
+
+    object->light_color = next_color;
+    object->light_range = next_range;
+    object->spot_inner_cone_radians = next_inner_cone;
+    object->spot_outer_cone_radians = next_outer_cone;
+    object->light_source_radius = next_source_radius;
+    object->directional_angular_radius_radians = next_angular_radius;
+    object->light_casts_shadows = properties.casts_shadows;
+    object->light_shadow_priority = properties.shadow_priority;
+    object->area_width = properties.area_width;
+    object->area_height = properties.area_height;
+    object->light_two_sided = properties.two_sided;
+    SceneRevisionDomain domains = SceneRevisionDomain::Lighting;
+    if (rect_color_changed || rect_sidedness_changed) {
+        domains |= SceneRevisionDomain::Materials;
+    }
+    if (rect_dimensions_changed) {
+        domains |= SceneRevisionDomain::Transforms;
+    }
+    mark_changed(domains);
     return true;
 }
 
@@ -872,6 +983,31 @@ ObjectId SceneDocument::create_spot_light(
     return id;
 }
 
+ObjectId SceneDocument::create_rect_area_light(
+    std::string name,
+    const Vec3& position,
+    const Vec3& direction,
+    const Color& radiance,
+    float width,
+    float height,
+    bool two_sided,
+    ObjectId parent_id) {
+    const ObjectId id = create_directional_light(
+        std::move(name),
+        direction,
+        radiance,
+        parent_id);
+    SceneObject* object = find_mutable(id);
+    object->type = SceneObjectType::RectAreaLight;
+    SceneTrs transform = object->transform.trs().value_or(SceneTrs{});
+    transform.translation = position;
+    object->transform = SceneTransform::from_trs(transform);
+    object->area_width = std::max(width, 1.0e-4f);
+    object->area_height = std::max(height, 1.0e-4f);
+    object->light_two_sided = two_sided;
+    return id;
+}
+
 ObjectId SceneDocument::create_camera(
     std::string name,
     SceneCameraProjection projection,
@@ -945,6 +1081,7 @@ std::shared_ptr<SceneMeshAsset> SceneDocument::store_loaded_asset(
     asset->local_scene.directional_lights.clear();
     asset->local_scene.point_lights.clear();
     asset->local_scene.spot_lights.clear();
+    asset->local_scene.rect_area_lights.clear();
     asset->warnings = std::move(loaded.warnings);
     asset->material_names = std::move(loaded.material_names);
     asset->local_bounds = loaded.bounds;
@@ -973,6 +1110,7 @@ ObjectId SceneDocument::import_gltf(
         asset->local_scene.directional_lights.clear();
         asset->local_scene.point_lights.clear();
         asset->local_scene.spot_lights.clear();
+        asset->local_scene.rect_area_lights.clear();
         asset->warnings = std::move(loaded.meshes[mesh_index].warnings);
         asset->material_names = std::move(loaded.meshes[mesh_index].material_names);
         asset->local_bounds = loaded.meshes[mesh_index].bounds;
@@ -1181,7 +1319,8 @@ std::vector<ObjectId> SceneDocument::import_path(
     if (std::none_of(state_.objects.begin(), state_.objects.end(), [](const SceneObject& object) {
             return object.type == SceneObjectType::DirectionalLight ||
                 object.type == SceneObjectType::PointLight ||
-                object.type == SceneObjectType::SpotLight;
+                object.type == SceneObjectType::SpotLight ||
+                object.type == SceneObjectType::RectAreaLight;
         })) {
         create_directional_light(
             "Sun",
@@ -1288,12 +1427,19 @@ bool SceneDocument::reparent(ObjectId id, ObjectId new_parent_id) {
         is_descendant(new_parent_id, id)) {
         return false;
     }
-    const Mat4 old_world = world_matrix(id);
-    const Mat4 parent_world = new_parent_id == kInvalidObjectId
+    Mat4 old_world = world_matrix(id);
+    Mat4 parent_world = new_parent_id == kInvalidObjectId
         ? Mat4::Identity()
         : world_matrix(new_parent_id);
+    if (!canonicalize_affine_matrix(old_world) ||
+        !canonicalize_affine_matrix(parent_world)) {
+        return false;
+    }
     SceneTransform next_transform;
     next_transform.local_matrix = parent_world.inverse() * old_world;
+    if (!canonicalize_affine_matrix(next_transform.local_matrix)) {
+        return false;
+    }
     if (!next_transform.valid()) {
         return false;
     }
@@ -1311,11 +1457,19 @@ bool SceneDocument::set_world_matrix(ObjectId id, const Mat4& world) {
     if (!object || object->locked) {
         return false;
     }
-    const Mat4 parent_world = object->parent_id == kInvalidObjectId
+    Mat4 canonical_world = world;
+    Mat4 parent_world = object->parent_id == kInvalidObjectId
         ? Mat4::Identity()
         : world_matrix(object->parent_id);
+    if (!canonicalize_affine_matrix(canonical_world) ||
+        !canonicalize_affine_matrix(parent_world)) {
+        return false;
+    }
     SceneTransform next_transform;
-    next_transform.local_matrix = parent_world.inverse() * world;
+    next_transform.local_matrix = parent_world.inverse() * canonical_world;
+    if (!canonicalize_affine_matrix(next_transform.local_matrix)) {
+        return false;
+    }
     if (!next_transform.valid()) {
         return false;
     }
@@ -1483,6 +1637,11 @@ void SceneDocument::rebuild_spatial_cache() const {
                     asset->local_bounds,
                     world_matrices_.at(id)));
             }
+        } else if (object && object->type == SceneObjectType::RectAreaLight) {
+            const Bounds3 local_bounds(
+                Vec3(-object->area_width * 0.5f, -object->area_height * 0.5f, 0.0f),
+                Vec3(object->area_width * 0.5f, object->area_height * 0.5f, 0.0f));
+            bounds.expand(transform_bounds(local_bounds, world_matrices_.at(id)));
         }
         world_bounds_.emplace(id, bounds);
     }
@@ -1545,8 +1704,28 @@ Bounds3 SceneDocument::scene_bounds() const {
 std::optional<ScenePickResult> SceneDocument::pick(const Ray& ray) const {
     std::optional<ScenePickResult> best;
     for (const SceneObject& object : state_.objects) {
-        if (!is_effectively_visible(object.id) ||
-            object.type != SceneObjectType::Mesh) {
+        if (!is_effectively_visible(object.id)) {
+            continue;
+        }
+        if (object.type == SceneObjectType::RectAreaLight) {
+            const Mat4 inverse = world_matrix(object.id).inverse();
+            const Vec3 local_origin = transform_point(inverse, ray.origin);
+            const Vec4 local_direction4 = inverse * Vec4(
+                ray.direction.x(), ray.direction.y(), ray.direction.z(), 0.0f);
+            const Vec3 local_direction = local_direction4.head<3>();
+            if (std::abs(local_direction.z()) > 1.0e-8f) {
+                const float distance = -local_origin.z() / local_direction.z();
+                const Vec3 hit = local_origin + distance * local_direction;
+                if (distance >= 0.0f &&
+                    std::abs(hit.x()) <= object.area_width * 0.5f &&
+                    std::abs(hit.y()) <= object.area_height * 0.5f &&
+                    (!best || distance < best->distance)) {
+                    best = ScenePickResult{object.id, distance};
+                }
+            }
+            continue;
+        }
+        if (object.type != SceneObjectType::Mesh) {
             continue;
         }
         const auto asset = find_asset(object.asset_id);
@@ -1587,11 +1766,18 @@ void SceneDocument::ensure_render_scene_snapshot() const {
     result.environment_intensity = state_.environment_intensity;
     result.environment_rotation_degrees = state_.environment_rotation_degrees;
     result.environment_background_visible = state_.environment_background_visible;
-    result.assets.reserve(assets_.size() + 1);
+    result.assets.reserve(assets_.size() + 2);
     result.instances.reserve(state_.objects.size());
     std::unordered_map<AssetId, int> asset_indices;
     std::unordered_map<AssetId, std::vector<int>> texture_remaps;
     bool has_procedural_spheres = false;
+    const bool has_rect_area_lights = std::any_of(
+        state_.objects.begin(),
+        state_.objects.end(),
+        [this](const SceneObject& object) {
+            return object.type == SceneObjectType::RectAreaLight &&
+                is_effectively_visible(object.id);
+        });
 
     for (const SceneObject& object : state_.objects) {
         if (object.type != SceneObjectType::Mesh) {
@@ -1664,6 +1850,23 @@ void SceneDocument::ensure_render_scene_snapshot() const {
         result.assets.push_back(std::move(sphere_asset));
     }
 
+    int unit_quad_asset_index = -1;
+    if (has_rect_area_lights) {
+        const auto& unit_geometry = canonical_unit_quad_geometry();
+        RenderSceneAssetSnapshot quad_asset;
+        quad_asset.asset_id = std::numeric_limits<AssetId>::max() - 1;
+        quad_asset.geometry_revision = 1;
+        quad_asset.local_scene = unit_geometry;
+        quad_asset.local_bounds = Bounds3(
+            Vec3(-0.5f, -0.5f, 0.0f),
+            Vec3(0.5f, 0.5f, 0.0f));
+        quad_asset.triangle_material_slots.assign(
+            unit_geometry->triangles.size(),
+            MaterialSlot::bound(0));
+        unit_quad_asset_index = static_cast<int>(result.assets.size());
+        result.assets.push_back(std::move(quad_asset));
+    }
+
     for (const SceneObject& object : state_.objects) {
         if (!is_effectively_visible(object.id)) {
             continue;
@@ -1674,7 +1877,10 @@ void SceneDocument::ensure_render_scene_snapshot() const {
                 PointLight{
                     transform_point(world, Vec3::Zero()),
                     object.light_color,
-                    object.light_range});
+                    object.light_range,
+                    object.light_source_radius,
+                    object.light_casts_shadows,
+                    object.light_shadow_priority});
             continue;
         }
         if (object.type == SceneObjectType::DirectionalLight) {
@@ -1682,7 +1888,12 @@ void SceneDocument::ensure_render_scene_snapshot() const {
                 (world.topLeftCorner<3, 3>() *
                  Vec3(0.0f, 0.0f, -1.0f)).normalized();
             result.directional_lights.push_back(
-                DirectionalLight{direction, object.light_color});
+                DirectionalLight{
+                    direction,
+                    object.light_color,
+                    object.directional_angular_radius_radians,
+                    object.light_casts_shadows,
+                    object.light_shadow_priority});
             continue;
         }
         if (object.type == SceneObjectType::SpotLight) {
@@ -1694,7 +1905,53 @@ void SceneDocument::ensure_render_scene_snapshot() const {
                 object.light_color,
                 object.light_range,
                 object.spot_inner_cone_radians,
-                object.spot_outer_cone_radians});
+                object.spot_outer_cone_radians,
+                object.light_source_radius,
+                object.light_casts_shadows,
+                object.light_shadow_priority});
+            continue;
+        }
+        if (object.type == SceneObjectType::RectAreaLight) {
+            if (unit_quad_asset_index < 0) {
+                throw std::logic_error(
+                    "visible rectangle light is missing canonical geometry");
+            }
+            const Mat3 linear = world.topLeftCorner<3, 3>();
+            const Vec3 axis_u = linear * Vec3(object.area_width * 0.5f, 0.0f, 0.0f);
+            const Vec3 axis_v = linear * Vec3(0.0f, object.area_height * 0.5f, 0.0f);
+            result.rect_area_lights.push_back(RectAreaLight{
+                transform_point(world, Vec3::Zero()),
+                axis_u,
+                axis_v,
+                object.light_color,
+                object.light_two_sided,
+                object.light_casts_shadows,
+                object.light_shadow_priority});
+
+            Mat4 area_scale = Mat4::Identity();
+            area_scale(0, 0) = object.area_width;
+            area_scale(1, 1) = object.area_height;
+            RenderSceneInstanceSnapshot instance;
+            instance.object_id = object.id;
+            instance.asset_index = unit_quad_asset_index;
+            instance.object_to_world = world * area_scale;
+            instance.world_to_object = instance.object_to_world.inverse();
+            instance.normal_to_world = instance.object_to_world
+                .topLeftCorner<3, 3>()
+                .inverse()
+                .transpose();
+            instance.world_bounds = transform_bounds(
+                result.assets[static_cast<std::size_t>(unit_quad_asset_index)]
+                    .local_bounds,
+                instance.object_to_world);
+            Material material;
+            material.type = MaterialType::Emissive;
+            material.base_color = Color::Ones();
+            material.emission = object.light_color;
+            material.roughness = 1.0f;
+            material.two_sided = object.light_two_sided;
+            instance.materials.push_back(material);
+            result.instances.push_back(std::move(instance));
             continue;
         }
         if (object.type != SceneObjectType::Mesh) {
@@ -2114,7 +2371,7 @@ nlohmann::json SceneDocument::serialize_document(
         }
     }
     nlohmann::json root;
-    root["version"] = 4;
+    root["version"] = 5;
     nlohmann::json environment{
         {"color", vec3_json(state_.environment)},
         {"intensity", state_.environment_intensity},
@@ -2196,6 +2453,13 @@ nlohmann::json SceneDocument::serialize_document(
             {"light_range", object.light_range},
             {"spot_inner_cone_radians", object.spot_inner_cone_radians},
             {"spot_outer_cone_radians", object.spot_outer_cone_radians},
+            {"light_source_radius", object.light_source_radius},
+            {"directional_angular_radius_radians", object.directional_angular_radius_radians},
+            {"light_casts_shadows", object.light_casts_shadows},
+            {"light_shadow_priority", object.light_shadow_priority},
+            {"area_width", object.area_width},
+            {"area_height", object.area_height},
+            {"light_two_sided", object.light_two_sided},
             {"camera_projection", camera_projection_name(object.camera_projection)},
             {"camera_vertical_fov_degrees", object.camera_vertical_fov_degrees},
             {"camera_aspect_ratio", object.camera_aspect_ratio},
@@ -2280,7 +2544,7 @@ SceneDocument SceneDocument::deserialize_document(
     int height,
     bool session_snapshot) {
     const int version = root.value("version", 0);
-    if (version < 1 || version > 4) {
+    if (version < 1 || version > 5) {
         throw std::runtime_error("unsupported scene file version");
     }
 
@@ -2525,6 +2789,30 @@ SceneDocument SceneDocument::deserialize_document(
             object.camera_y_magnification = object_json.value("camera_y_magnification", 1.0f);
             object.camera_near_plane = object_json.value("camera_near_plane", 0.01f);
             object.camera_far_plane = object_json.value("camera_far_plane", 1000.0f);
+        }
+        if (version >= 5) {
+            object.light_source_radius =
+                object_json.value("light_source_radius", 0.05f);
+            object.directional_angular_radius_radians = object_json.value(
+                "directional_angular_radius_radians",
+                0.00464257581f);
+            object.light_casts_shadows =
+                object_json.value("light_casts_shadows", true);
+            object.light_shadow_priority =
+                object_json.value("light_shadow_priority", 0);
+            object.area_width = object_json.value("area_width", 1.0f);
+            object.area_height = object_json.value("area_height", 1.0f);
+            object.light_two_sided =
+                object_json.value("light_two_sided", false);
+        }
+        if (!std::isfinite(object.light_source_radius) ||
+            object.light_source_radius < 0.0f ||
+            !std::isfinite(object.directional_angular_radius_radians) ||
+            object.directional_angular_radius_radians < 0.0f ||
+            object.directional_angular_radius_radians > kPi * 0.5f ||
+            !std::isfinite(object.area_width) || object.area_width <= 0.0f ||
+            !std::isfinite(object.area_height) || object.area_height <= 0.0f) {
+            throw std::runtime_error("scene object has invalid light dimensions");
         }
         if (version >= 2 && object_json.contains("material_overrides")) {
             std::unordered_set<std::uint32_t> material_slots;

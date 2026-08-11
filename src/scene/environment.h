@@ -16,6 +16,18 @@ struct EnvironmentMapSample {
     float pdf = 0.0f;
 };
 
+struct DominantEnvironmentLight {
+    bool valid = false;
+    // Direction from a shaded point toward the extracted environment region.
+    Vec3 direction = Vec3(0.0f, 1.0f, 0.0f);
+    // Solid-angle integral of the selected region's RGB radiance.
+    Color integrated_radiance = Color::Zero();
+    float solid_angle = 0.0f;
+    float angular_radius_radians = 0.0f;
+    float energy_fraction = 0.0f;
+    std::shared_ptr<const class EnvironmentMap> residual_map;
+};
+
 class EnvironmentMap {
 public:
     static std::shared_ptr<const EnvironmentMap> load(
@@ -77,5 +89,10 @@ EnvironmentMapSample sample_environment(
     float select,
     float jitter_u,
     float jitter_v);
+
+DominantEnvironmentLight extract_dominant_environment_light(
+    const std::shared_ptr<const EnvironmentMap>& map,
+    float peak_threshold_ev = 3.0f,
+    float minimum_energy_fraction = 0.01f);
 
 }  // namespace renderer

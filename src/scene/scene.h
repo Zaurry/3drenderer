@@ -22,6 +22,7 @@ struct Scene {
     std::vector<PointLight> point_lights;
     std::vector<DirectionalLight> directional_lights;
     std::vector<SpotLight> spot_lights;
+    std::vector<RectAreaLight> rect_area_lights;
     Color environment = Color(0.02f, 0.03f, 0.05f);
     std::shared_ptr<const EnvironmentMap> environment_map;
     float environment_intensity = 1.0f;

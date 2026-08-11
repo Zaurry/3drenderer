@@ -277,6 +277,21 @@ ColorStrengthEditResult draw_color_and_strength(
     return result;
 }
 
+SceneLightProperties light_properties_from_object(const SceneObject& object) {
+    return SceneLightProperties{
+        object.light_color,
+        object.light_range,
+        object.spot_inner_cone_radians,
+        object.spot_outer_cone_radians,
+        object.light_source_radius,
+        object.directional_angular_radius_radians,
+        object.light_casts_shadows,
+        object.light_shadow_priority,
+        object.area_width,
+        object.area_height,
+        object.light_two_sided};
+}
+
 float scene_radius(const Bounds3& bounds) {
     return std::max(0.5f, (bounds.max - bounds.min).norm() * 0.5f);
 }
@@ -376,38 +391,24 @@ SceneChangeSet render_changes_for_subtree(
         } else {
             changes |= SceneChange::InstanceTransforms;
         }
+    } else if (object->type == SceneObjectType::RectAreaLight) {
+        changes |= SceneChange::Lighting;
+        changes |= SceneChange::Materials;
+        changes |= SceneChange::InstanceTransforms;
+        if (topology_changed) {
+            changes |= SceneChange::Geometry;
+            changes |= SceneChange::MaterialBindings;
+        }
     } else if (
         object->type == SceneObjectType::PointLight ||
-        object->type == SceneObjectType::DirectionalLight) {
+        object->type == SceneObjectType::DirectionalLight ||
+        object->type == SceneObjectType::SpotLight) {
         changes |= SceneChange::Lighting;
     }
     for (ObjectId child : document.children(id)) {
         changes |= render_changes_for_subtree(document, child, topology_changed);
     }
     return changes;
-}
-
-void select_object(ViewerUiState& state, ObjectId id, bool additive) {
-    if (!additive) {
-        state.selected_objects.clear();
-    }
-    const auto found = std::find(
-        state.selected_objects.begin(),
-        state.selected_objects.end(),
-        id);
-    if (additive && found != state.selected_objects.end()) {
-        state.selected_objects.erase(found);
-        if (state.active_object == id) {
-            state.active_object = state.selected_objects.empty()
-                ? kInvalidObjectId
-                : state.selected_objects.back();
-        }
-        return;
-    }
-    if (found == state.selected_objects.end()) {
-        state.selected_objects.push_back(id);
-    }
-    state.active_object = id;
 }
 
 void build_default_dock_layout(ImGuiID dockspace_id, const ImGuiViewport& viewport) {
@@ -430,8 +431,9 @@ void build_default_dock_layout(ImGuiID dockspace_id, const ImGuiViewport& viewpo
 
     ImGui::DockBuilderDockWindow("Scene", left);
     ImGui::DockBuilderDockWindow("Rendering", right_top);
+    ImGui::DockBuilderDockWindow("Techniques", right_top);
     ImGui::DockBuilderDockWindow("Inspector", right_bottom);
-    ImGui::DockBuilderDockWindow("Camera & Lighting", right_bottom);
+    ImGui::DockBuilderDockWindow("Camera", right_bottom);
     ImGui::DockBuilderFinish(dockspace_id);
 }
 
@@ -447,6 +449,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                int accumulated_path_samples,
                                const CudaOpenGlInteropUiState& interop_state,
                                const CudaPathStatistics& cuda_statistics,
+                               const OpenGlTechniqueDiagnostics& technique_diagnostics,
                                OpenGlShaderUiState& shader_state,
                                bool scene_shortcuts_enabled) {
     ViewerUiActions actions;
@@ -459,7 +462,8 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
             ImGui::MenuItem("Scene", nullptr, &state.scene_panel_visible);
             ImGui::MenuItem("Inspector", nullptr, &state.inspector_panel_visible);
             ImGui::MenuItem("Rendering", nullptr, &state.rendering_panel_visible);
-            ImGui::MenuItem("Camera & Lighting", nullptr, &state.camera_lighting_panel_visible);
+            ImGui::MenuItem("Techniques", nullptr, &state.techniques_panel_visible);
+            ImGui::MenuItem("Camera", nullptr, &state.camera_lighting_panel_visible);
             ImGui::Separator();
             reset_layout = ImGui::MenuItem("Reset layout");
             ImGui::EndMenu();
@@ -491,6 +495,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
         state.inspector_panel_visible = true;
         state.rendering_panel_visible = true;
         state.camera_lighting_panel_visible = true;
+        state.techniques_panel_visible = true;
         build_default_dock_layout(dockspace_id, *main_viewport);
     }
 
@@ -528,7 +533,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
             state.active_object != kInvalidObjectId) {
             const ObjectId copy = document.duplicate_subtree(state.active_object);
             if (copy != kInvalidObjectId) {
-                select_object(state, copy, false);
+                select_viewer_object(state, copy, false);
                 actions.scene_changes = SceneChange::All;
             }
         }
@@ -841,7 +846,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
     }
 
     if (state.camera_lighting_panel_visible) {
-        if (ImGui::Begin("Camera & Lighting", &state.camera_lighting_panel_visible)) {
+        if (ImGui::Begin("Camera", &state.camera_lighting_panel_visible)) {
             if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
                 int camera_mode = static_cast<int>(state.camera_mode);
                 constexpr const char* camera_modes[] = {"Orbit", "Free"};
@@ -887,9 +892,21 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 }
             }
 
-            if (ImGui::CollapsingHeader("Lighting")) {
+        }
+        ImGui::End();
+    }
+
+    if (state.techniques_panel_visible) {
+        if (ImGui::Begin("Techniques", &state.techniques_panel_visible)) {
+            if (ImGui::CollapsingHeader(
+                    "Direct Lighting",
+                    ImGuiTreeNodeFlags_DefaultOpen)) {
                 ImGui::Checkbox("Show point light markers", &state.show_point_light_markers);
                 ImGui::SeparatorText("Environment IBL");
+                const bool open_gl_mode = state.mode == InteractiveRenderMode::OpenGl;
+                ImGui::BeginDisabled(!open_gl_mode);
+                ImGui::Checkbox("Enable IBL", &render_settings.opengl.ibl_enabled);
+                ImGui::EndDisabled();
                 const std::string environment_path = document.environment_path().empty()
                     ? std::string("Constant color")
                     : document.environment_path().filename().string();
@@ -951,7 +968,183 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     (environment_changed && ImGui::IsItemDeactivated())) {
                     document.checkpoint();
                 }
-                ImGui::TextDisabled("OpenGL IBL is unoccluded; Path traces visibility.");
+                if (!open_gl_mode) {
+                    ImGui::TextDisabled(
+                        "Path mode always uses the full environment and ray visibility.");
+                }
+
+                ImGui::SeparatorText("Shadow Map");
+                ImGui::BeginDisabled(!open_gl_mode);
+                ImGui::Checkbox(
+                    "Enable Shadow Map",
+                    &render_settings.opengl.shadow_map.enabled);
+                ImGui::BeginDisabled(!render_settings.opengl.shadow_map.enabled);
+                ImGui::SliderInt(
+                    "Resolution",
+                    &render_settings.opengl.shadow_map.resolution,
+                    128,
+                    4096);
+                render_settings.opengl.shadow_map.resolution = std::clamp(
+                    render_settings.opengl.shadow_map.resolution,
+                    128,
+                    4096);
+                ImGui::SliderInt(
+                    "Shadow light budget",
+                    &render_settings.opengl.shadow_map.max_shadow_lights,
+                    1,
+                    32);
+                ImGui::DragFloat(
+                    "Constant bias",
+                    &render_settings.opengl.shadow_map.constant_bias,
+                    0.00001f,
+                    0.0f,
+                    0.05f,
+                    "%.6f",
+                    ImGuiSliderFlags_AlwaysClamp);
+                ImGui::DragFloat(
+                    "Slope bias",
+                    &render_settings.opengl.shadow_map.slope_bias,
+                    0.00005f,
+                    0.0f,
+                    0.1f,
+                    "%.6f",
+                    ImGuiSliderFlags_AlwaysClamp);
+                ImGui::SliderFloat(
+                    "Projection padding",
+                    &render_settings.opengl.shadow_map.projection_padding,
+                    0.0f,
+                    0.5f,
+                    "%.3f");
+                constexpr const char* debug_views[] = {
+                    "Final image",
+                    "Visibility",
+                    "Blocker depth",
+                    "Penumbra radius"};
+                int debug_view = static_cast<int>(
+                    render_settings.opengl.shadow_map.debug_view);
+                if (ImGui::Combo(
+                        "Shadow debug view",
+                        &debug_view,
+                        debug_views,
+                        static_cast<int>(std::size(debug_views)))) {
+                    render_settings.opengl.shadow_map.debug_view =
+                        static_cast<OpenGlShadowDebugView>(debug_view);
+                    if (render_settings.opengl.shadow_map.debug_view !=
+                        OpenGlShadowDebugView::Final) {
+                        render_settings.opengl.ambient_occlusion.debug_view =
+                            OpenGlAmbientOcclusionDebugView::Final;
+                    }
+                }
+                ImGui::InputInt(
+                    "Debug shadow slot",
+                    &render_settings.opengl.shadow_map.debug_shadow_slot);
+                render_settings.opengl.shadow_map.debug_shadow_slot = std::max(
+                    0,
+                    render_settings.opengl.shadow_map.debug_shadow_slot);
+                ImGui::EndDisabled();
+                ImGui::EndDisabled();
+                if (open_gl_mode) {
+                    ImGui::Text(
+                        "Active slots: %d",
+                        technique_diagnostics.active_shadow_slots);
+                    if (technique_diagnostics.budget_excluded_lights > 0) {
+                        ImGui::TextDisabled(
+                            "%d light(s) remain lit but do not cast shadows (budget).",
+                            technique_diagnostics.budget_excluded_lights);
+                    }
+                    if (technique_diagnostics.hardware_excluded_lights > 0) {
+                        ImGui::TextDisabled(
+                            "%d light(s) do not cast shadows (texture-layer limit).",
+                            technique_diagnostics.hardware_excluded_lights);
+                    }
+                }
+
+                ImGui::SeparatorText("PCSS");
+                ImGui::BeginDisabled(
+                    !open_gl_mode || !render_settings.opengl.shadow_map.enabled);
+                ImGui::Checkbox("Enable PCSS", &render_settings.opengl.pcss.enabled);
+                ImGui::BeginDisabled(!render_settings.opengl.pcss.enabled);
+                ImGui::SliderInt(
+                    "Blocker samples",
+                    &render_settings.opengl.pcss.blocker_samples,
+                    1,
+                    64);
+                ImGui::SliderInt(
+                    "Filter samples",
+                    &render_settings.opengl.pcss.filter_samples,
+                    1,
+                    64);
+                ImGui::SliderFloat(
+                    "Maximum penumbra",
+                    &render_settings.opengl.pcss.max_penumbra_texels,
+                    0.0f,
+                    256.0f,
+                    "%.1f texels");
+                ImGui::SliderFloat(
+                    "Light size multiplier",
+                    &render_settings.opengl.pcss.light_size_scale,
+                    0.0f,
+                    8.0f,
+                    "%.2f");
+                ImGui::EndDisabled();
+                ImGui::EndDisabled();
+
+                ImGui::SeparatorText("Dominant Light Extraction");
+                ImGui::BeginDisabled(!open_gl_mode);
+                ImGui::Checkbox(
+                    "Enable dominant environment light",
+                    &render_settings.opengl.dominant_light.enabled);
+                ImGui::BeginDisabled(!render_settings.opengl.dominant_light.enabled);
+                ImGui::SliderFloat(
+                    "Peak threshold",
+                    &render_settings.opengl.dominant_light.peak_threshold_ev,
+                    0.0f,
+                    12.0f,
+                    "%.2f EV below peak");
+                ImGui::SliderFloat(
+                    "Minimum environment energy",
+                    &render_settings.opengl.dominant_light.minimum_energy_fraction,
+                    0.0f,
+                    0.25f,
+                    "%.3f");
+                ImGui::SliderFloat(
+                    "Extracted light intensity",
+                    &render_settings.opengl.dominant_light.intensity_scale,
+                    0.0f,
+                    8.0f,
+                    "%.2f");
+                ImGui::EndDisabled();
+                ImGui::EndDisabled();
+                if (open_gl_mode && technique_diagnostics.dominant_light_valid) {
+                    const Vec3& direction =
+                        technique_diagnostics.dominant_light_direction;
+                    const Color& radiance =
+                        technique_diagnostics.dominant_light_integrated_radiance;
+                    ImGui::Text(
+                        "Direction (environment local): %.3f, %.3f, %.3f",
+                        direction.x(), direction.y(), direction.z());
+                    ImGui::Text(
+                        "Integrated RGB: %.3f, %.3f, %.3f",
+                        radiance.x(), radiance.y(), radiance.z());
+                    ImGui::Text(
+                        "Energy: %.2f%%  |  angular radius: %.3f deg",
+                        technique_diagnostics.dominant_light_energy_fraction * 100.0f,
+                        technique_diagnostics.dominant_light_angular_radius_radians *
+                            180.0f / kPi);
+                } else if (open_gl_mode && document.environment_map()) {
+                    ImGui::TextDisabled("No qualifying highlight region.");
+                }
+
+                ImGui::SeparatorText("LTC Area Lights");
+                ImGui::BeginDisabled(!open_gl_mode);
+                ImGui::Checkbox(
+                    "Enable LTC rectangular lights",
+                    &render_settings.opengl.ltc_area_lights_enabled);
+                ImGui::EndDisabled();
+                ImGui::TextDisabled(
+                    "64x64 GGX LTC matrix/amplitude LUT; rectangle shadows use a center cube map approximation.");
+
+                ImGui::SeparatorText("Create Lights");
                 if (ImGui::Button("Add point light")) {
                     const Vec3 center = (bounds.min + bounds.max) * 0.5f;
                     const float radius = scene_radius(bounds);
@@ -960,7 +1153,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                                     center + Vec3(0.0f, radius, 0.0f),
                                                     Color(10.0f, 10.0f, 10.0f));
                     document.checkpoint();
-                    select_object(state, id, false);
+                    select_viewer_object(state, id, false);
                     actions.scene_changes |= SceneChange::Lighting;
                 }
                 ImGui::SameLine();
@@ -970,8 +1163,187 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                                           Vec3(-0.5f, -1.0f, -0.25f),
                                                           Color(0.25f, 0.25f, 0.25f));
                     document.checkpoint();
-                    select_object(state, id, false);
+                    select_viewer_object(state, id, false);
                     actions.scene_changes |= SceneChange::Lighting;
+                }
+                if (ImGui::Button("Add spot light")) {
+                    const Vec3 center = (bounds.min + bounds.max) * 0.5f;
+                    const float radius = scene_radius(bounds);
+                    const Vec3 position = center + Vec3(0.0f, radius, radius);
+                    const ObjectId id = document.create_spot_light(
+                        "Spot Light",
+                        position,
+                        center - position,
+                        Color(20.0f, 20.0f, 20.0f),
+                        0.0f,
+                        20.0f * kPi / 180.0f,
+                        30.0f * kPi / 180.0f);
+                    document.checkpoint();
+                    select_viewer_object(state, id, false);
+                    actions.scene_changes |= SceneChange::Lighting;
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Add rectangle light")) {
+                    const Vec3 center = (bounds.min + bounds.max) * 0.5f;
+                    const float radius = scene_radius(bounds);
+                    const Vec3 position = center + Vec3(0.0f, radius, 0.0f);
+                    const ObjectId id = document.create_rect_area_light(
+                        "Rectangle Light",
+                        position,
+                        center - position,
+                        Color(10.0f, 10.0f, 10.0f),
+                        std::max(radius * 0.5f, 0.1f),
+                        std::max(radius * 0.5f, 0.1f));
+                    document.checkpoint();
+                    select_viewer_object(state, id, false);
+                    actions.scene_changes = SceneChange::All;
+                }
+            }
+
+            if (ImGui::CollapsingHeader(
+                    "Ambient Occlusion",
+                    ImGuiTreeNodeFlags_DefaultOpen)) {
+                const bool open_gl_mode =
+                    state.mode == InteractiveRenderMode::OpenGl;
+                auto& ao = render_settings.opengl.ambient_occlusion;
+                ImGui::BeginDisabled(!open_gl_mode);
+
+                constexpr const char* modes[] = {"Off", "SSAO", "GTAO"};
+                int mode = static_cast<int>(ao.mode);
+                if (ImGui::Combo(
+                        "AO mode",
+                        &mode,
+                        modes,
+                        static_cast<int>(std::size(modes)))) {
+                    ao.mode = static_cast<OpenGlAmbientOcclusionMode>(mode);
+                    if (ao.mode == OpenGlAmbientOcclusionMode::Off) {
+                        ao.debug_view =
+                            OpenGlAmbientOcclusionDebugView::Final;
+                    }
+                }
+
+                if (ao.mode == OpenGlAmbientOcclusionMode::Ssao) {
+                    ImGui::SeparatorText("SSAO");
+                    ImGui::SliderInt(
+                        "Samples##SSAO", &ao.ssao.sample_count, 8, 64);
+                    ImGui::SliderFloat(
+                        "Radius / scene radius##SSAO",
+                        &ao.ssao.radius_scale,
+                        0.005f,
+                        0.5f,
+                        "%.3f",
+                        ImGuiSliderFlags_Logarithmic);
+                    ImGui::SliderFloat(
+                        "Depth bias / radius",
+                        &ao.ssao.depth_bias_fraction,
+                        0.0f,
+                        0.2f,
+                        "%.3f");
+                    ImGui::SliderFloat(
+                        "Intensity##SSAO",
+                        &ao.ssao.intensity,
+                        0.0f,
+                        4.0f,
+                        "%.2f");
+                } else if (ao.mode == OpenGlAmbientOcclusionMode::Gtao) {
+                    ImGui::SeparatorText("GTAO + Bent Normal");
+                    ImGui::SliderInt(
+                        "Horizon slices", &ao.gtao.slice_count, 1, 8);
+                    ImGui::SliderInt(
+                        "Samples per side",
+                        &ao.gtao.samples_per_side,
+                        1,
+                        8);
+                    ImGui::SliderFloat(
+                        "Radius / scene radius##GTAO",
+                        &ao.gtao.radius_scale,
+                        0.005f,
+                        0.5f,
+                        "%.3f",
+                        ImGuiSliderFlags_Logarithmic);
+                    ImGui::SliderFloat(
+                        "Falloff fraction",
+                        &ao.gtao.falloff_fraction,
+                        0.05f,
+                        1.0f,
+                        "%.2f");
+                    ImGui::SliderFloat(
+                        "Thickness fraction",
+                        &ao.gtao.thickness_fraction,
+                        0.0f,
+                        1.0f,
+                        "%.2f");
+                    ImGui::SliderFloat(
+                        "Intensity##GTAO",
+                        &ao.gtao.intensity,
+                        0.0f,
+                        4.0f,
+                        "%.2f");
+                    ImGui::Checkbox(
+                        "Enable Bent Normal",
+                        &ao.gtao.bent_normals_enabled);
+                }
+
+                ImGui::SeparatorText("Spatial filter");
+                ImGui::Checkbox("Enable AO denoise", &ao.denoise.enabled);
+                ImGui::BeginDisabled(!ao.denoise.enabled);
+                ImGui::SliderInt(
+                    "Kernel radius", &ao.denoise.kernel_radius, 1, 4);
+                ImGui::SliderFloat(
+                    "Depth sigma / radius",
+                    &ao.denoise.depth_sigma_fraction,
+                    0.01f,
+                    1.0f,
+                    "%.3f",
+                    ImGuiSliderFlags_Logarithmic);
+                ImGui::SliderFloat(
+                    "Normal power",
+                    &ao.denoise.normal_power,
+                    1.0f,
+                    64.0f,
+                    "%.1f",
+                    ImGuiSliderFlags_Logarithmic);
+                ImGui::EndDisabled();
+
+                constexpr const char* debug_views[] = {
+                    "Final image",
+                    "AO visibility",
+                    "Bent Normal",
+                    "View Normal",
+                    "Linear Depth"};
+                int ao_debug_view = static_cast<int>(ao.debug_view);
+                ImGui::BeginDisabled(
+                    ao.mode == OpenGlAmbientOcclusionMode::Off);
+                if (ImGui::Combo(
+                        "AO debug view",
+                        &ao_debug_view,
+                        debug_views,
+                        static_cast<int>(std::size(debug_views)))) {
+                    ao.debug_view = static_cast<OpenGlAmbientOcclusionDebugView>(
+                        ao_debug_view);
+                    if (ao.debug_view !=
+                        OpenGlAmbientOcclusionDebugView::Final) {
+                        render_settings.opengl.shadow_map.debug_view =
+                            OpenGlShadowDebugView::Final;
+                    }
+                }
+                ImGui::EndDisabled();
+                ImGui::EndDisabled();
+
+                const float radius_scale =
+                    ao.mode == OpenGlAmbientOcclusionMode::Ssao
+                    ? ao.ssao.radius_scale
+                    : ao.gtao.radius_scale;
+                ImGui::Text(
+                    "Resolution: %d x %d  |  world radius: %.4g",
+                    render_settings.width,
+                    render_settings.height,
+                    scene_radius(bounds) * radius_scale);
+                ImGui::TextDisabled(
+                    "AO affects environment IBL only; direct lights and the sky remain unchanged.");
+                if (!open_gl_mode) {
+                    ImGui::TextDisabled(
+                        "Path mode uses ray visibility and does not run screen-space AO.");
                 }
             }
         }
@@ -1136,7 +1508,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                                         object->visible ? "" : "[hidden] ",
                                                         object->name.c_str());
                     if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
-                        select_object(state, id, ImGui::GetIO().KeyCtrl);
+                        select_viewer_object(state, id, ImGui::GetIO().KeyCtrl);
                     }
                     if (ImGui::BeginDragDropSource()) {
                         ImGui::SetDragDropPayload("SCENE_OBJECT", &id, sizeof(id));
@@ -1700,12 +2072,10 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
 
                 if (active->type == SceneObjectType::PointLight ||
                     active->type == SceneObjectType::DirectionalLight ||
-                    active->type == SceneObjectType::SpotLight) {
-                    SceneLightProperties light_properties{
-                        active->light_color,
-                        active->light_range,
-                        active->spot_inner_cone_radians,
-                        active->spot_outer_cone_radians};
+                    active->type == SceneObjectType::SpotLight ||
+                    active->type == SceneObjectType::RectAreaLight) {
+                    SceneLightProperties light_properties =
+                        light_properties_from_object(*active);
                     const ColorStrengthEditResult light_edit =
                         draw_color_and_strength(
                             "Light",
@@ -1723,25 +2093,37 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 }
 
                 if (active->type == SceneObjectType::PointLight ||
-                    active->type == SceneObjectType::SpotLight) {
-                    SceneLightProperties light_properties{
-                        active->light_color,
-                        active->light_range,
-                        active->spot_inner_cone_radians,
-                        active->spot_outer_cone_radians};
+                    active->type == SceneObjectType::DirectionalLight ||
+                    active->type == SceneObjectType::SpotLight ||
+                    active->type == SceneObjectType::RectAreaLight) {
+                    SceneLightProperties light_properties =
+                        light_properties_from_object(*active);
                     bool shape_changed = false;
                     bool shape_finished = false;
                     ImGui::BeginDisabled(active->locked);
-                    shape_changed = ImGui::DragFloat(
-                        "Range (0 = unlimited)",
-                        &light_properties.range,
-                        0.05f,
-                        0.0f,
-                        1000000.0f,
-                        "%.3f",
-                        ImGuiSliderFlags_AlwaysClamp) || shape_changed;
-                    shape_finished =
-                        ImGui::IsItemDeactivatedAfterEdit() || shape_finished;
+                    if (active->type == SceneObjectType::PointLight ||
+                        active->type == SceneObjectType::SpotLight) {
+                        shape_changed = ImGui::DragFloat(
+                            "Range (0 = unlimited)",
+                            &light_properties.range,
+                            0.05f,
+                            0.0f,
+                            1000000.0f,
+                            "%.3f",
+                            ImGuiSliderFlags_AlwaysClamp) || shape_changed;
+                        shape_finished =
+                            ImGui::IsItemDeactivatedAfterEdit() || shape_finished;
+                        shape_changed = ImGui::DragFloat(
+                            "Source radius",
+                            &light_properties.source_radius,
+                            0.005f,
+                            0.0f,
+                            100000.0f,
+                            "%.4f",
+                            ImGuiSliderFlags_AlwaysClamp) || shape_changed;
+                        shape_finished =
+                            ImGui::IsItemDeactivatedAfterEdit() || shape_finished;
+                    }
                     if (active->type == SceneObjectType::SpotLight) {
                         shape_changed = ImGui::SliderAngle(
                             "Inner cone",
@@ -1758,13 +2140,71 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         shape_finished =
                             ImGui::IsItemDeactivatedAfterEdit() || shape_finished;
                     }
+                    if (active->type == SceneObjectType::DirectionalLight) {
+                        shape_changed = ImGui::SliderAngle(
+                            "Angular radius",
+                            &light_properties.directional_angular_radius_radians,
+                            0.0f,
+                            10.0f,
+                            "%.3f deg") || shape_changed;
+                        shape_finished =
+                            ImGui::IsItemDeactivatedAfterEdit() || shape_finished;
+                    }
+                    if (active->type == SceneObjectType::RectAreaLight) {
+                        shape_changed = ImGui::DragFloat(
+                            "Width",
+                            &light_properties.area_width,
+                            0.01f,
+                            0.0001f,
+                            100000.0f,
+                            "%.3f",
+                            ImGuiSliderFlags_AlwaysClamp) || shape_changed;
+                        shape_finished =
+                            ImGui::IsItemDeactivatedAfterEdit() || shape_finished;
+                        shape_changed = ImGui::DragFloat(
+                            "Height",
+                            &light_properties.area_height,
+                            0.01f,
+                            0.0001f,
+                            100000.0f,
+                            "%.3f",
+                            ImGuiSliderFlags_AlwaysClamp) || shape_changed;
+                        shape_finished =
+                            ImGui::IsItemDeactivatedAfterEdit() || shape_finished;
+                        if (ImGui::Checkbox("Two-sided emission", &light_properties.two_sided)) {
+                            shape_changed = true;
+                            shape_finished = true;
+                        }
+                    }
+                    if (ImGui::Checkbox("Cast shadows", &light_properties.casts_shadows)) {
+                        shape_changed = true;
+                        shape_finished = true;
+                    }
+                    if (ImGui::InputInt(
+                            "Shadow priority",
+                            &light_properties.shadow_priority)) {
+                        shape_changed = true;
+                    }
+                    shape_finished =
+                        ImGui::IsItemDeactivatedAfterEdit() || shape_finished;
                     ImGui::EndDisabled();
                     if (shape_changed) {
                         light_properties.range = std::max(0.0f, light_properties.range);
+                        light_properties.source_radius =
+                            std::max(0.0f, light_properties.source_radius);
                         light_properties.spot_inner_cone_radians = std::clamp(
                             light_properties.spot_inner_cone_radians,
                             0.0f,
                             0.5f * kPi);
+                        light_properties.directional_angular_radius_radians =
+                            std::clamp(
+                                light_properties.directional_angular_radius_radians,
+                                0.0f,
+                                0.5f * kPi);
+                        light_properties.area_width =
+                            std::max(0.0001f, light_properties.area_width);
+                        light_properties.area_height =
+                            std::max(0.0001f, light_properties.area_height);
                         light_properties.spot_outer_cone_radians = std::clamp(
                             light_properties.spot_outer_cone_radians,
                             light_properties.spot_inner_cone_radians,
@@ -1783,7 +2223,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 if (ImGui::Button("Duplicate")) {
                     const ObjectId copy = document.duplicate_subtree(active->id);
                     if (copy != kInvalidObjectId) {
-                        select_object(state, copy, false);
+                        select_viewer_object(state, copy, false);
                         actions.scene_changes = SceneChange::All;
                     }
                 }
@@ -1812,8 +2252,24 @@ SceneChangeSet ViewerUi::draw_scene_gizmo(
     SceneDocument& document,
     const Camera& camera,
     const Bounds3& bounds) {
+    std::erase_if(
+        state.selected_objects,
+        [&document](ObjectId id) { return document.find(id) == nullptr; });
+    if (state.selected_objects.empty()) {
+        state.active_object = kInvalidObjectId;
+        state.gizmo_was_using = false;
+        state.gizmo_hovered = false;
+        return SceneChange::None;
+    }
+    if (std::find(
+            state.selected_objects.begin(),
+            state.selected_objects.end(),
+            state.active_object) == state.selected_objects.end()) {
+        state.active_object = state.selected_objects.back();
+        state.gizmo_was_using = false;
+    }
     const SceneObject* active = document.find(state.active_object);
-    if (!active || active->locked || state.selected_objects.empty()) {
+    if (!active || active->locked) {
         state.gizmo_was_using = false;
         state.gizmo_hovered = false;
         return SceneChange::None;
@@ -1863,6 +2319,7 @@ SceneChangeSet ViewerUi::draw_scene_gizmo(
     ImGuizmo::PopID();
     ImGuizmo::PopID();
     std::vector<ObjectId> roots;
+    std::vector<ObjectId> transformed_roots;
     if (changed) {
         const Mat4 delta = manipulated * old_active_world.inverse();
         for (ObjectId id : state.selected_objects) {
@@ -1885,18 +2342,23 @@ SceneChangeSet ViewerUi::draw_scene_gizmo(
             }
         }
         for (ObjectId id : roots) {
-            document.set_world_matrix(id, delta * document.world_matrix(id));
+            const Mat4 target_world = id == active->id
+                ? manipulated
+                : delta * document.world_matrix(id);
+            if (document.set_world_matrix(id, target_world)) {
+                transformed_roots.push_back(id);
+            }
         }
     }
     if (state.gizmo_was_using && !using_gizmo) {
         document.checkpoint();
     }
     state.gizmo_was_using = using_gizmo;
-    if (!changed) {
+    if (!changed || transformed_roots.empty()) {
         return SceneChange::None;
     }
     SceneChangeSet changes = SceneChange::None;
-    for (ObjectId id : roots) {
+    for (ObjectId id : transformed_roots) {
         changes |= render_changes_for_subtree(
             document,
             id,
@@ -1930,6 +2392,51 @@ void ViewerUi::draw_scene_selection(const ViewerUiState& state,
     }};
     ImDrawList* draw_list = ImGui::GetBackgroundDrawList(main_viewport);
     for (ObjectId id : state.selected_objects) {
+        const ImU32 color = id == state.active_object
+            ? IM_COL32(255, 183, 40, 255)
+            : IM_COL32(80, 190, 255, 230);
+        const SceneObject* object = document.find(id);
+        if (object && object->type == SceneObjectType::RectAreaLight) {
+            const Mat4 world = document.world_matrix(id);
+            const std::array<Vec3, 4> local_corners{
+                Vec3(-0.5f * object->area_width, -0.5f * object->area_height, 0.0f),
+                Vec3(0.5f * object->area_width, -0.5f * object->area_height, 0.0f),
+                Vec3(0.5f * object->area_width, 0.5f * object->area_height, 0.0f),
+                Vec3(-0.5f * object->area_width, 0.5f * object->area_height, 0.0f)};
+            std::array<ImVec2, 4> rectangle_points;
+            bool rectangle_valid = true;
+            for (std::size_t corner = 0; corner < local_corners.size(); ++corner) {
+                const Vec4 transformed = world * Vec4(
+                    local_corners[corner].x(),
+                    local_corners[corner].y(),
+                    local_corners[corner].z(),
+                    1.0f);
+                const auto projected = project_to_screen(
+                    transformed.head<3>() / transformed.w(),
+                    camera,
+                    display_size,
+                    display_origin);
+                if (!projected) {
+                    rectangle_valid = false;
+                    break;
+                }
+                rectangle_points[corner] = projected->screen;
+            }
+            if (rectangle_valid) {
+                for (std::size_t corner = 0; corner < rectangle_points.size(); ++corner) {
+                    const ImVec2 start = rectangle_points[corner];
+                    const ImVec2 end = rectangle_points[
+                        (corner + 1U) % rectangle_points.size()];
+                    draw_list->AddLine(
+                        start,
+                        end,
+                        IM_COL32(10, 10, 10, 230),
+                        3.0f);
+                    draw_list->AddLine(start, end, color, 1.25f);
+                }
+            }
+            continue;
+        }
         const Bounds3 bounds = document.world_bounds(id);
         if (!bounds.min.allFinite() || !bounds.max.allFinite()) {
             continue;
@@ -1954,9 +2461,6 @@ void ViewerUi::draw_scene_selection(const ViewerUiState& state,
         if (!valid) {
             continue;
         }
-        const ImU32 color = id == state.active_object
-            ? IM_COL32(255, 183, 40, 255)
-            : IM_COL32(80, 190, 255, 230);
         for (const auto& edge : edges) {
             draw_list->AddLine(
                 points[static_cast<std::size_t>(edge[0])],

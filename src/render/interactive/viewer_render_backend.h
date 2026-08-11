@@ -3,6 +3,7 @@
 #include "render/interactive/render_frame_output.h"
 #include "render/interactive/render_mode.h"
 #include "render/pathtracer/cuda_pathtracer.h"
+#include "render/opengl/opengl_raster_renderer.h"
 #include "scene/instanced_scene.h"
 
 #include <filesystem>
@@ -18,6 +19,7 @@ struct OpenGlViewerStatistics {
     std::string shader_error;
     std::string shader_vertex_path;
     std::string shader_fragment_path;
+    OpenGlTechniqueDiagnostics techniques;
 };
 
 struct CudaPathViewerStatistics {

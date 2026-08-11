@@ -96,6 +96,35 @@ float finite_clamped(
     return std::clamp(value, minimum, maximum);
 }
 
+float finite_value_clamped(
+    const nlohmann::json& object,
+    const char* field,
+    float fallback,
+    float minimum,
+    float maximum) {
+    const float value = object.value(field, fallback);
+    if (!std::isfinite(value)) {
+        throw std::runtime_error(std::string(field) + " must be finite");
+    }
+    return std::clamp(value, minimum, maximum);
+}
+
+float finite_value_or_default_clamped(
+    const nlohmann::json& object,
+    const char* field,
+    float fallback,
+    float minimum,
+    float maximum) {
+    const auto iterator = object.find(field);
+    if (iterator == object.end() || !iterator->is_number()) {
+        return std::clamp(fallback, minimum, maximum);
+    }
+    const float value = iterator->get<float>();
+    return std::isfinite(value)
+        ? std::clamp(value, minimum, maximum)
+        : std::clamp(fallback, minimum, maximum);
+}
+
 }  // namespace
 
 ViewerSessionState ViewerSessionStore::load(
@@ -108,7 +137,7 @@ ViewerSessionState ViewerSessionStore::load(
     nlohmann::json root;
     input >> root;
     const int version = root.value("version", 0);
-    if (version < 1 || version > 2) {
+    if (version < 1 || version > 4) {
         throw std::runtime_error("unsupported viewer session version");
     }
 
@@ -149,7 +178,11 @@ ViewerSessionState ViewerSessionStore::load(
     state.ui.scene_panel_visible = view.value("scene_panel_visible", true);
     state.ui.inspector_panel_visible = view.value("inspector_panel_visible", true);
     state.ui.rendering_panel_visible = view.value("rendering_panel_visible", true);
-    state.ui.camera_lighting_panel_visible = view.value("camera_lighting_panel_visible", true);
+    state.ui.camera_lighting_panel_visible = view.value(
+        "camera_panel_visible",
+        view.value("camera_lighting_panel_visible", true));
+    state.ui.techniques_panel_visible =
+        view.value("techniques_panel_visible", true);
     state.ui.active_object =
         view.value("active_object", kInvalidObjectId);
     state.ui.material_editor_object =
@@ -205,6 +238,108 @@ ViewerSessionState ViewerSessionStore::load(
         0,
         render.value("cuda_device", 0));
     state.render_settings.path.samples_per_pixel = 1;
+    if (version >= 3 && render.contains("opengl")) {
+        const auto& opengl = render.at("opengl");
+        state.render_settings.opengl.ibl_enabled =
+            opengl.value("ibl_enabled", true);
+        state.render_settings.opengl.ltc_area_lights_enabled =
+            opengl.value("ltc_area_lights_enabled", true);
+        if (opengl.contains("shadow_map")) {
+            const auto& shadow = opengl.at("shadow_map");
+            auto& target = state.render_settings.opengl.shadow_map;
+            target.enabled = shadow.value("enabled", true);
+            target.resolution = std::clamp(
+                shadow.value("resolution", 1024), 128, 4096);
+            target.max_shadow_lights = std::clamp(
+                shadow.value("max_shadow_lights", 8), 1, 32);
+            target.constant_bias = finite_value_clamped(
+                shadow, "constant_bias", 0.0005f, 0.0f, 0.05f);
+            target.slope_bias = finite_value_clamped(
+                shadow, "slope_bias", 0.0025f, 0.0f, 0.1f);
+            target.projection_padding = finite_value_clamped(
+                shadow, "projection_padding", 0.05f, 0.0f, 0.5f);
+            target.debug_view = static_cast<OpenGlShadowDebugView>(std::clamp(
+                shadow.value("debug_view", 0), 0, 3));
+            target.debug_shadow_slot = std::max(
+                0, shadow.value("debug_shadow_slot", 0));
+        }
+        if (opengl.contains("pcss")) {
+            const auto& pcss = opengl.at("pcss");
+            auto& target = state.render_settings.opengl.pcss;
+            target.enabled = pcss.value("enabled", true);
+            target.blocker_samples = std::clamp(
+                pcss.value("blocker_samples", 16), 1, 64);
+            target.filter_samples = std::clamp(
+                pcss.value("filter_samples", 32), 1, 64);
+            target.max_penumbra_texels = finite_value_clamped(
+                pcss, "max_penumbra_texels", 64.0f, 0.0f, 256.0f);
+            target.light_size_scale = finite_value_clamped(
+                pcss, "light_size_scale", 1.0f, 0.0f, 8.0f);
+        }
+        if (opengl.contains("dominant_light")) {
+            const auto& dominant = opengl.at("dominant_light");
+            auto& target = state.render_settings.opengl.dominant_light;
+            target.enabled = dominant.value("enabled", true);
+            target.peak_threshold_ev = finite_value_clamped(
+                dominant, "peak_threshold_ev", 3.0f, 0.0f, 20.0f);
+            target.minimum_energy_fraction = finite_value_clamped(
+                dominant, "minimum_energy_fraction", 0.01f, 0.0f, 1.0f);
+            target.intensity_scale = finite_value_clamped(
+                dominant, "intensity_scale", 1.0f, 0.0f, 8.0f);
+        }
+        if (opengl.contains("ambient_occlusion")) {
+            const auto& ao = opengl.at("ambient_occlusion");
+            auto& target = state.render_settings.opengl.ambient_occlusion;
+            target.mode = static_cast<OpenGlAmbientOcclusionMode>(std::clamp(
+                ao.value("mode", static_cast<int>(OpenGlAmbientOcclusionMode::Gtao)),
+                0,
+                2));
+            target.debug_view = static_cast<OpenGlAmbientOcclusionDebugView>(
+                std::clamp(ao.value("debug_view", 0), 0, 4));
+            if (ao.contains("ssao")) {
+                const auto& source = ao.at("ssao");
+                target.ssao.sample_count = std::clamp(
+                    source.value("sample_count", 32), 8, 64);
+                target.ssao.radius_scale = finite_value_or_default_clamped(
+                    source, "radius_scale", 0.10f, 0.005f, 0.5f);
+                target.ssao.depth_bias_fraction = finite_value_or_default_clamped(
+                    source, "depth_bias_fraction", 0.02f, 0.0f, 0.2f);
+                target.ssao.intensity = finite_value_or_default_clamped(
+                    source, "intensity", 1.0f, 0.0f, 4.0f);
+            }
+            if (ao.contains("gtao")) {
+                const auto& source = ao.at("gtao");
+                target.gtao.slice_count = std::clamp(
+                    source.value("slice_count", 3), 1, 8);
+                target.gtao.samples_per_side = std::clamp(
+                    source.value("samples_per_side", 3), 1, 8);
+                target.gtao.radius_scale = finite_value_or_default_clamped(
+                    source, "radius_scale", 0.10f, 0.005f, 0.5f);
+                target.gtao.falloff_fraction = finite_value_or_default_clamped(
+                    source, "falloff_fraction", 0.60f, 0.05f, 1.0f);
+                target.gtao.thickness_fraction = finite_value_or_default_clamped(
+                    source, "thickness_fraction", 0.20f, 0.0f, 1.0f);
+                target.gtao.intensity = finite_value_or_default_clamped(
+                    source, "intensity", 1.0f, 0.0f, 4.0f);
+                target.gtao.bent_normals_enabled =
+                    source.value("bent_normals_enabled", true);
+            }
+            if (ao.contains("denoise")) {
+                const auto& source = ao.at("denoise");
+                target.denoise.enabled = source.value("enabled", true);
+                target.denoise.kernel_radius = std::clamp(
+                    source.value("kernel_radius", 2), 1, 4);
+                target.denoise.depth_sigma_fraction = finite_value_or_default_clamped(
+                    source, "depth_sigma_fraction", 0.10f, 0.01f, 1.0f);
+                target.denoise.normal_power = finite_value_or_default_clamped(
+                    source, "normal_power", 8.0f, 1.0f, 64.0f);
+            }
+            if (target.debug_view != OpenGlAmbientOcclusionDebugView::Final) {
+                state.render_settings.opengl.shadow_map.debug_view =
+                    OpenGlShadowDebugView::Final;
+            }
+        }
+    }
     if (state.ui.mode == InteractiveRenderMode::Path) {
         std::string reason;
         if (!cuda_path_backend_available(
@@ -250,7 +385,7 @@ void ViewerSessionStore::save(
     const SceneDocument& document,
     const ViewerSessionState& state) {
     nlohmann::json root;
-    root["version"] = 2;
+    root["version"] = 4;
     root["document"] = {
         {"file_path", state.document_path.generic_string()},
         {"dirty", state.document_dirty},
@@ -275,10 +410,8 @@ void ViewerSessionStore::save(
         {"scene_panel_visible", state.ui.scene_panel_visible},
         {"inspector_panel_visible", state.ui.inspector_panel_visible},
         {"rendering_panel_visible", state.ui.rendering_panel_visible},
-        {
-            "camera_lighting_panel_visible",
-            state.ui.camera_lighting_panel_visible,
-        },
+        {"camera_panel_visible", state.ui.camera_lighting_panel_visible},
+        {"techniques_panel_visible", state.ui.techniques_panel_visible},
         {"selected_objects", state.ui.selected_objects},
         {"active_object", state.ui.active_object},
         {"material_editor_object", state.ui.material_editor_object},
@@ -305,6 +438,58 @@ void ViewerSessionStore::save(
             "rr_max_probability",
             state.render_settings.path.russian_roulette_max_probability,
         },
+    };
+    root["render"]["opengl"] = {
+        {"ibl_enabled", state.render_settings.opengl.ibl_enabled},
+        {"ltc_area_lights_enabled", state.render_settings.opengl.ltc_area_lights_enabled},
+        {"shadow_map", {
+            {"enabled", state.render_settings.opengl.shadow_map.enabled},
+            {"resolution", state.render_settings.opengl.shadow_map.resolution},
+            {"max_shadow_lights", state.render_settings.opengl.shadow_map.max_shadow_lights},
+            {"constant_bias", state.render_settings.opengl.shadow_map.constant_bias},
+            {"slope_bias", state.render_settings.opengl.shadow_map.slope_bias},
+            {"projection_padding", state.render_settings.opengl.shadow_map.projection_padding},
+            {"debug_view", static_cast<int>(state.render_settings.opengl.shadow_map.debug_view)},
+            {"debug_shadow_slot", state.render_settings.opengl.shadow_map.debug_shadow_slot},
+        }},
+        {"pcss", {
+            {"enabled", state.render_settings.opengl.pcss.enabled},
+            {"blocker_samples", state.render_settings.opengl.pcss.blocker_samples},
+            {"filter_samples", state.render_settings.opengl.pcss.filter_samples},
+            {"max_penumbra_texels", state.render_settings.opengl.pcss.max_penumbra_texels},
+            {"light_size_scale", state.render_settings.opengl.pcss.light_size_scale},
+        }},
+        {"dominant_light", {
+            {"enabled", state.render_settings.opengl.dominant_light.enabled},
+            {"peak_threshold_ev", state.render_settings.opengl.dominant_light.peak_threshold_ev},
+            {"minimum_energy_fraction", state.render_settings.opengl.dominant_light.minimum_energy_fraction},
+            {"intensity_scale", state.render_settings.opengl.dominant_light.intensity_scale},
+        }},
+        {"ambient_occlusion", {
+            {"mode", static_cast<int>(state.render_settings.opengl.ambient_occlusion.mode)},
+            {"debug_view", static_cast<int>(state.render_settings.opengl.ambient_occlusion.debug_view)},
+            {"ssao", {
+                {"sample_count", state.render_settings.opengl.ambient_occlusion.ssao.sample_count},
+                {"radius_scale", state.render_settings.opengl.ambient_occlusion.ssao.radius_scale},
+                {"depth_bias_fraction", state.render_settings.opengl.ambient_occlusion.ssao.depth_bias_fraction},
+                {"intensity", state.render_settings.opengl.ambient_occlusion.ssao.intensity},
+            }},
+            {"gtao", {
+                {"slice_count", state.render_settings.opengl.ambient_occlusion.gtao.slice_count},
+                {"samples_per_side", state.render_settings.opengl.ambient_occlusion.gtao.samples_per_side},
+                {"radius_scale", state.render_settings.opengl.ambient_occlusion.gtao.radius_scale},
+                {"falloff_fraction", state.render_settings.opengl.ambient_occlusion.gtao.falloff_fraction},
+                {"thickness_fraction", state.render_settings.opengl.ambient_occlusion.gtao.thickness_fraction},
+                {"intensity", state.render_settings.opengl.ambient_occlusion.gtao.intensity},
+                {"bent_normals_enabled", state.render_settings.opengl.ambient_occlusion.gtao.bent_normals_enabled},
+            }},
+            {"denoise", {
+                {"enabled", state.render_settings.opengl.ambient_occlusion.denoise.enabled},
+                {"kernel_radius", state.render_settings.opengl.ambient_occlusion.denoise.kernel_radius},
+                {"depth_sigma_fraction", state.render_settings.opengl.ambient_occlusion.denoise.depth_sigma_fraction},
+                {"normal_power", state.render_settings.opengl.ambient_occlusion.denoise.normal_power},
+            }},
+        }},
     };
     root["camera"] = {
         {"eye", vec3_json(state.camera.eye)},

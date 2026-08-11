@@ -110,8 +110,8 @@ new_local = inverse(new_parent_world) * old_world
 
 ## 文件和会话
 
-`.rscene` 当前写入 v4，local matrix 保存为明确的四个 4 元行数组。v1–v3 仍可读取并迁移，保存时升级到 v4。
+`.rscene` 当前写入 v5，local matrix 保存为明确的四个 4 元行数组。v1–v4 仍可读取并迁移，保存时升级到 v5。v5 为各类灯加入投影开关、优先级和光源尺寸，并加入可编辑 `RectAreaLight`。
 
-Viewer 会话当前写入 v2。v1 中的 `path_backend` 只用于生成迁移提示，不恢复 CPU/Auto backend。若会话请求 Path 但 CUDA 设备或探测 kernel 不可用，Viewer 切到 OpenGL 并显示原因。
+Viewer 会话当前写入 v3，并保存 Techniques 面板可见性及 IBL、Shadow Map、PCSS、环境主光提取和 LTC 参数。v1–v2 使用这些技术的默认值迁移；v1 中的 `path_backend` 只用于生成迁移提示，不恢复 CPU/Auto backend。若会话请求 Path 但 CUDA 设备或探测 kernel 不可用，Viewer 切到 OpenGL 并显示原因。
 
 场景和会话保存都经过共享原子写入工具：同目录唯一临时文件完成 flush/close 后，Windows 使用 replace + write-through，POSIX 使用 rename。替换前失败会删除临时文件，目标原字节保持不变。

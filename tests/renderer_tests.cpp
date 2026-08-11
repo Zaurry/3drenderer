@@ -726,6 +726,30 @@ void test_interactive_mode_catalog_contains_only_opengl_and_path() {
     }
 }
 
+void test_viewer_selection_keeps_active_object_selected() {
+    renderer::ViewerUiState state;
+    renderer::select_viewer_object(state, 10, false);
+    RENDER_CHECK(state.selected_objects == std::vector<renderer::ObjectId>{10});
+    RENDER_CHECK(state.active_object == 10);
+
+    renderer::select_viewer_object(state, 20, true);
+    RENDER_CHECK(
+        state.selected_objects ==
+        std::vector<renderer::ObjectId>({10, 20}));
+    RENDER_CHECK(state.active_object == 20);
+
+    // Ctrl-clicking the active object deselects it. The old viewport path left
+    // active_object pointing at 20, so the gizmo was drawn for an unselected
+    // light and its move/rotate/scale delta was applied elsewhere.
+    renderer::select_viewer_object(state, 20, true);
+    RENDER_CHECK(state.selected_objects == std::vector<renderer::ObjectId>{10});
+    RENDER_CHECK(state.active_object == 10);
+
+    renderer::select_viewer_object(state, 10, true);
+    RENDER_CHECK(state.selected_objects.empty());
+    RENDER_CHECK(state.active_object == renderer::kInvalidObjectId);
+}
+
 void test_framebuffer_clear_set_and_rgba8_conversion() {
     renderer::Framebuffer framebuffer(2, 1);
     framebuffer.clear(renderer::Color(0.25f, 0.0f, 1.0f));
@@ -1536,6 +1560,17 @@ void test_render_settings_defaults_are_useful() {
         0.95f));
     RENDER_CHECK(settings.path.sample_seed_offset == 0);
     RENDER_CHECK(settings.path.cuda_device == 0);
+    RENDER_CHECK(
+        settings.opengl.ambient_occlusion.mode ==
+        renderer::OpenGlAmbientOcclusionMode::Gtao);
+    RENDER_CHECK(settings.opengl.ambient_occlusion.gtao.slice_count == 3);
+    RENDER_CHECK(
+        settings.opengl.ambient_occlusion.gtao.samples_per_side == 3);
+    RENDER_CHECK(
+        settings.opengl.ambient_occlusion.gtao.bent_normals_enabled);
+    RENDER_CHECK(settings.opengl.ambient_occlusion.denoise.enabled);
+    RENDER_CHECK(
+        settings.opengl.ambient_occlusion.denoise.kernel_radius == 2);
 }
 
 bool image_colors_are_finite(const renderer::Image& image) {
@@ -3349,6 +3384,31 @@ renderer::Color render_cuda_nee_test_scene(
         .image.pixel(0, 0);
 }
 
+renderer::Scene make_cuda_rect_area_light_scene(
+    bool faces_receiver = true,
+    bool two_sided = false,
+    bool blocked = false) {
+    renderer::Scene scene = make_cuda_nee_test_scene(
+        true,
+        true,
+        false,
+        false,
+        blocked);
+    scene.triangles.erase(scene.triangles.begin() + 1);
+    scene.materials.resize(1);
+    renderer::RectAreaLight rectangle;
+    rectangle.position = renderer::Vec3(0.0f, 2.0f, 0.5f);
+    rectangle.axis_u = renderer::Vec3(1.0f, 0.0f, 0.0f);
+    rectangle.axis_v = renderer::Vec3(
+        0.0f,
+        faces_receiver ? 1.0f : -1.0f,
+        0.0f);
+    rectangle.radiance = renderer::Color(10.0f, 8.0f, 6.0f);
+    rectangle.two_sided = two_sided;
+    scene.rect_area_lights.push_back(rectangle);
+    return scene;
+}
+
 void test_cuda_pathtracer_emissive_nee_and_mis_when_available() {
     if (!renderer::cuda_path_backend_available()) {
         return;
@@ -3396,6 +3456,26 @@ void test_cuda_pathtracer_emissive_nee_and_mis_when_available() {
         64);
     RENDER_CHECK(degenerate.allFinite());
     RENDER_CHECK(degenerate.maxCoeff() < 1e-6f);
+
+    const renderer::Color rectangle = render_cuda_nee_test_scene(
+        make_cuda_rect_area_light_scene(),
+        256);
+    RENDER_CHECK(rectangle.allFinite());
+    RENDER_CHECK(rectangle.x() > 0.1f);
+    const renderer::Color blocked_rectangle = render_cuda_nee_test_scene(
+        make_cuda_rect_area_light_scene(true, false, true),
+        256);
+    RENDER_CHECK(blocked_rectangle.allFinite());
+    RENDER_CHECK(
+        blocked_rectangle.maxCoeff() < rectangle.maxCoeff() * 0.10f);
+    const renderer::Color rectangle_back = render_cuda_nee_test_scene(
+        make_cuda_rect_area_light_scene(false, false),
+        256);
+    const renderer::Color rectangle_two_sided = render_cuda_nee_test_scene(
+        make_cuda_rect_area_light_scene(false, true),
+        256);
+    RENDER_CHECK(rectangle_back.maxCoeff() < 1.0e-6f);
+    RENDER_CHECK(rectangle_two_sided.x() > 0.1f);
 }
 
 renderer::Scene make_cuda_emissive_surface_contract_scene(
@@ -4086,7 +4166,7 @@ void test_scene_document_material_overrides_are_per_object_and_roundtrip() {
         std::ifstream input(scene_path);
         input >> saved_json;
     }
-    RENDER_CHECK(saved_json.at("version").get<int>() == 4);
+    RENDER_CHECK(saved_json.at("version").get<int>() == 5);
     std::size_t objects_with_overrides = 0;
     for (const auto& object_json : saved_json.at("objects")) {
         if (object_json.contains("material_overrides")) {
@@ -4257,6 +4337,7 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     state.ui.inspector_panel_visible = true;
     state.ui.rendering_panel_visible = false;
     state.ui.camera_lighting_panel_visible = true;
+    state.ui.techniques_panel_visible = false;
     state.ui.display.exposure_ev = 1.5f;
     state.ui.display.tone_mapper = renderer::ToneMapper::Aces;
     state.ui.selected_objects = {imported};
@@ -4270,6 +4351,43 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     state.render_settings.path.russian_roulette_start_bounce = 5;
     state.render_settings.path.russian_roulette_min_probability = 0.10f;
     state.render_settings.path.russian_roulette_max_probability = 0.90f;
+    state.render_settings.opengl.ibl_enabled = false;
+    state.render_settings.opengl.ltc_area_lights_enabled = false;
+    state.render_settings.opengl.shadow_map.enabled = false;
+    state.render_settings.opengl.shadow_map.resolution = 2048;
+    state.render_settings.opengl.shadow_map.max_shadow_lights = 5;
+    state.render_settings.opengl.shadow_map.constant_bias = 0.001f;
+    state.render_settings.opengl.shadow_map.slope_bias = 0.004f;
+    state.render_settings.opengl.shadow_map.projection_padding = 0.1f;
+    state.render_settings.opengl.shadow_map.debug_view =
+        renderer::OpenGlShadowDebugView::PenumbraRadius;
+    state.render_settings.opengl.shadow_map.debug_shadow_slot = 3;
+    state.render_settings.opengl.pcss.enabled = false;
+    state.render_settings.opengl.pcss.blocker_samples = 12;
+    state.render_settings.opengl.pcss.filter_samples = 24;
+    state.render_settings.opengl.pcss.max_penumbra_texels = 48.0f;
+    state.render_settings.opengl.pcss.light_size_scale = 1.5f;
+    state.render_settings.opengl.dominant_light.enabled = false;
+    state.render_settings.opengl.dominant_light.peak_threshold_ev = 4.0f;
+    state.render_settings.opengl.dominant_light.minimum_energy_fraction = 0.02f;
+    state.render_settings.opengl.dominant_light.intensity_scale = 1.25f;
+    state.render_settings.opengl.ambient_occlusion.mode =
+        renderer::OpenGlAmbientOcclusionMode::Ssao;
+    state.render_settings.opengl.ambient_occlusion.ssao.sample_count = 48;
+    state.render_settings.opengl.ambient_occlusion.ssao.radius_scale = 0.15f;
+    state.render_settings.opengl.ambient_occlusion.ssao.depth_bias_fraction = 0.04f;
+    state.render_settings.opengl.ambient_occlusion.ssao.intensity = 1.5f;
+    state.render_settings.opengl.ambient_occlusion.gtao.slice_count = 5;
+    state.render_settings.opengl.ambient_occlusion.gtao.samples_per_side = 4;
+    state.render_settings.opengl.ambient_occlusion.gtao.radius_scale = 0.2f;
+    state.render_settings.opengl.ambient_occlusion.gtao.falloff_fraction = 0.7f;
+    state.render_settings.opengl.ambient_occlusion.gtao.thickness_fraction = 0.3f;
+    state.render_settings.opengl.ambient_occlusion.gtao.intensity = 1.25f;
+    state.render_settings.opengl.ambient_occlusion.gtao.bent_normals_enabled = false;
+    state.render_settings.opengl.ambient_occlusion.denoise.enabled = false;
+    state.render_settings.opengl.ambient_occlusion.denoise.kernel_radius = 3;
+    state.render_settings.opengl.ambient_occlusion.denoise.depth_sigma_fraction = 0.2f;
+    state.render_settings.opengl.ambient_occlusion.denoise.normal_power = 12.0f;
     state.camera.eye = renderer::Vec3(4.0f, 5.0f, 6.0f);
     state.camera.forward =
         renderer::Vec3(-1.0f, -0.5f, -2.0f).normalized();
@@ -4288,7 +4406,7 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
         std::ifstream input(session_path);
         input >> saved_json;
     }
-    RENDER_CHECK(saved_json.at("version").get<int>() == 2);
+    RENDER_CHECK(saved_json.at("version").get<int>() == 4);
     const auto& source =
         saved_json.at("document").at("snapshot").at("assets").at(0).at("source");
     RENDER_CHECK(source.at("kind").get<std::string>() == "obj");
@@ -4330,6 +4448,7 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     RENDER_CHECK(loaded.ui.inspector_panel_visible);
     RENDER_CHECK(!loaded.ui.rendering_panel_visible);
     RENDER_CHECK(loaded.ui.camera_lighting_panel_visible);
+    RENDER_CHECK(!loaded.ui.techniques_panel_visible);
     RENDER_CHECK(nearly_equal(loaded.ui.display.exposure_ev, 1.5f));
     RENDER_CHECK(loaded.ui.display.tone_mapper == renderer::ToneMapper::Aces);
     RENDER_CHECK(loaded.ui.selected_objects == std::vector<renderer::ObjectId>{imported});
@@ -4347,6 +4466,77 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     RENDER_CHECK(nearly_equal(
         loaded.render_settings.path.russian_roulette_max_probability,
         0.90f));
+    RENDER_CHECK(!loaded.render_settings.opengl.ibl_enabled);
+    RENDER_CHECK(!loaded.render_settings.opengl.ltc_area_lights_enabled);
+    RENDER_CHECK(!loaded.render_settings.opengl.shadow_map.enabled);
+    RENDER_CHECK(loaded.render_settings.opengl.shadow_map.resolution == 2048);
+    RENDER_CHECK(loaded.render_settings.opengl.shadow_map.max_shadow_lights == 5);
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.shadow_map.constant_bias, 0.001f));
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.shadow_map.slope_bias, 0.004f));
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.shadow_map.projection_padding, 0.1f));
+    RENDER_CHECK(
+        loaded.render_settings.opengl.shadow_map.debug_view ==
+        renderer::OpenGlShadowDebugView::PenumbraRadius);
+    RENDER_CHECK(loaded.render_settings.opengl.shadow_map.debug_shadow_slot == 3);
+    RENDER_CHECK(!loaded.render_settings.opengl.pcss.enabled);
+    RENDER_CHECK(loaded.render_settings.opengl.pcss.blocker_samples == 12);
+    RENDER_CHECK(loaded.render_settings.opengl.pcss.filter_samples == 24);
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.pcss.max_penumbra_texels, 48.0f));
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.pcss.light_size_scale, 1.5f));
+    RENDER_CHECK(!loaded.render_settings.opengl.dominant_light.enabled);
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.dominant_light.peak_threshold_ev, 4.0f));
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.dominant_light.minimum_energy_fraction,
+        0.02f));
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.dominant_light.intensity_scale, 1.25f));
+    RENDER_CHECK(
+        loaded.render_settings.opengl.ambient_occlusion.mode ==
+        renderer::OpenGlAmbientOcclusionMode::Ssao);
+    RENDER_CHECK(
+        loaded.render_settings.opengl.ambient_occlusion.ssao.sample_count == 48);
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.ambient_occlusion.ssao.radius_scale,
+        0.15f));
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.ambient_occlusion.ssao.depth_bias_fraction,
+        0.04f));
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.ambient_occlusion.ssao.intensity,
+        1.5f));
+    RENDER_CHECK(
+        loaded.render_settings.opengl.ambient_occlusion.gtao.slice_count == 5);
+    RENDER_CHECK(
+        loaded.render_settings.opengl.ambient_occlusion.gtao.samples_per_side == 4);
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.ambient_occlusion.gtao.radius_scale,
+        0.2f));
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.ambient_occlusion.gtao.falloff_fraction,
+        0.7f));
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.ambient_occlusion.gtao.thickness_fraction,
+        0.3f));
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.ambient_occlusion.gtao.intensity,
+        1.25f));
+    RENDER_CHECK(
+        !loaded.render_settings.opengl.ambient_occlusion.gtao.bent_normals_enabled);
+    RENDER_CHECK(!loaded.render_settings.opengl.ambient_occlusion.denoise.enabled);
+    RENDER_CHECK(
+        loaded.render_settings.opengl.ambient_occlusion.denoise.kernel_radius == 3);
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.ambient_occlusion.denoise.depth_sigma_fraction,
+        0.2f));
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.ambient_occlusion.denoise.normal_power,
+        12.0f));
     RENDER_CHECK(loaded.camera.eye.isApprox(state.camera.eye));
     RENDER_CHECK(loaded.camera.forward.isApprox(state.camera.forward));
     RENDER_CHECK(nearly_equal(
@@ -4419,12 +4609,67 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
         renderer::InteractiveRenderMode::OpenGl);
     state.ui.mode = renderer::InteractiveRenderMode::Path;
 
+    nlohmann::json version_three_json = saved_json;
+    version_three_json["version"] = 3;
+    version_three_json["render"]["opengl"].erase("ambient_occlusion");
+    {
+        std::ofstream output(session_path);
+        output << version_three_json.dump(2) << '\n';
+    }
+    const renderer::ViewerSessionState version_three =
+        renderer::ViewerSessionStore::load(session_path);
+    RENDER_CHECK(
+        version_three.render_settings.opengl.ambient_occlusion ==
+        renderer::AmbientOcclusionRenderSettings{});
+
+    nlohmann::json clamped_ao_json = saved_json;
+    auto& clamped_ao =
+        clamped_ao_json["render"]["opengl"]["ambient_occlusion"];
+    clamped_ao["mode"] = 99;
+    clamped_ao["debug_view"] = 99;
+    clamped_ao["ssao"]["sample_count"] = 999;
+    clamped_ao["ssao"]["radius_scale"] = nullptr;
+    clamped_ao["gtao"]["slice_count"] = -10;
+    clamped_ao["denoise"]["kernel_radius"] = 99;
+    clamped_ao_json["render"]["opengl"]["shadow_map"]["debug_view"] = 2;
+    {
+        std::ofstream output(session_path);
+        output << clamped_ao_json.dump(2) << '\n';
+    }
+    const renderer::ViewerSessionState clamped_ao_state =
+        renderer::ViewerSessionStore::load(session_path);
+    RENDER_CHECK(
+        clamped_ao_state.render_settings.opengl.ambient_occlusion.mode ==
+        renderer::OpenGlAmbientOcclusionMode::Gtao);
+    RENDER_CHECK(
+        clamped_ao_state.render_settings.opengl.ambient_occlusion.debug_view ==
+        renderer::OpenGlAmbientOcclusionDebugView::LinearDepth);
+    RENDER_CHECK(
+        clamped_ao_state.render_settings.opengl.ambient_occlusion.ssao.sample_count ==
+        64);
+    RENDER_CHECK(nearly_equal(
+        clamped_ao_state.render_settings.opengl.ambient_occlusion.ssao.radius_scale,
+        0.10f));
+    RENDER_CHECK(
+        clamped_ao_state.render_settings.opengl.ambient_occlusion.gtao.slice_count ==
+        1);
+    RENDER_CHECK(
+        clamped_ao_state.render_settings.opengl.ambient_occlusion.denoise.kernel_radius ==
+        4);
+    RENDER_CHECK(
+        clamped_ao_state.render_settings.opengl.shadow_map.debug_view ==
+        renderer::OpenGlShadowDebugView::Final);
+
     nlohmann::json legacy_json = saved_json;
+    legacy_json["version"] = 2;
     auto& legacy_view = legacy_json["view"];
     legacy_view.erase("scene_panel_visible");
     legacy_view.erase("inspector_panel_visible");
     legacy_view.erase("rendering_panel_visible");
     legacy_view.erase("camera_lighting_panel_visible");
+    legacy_view.erase("camera_panel_visible");
+    legacy_view.erase("techniques_panel_visible");
+    legacy_json["render"].erase("opengl");
     {
         std::ofstream output(session_path);
         output << legacy_json.dump(2) << '\n';
@@ -4435,6 +4680,39 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     RENDER_CHECK(legacy.ui.inspector_panel_visible);
     RENDER_CHECK(legacy.ui.rendering_panel_visible);
     RENDER_CHECK(legacy.ui.camera_lighting_panel_visible);
+    RENDER_CHECK(legacy.ui.techniques_panel_visible);
+    RENDER_CHECK(legacy.render_settings.opengl == renderer::OpenGlRenderSettings{});
+
+    nlohmann::json version_one_session_json = saved_json;
+    version_one_session_json["version"] = 1;
+    version_one_session_json["render"]["path_backend"] = "cpu";
+    version_one_session_json["render"].erase("opengl");
+    version_one_session_json["view"].erase("camera_panel_visible");
+    version_one_session_json["view"].erase("techniques_panel_visible");
+    {
+        std::ofstream output(session_path);
+        output << version_one_session_json.dump(2) << '\n';
+    }
+    const renderer::ViewerSessionState version_one_session =
+        renderer::ViewerSessionStore::load(session_path);
+    RENDER_CHECK(version_one_session.ui.camera_lighting_panel_visible);
+    RENDER_CHECK(version_one_session.ui.techniques_panel_visible);
+    RENDER_CHECK(
+        version_one_session.render_settings.opengl ==
+        renderer::OpenGlRenderSettings{});
+    if (renderer::cuda_path_backend_available()) {
+        RENDER_CHECK(
+            version_one_session.ui.mode ==
+            renderer::InteractiveRenderMode::Path);
+        RENDER_CHECK(
+            version_one_session.migration_warning.find("Migrated v1 cpu") !=
+            std::string::npos);
+    } else {
+        RENDER_CHECK(
+            version_one_session.ui.mode ==
+            renderer::InteractiveRenderMode::OpenGl);
+        RENDER_CHECK(!version_one_session.migration_warning.empty());
+    }
 
     renderer::SceneDocument mixed = renderer::SceneDocument::from_scene(
         renderer::make_cornell_box_scene(),
@@ -5315,8 +5593,8 @@ void test_scene_revisions_and_mergeable_edit_transactions() {
         document.revisions());
 }
 
-void test_shear_matrix_reparent_undo_and_v4_roundtrip() {
-    const std::filesystem::path directory = "test_scene_matrix_v4";
+void test_shear_matrix_reparent_undo_and_v5_roundtrip() {
+    const std::filesystem::path directory = "test_scene_matrix_v5";
     const std::filesystem::path obj_path = directory / "triangle.obj";
     const std::filesystem::path scene_path = directory / "matrix.rscene";
     std::filesystem::remove_all(directory);
@@ -5387,7 +5665,7 @@ void test_shear_matrix_reparent_undo_and_v4_roundtrip() {
         std::ifstream input(scene_path);
         input >> saved;
     }
-    RENDER_CHECK(saved.at("version").get<int>() == 4);
+    RENDER_CHECK(saved.at("version").get<int>() == 5);
     for (const auto& object : saved.at("objects")) {
         RENDER_CHECK(object.at("local_matrix").size() == 4);
         for (const auto& row : object.at("local_matrix")) {
@@ -5459,7 +5737,7 @@ int main(int argc, char** argv) {
         test_environment_importance_pdf_integrates_and_histogram_matches_pmf();
         test_render_scene_snapshot_validates_optional_material_slots();
         test_scene_revisions_and_mergeable_edit_transactions();
-        test_shear_matrix_reparent_undo_and_v4_roundtrip();
+        test_shear_matrix_reparent_undo_and_v5_roundtrip();
         test_document_sphere_mesh_negative_nonuniform_scale_and_pick();
         std::cout << "renderer_tests: hardening regressions passed\n";
         return 0;
@@ -5500,6 +5778,7 @@ int main(int argc, char** argv) {
     test_frame_rate_counter_reports_window_average();
     test_viewer_title_format_includes_fps_and_path_samples();
     test_interactive_mode_catalog_contains_only_opengl_and_path();
+    test_viewer_selection_keeps_active_object_selected();
     test_ray_and_bounds_intersection();
     test_bounds_intersection_counts_corner_touch_as_hit();
     test_image_invalid_dimensions_throw_invalid_argument();
@@ -5588,7 +5867,7 @@ int main(int argc, char** argv) {
     test_gltf_texture_origin_sharing_and_material_extensions();
     test_render_scene_snapshot_validates_optional_material_slots();
     test_scene_revisions_and_mergeable_edit_transactions();
-    test_shear_matrix_reparent_undo_and_v4_roundtrip();
+    test_shear_matrix_reparent_undo_and_v5_roundtrip();
     test_document_sphere_mesh_negative_nonuniform_scale_and_pick();
     std::cout << "renderer_tests: all tests passed\n";
     return 0;

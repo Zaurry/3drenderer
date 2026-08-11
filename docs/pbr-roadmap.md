@@ -10,6 +10,8 @@
 - 双 UV、glTF tangent、vertex color、sampler wrap/filter、`KHR_texture_transform`；
 - OpenGL / CUDA Path 统一 GGX、Smith 与 Fresnel-Schlick；
 - HDRI 重要性采样、Path NEE/MIS、OpenGL Split-Sum IBL；
+- OpenGL Shadow Map/PCSS、环境高亮区域主光提取与残余 IBL；
+- 可编辑 LTC 矩形面光；CUDA Path 复用发光三角形 NEE/MIS；
 - OpenGL weighted blended OIT 与 Path 随机 alpha BLEND。
 
 ## 后续优先级

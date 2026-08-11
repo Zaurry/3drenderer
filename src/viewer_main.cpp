@@ -414,6 +414,7 @@ struct ViewerSessionSignature {
     int russian_roulette_start_bounce = 3;
     float russian_roulette_min_probability = 0.05f;
     float russian_roulette_max_probability = 0.95f;
+    renderer::OpenGlRenderSettings opengl;
     int logical_width = 0;
     int logical_height = 0;
     float render_scale = 1.0f;
@@ -427,6 +428,7 @@ struct ViewerSessionSignature {
     bool inspector_panel_visible = true;
     bool rendering_panel_visible = true;
     bool camera_lighting_panel_visible = true;
+    bool techniques_panel_visible = true;
     std::vector<renderer::ObjectId> selected_objects;
     renderer::ObjectId active_object = renderer::kInvalidObjectId;
     renderer::ObjectId material_editor_object = renderer::kInvalidObjectId;
@@ -456,6 +458,7 @@ ViewerSessionSignature make_session_signature(
         settings.path.russian_roulette_min_probability;
     signature.russian_roulette_max_probability =
         settings.path.russian_roulette_max_probability;
+    signature.opengl = settings.opengl;
     signature.logical_width = logical_size.first;
     signature.logical_height = logical_size.second;
     signature.render_scale = ui.render_scale;
@@ -470,6 +473,7 @@ ViewerSessionSignature make_session_signature(
     signature.inspector_panel_visible = ui.inspector_panel_visible;
     signature.rendering_panel_visible = ui.rendering_panel_visible;
     signature.camera_lighting_panel_visible = ui.camera_lighting_panel_visible;
+    signature.techniques_panel_visible = ui.techniques_panel_visible;
     signature.selected_objects = ui.selected_objects;
     signature.active_object = ui.active_object;
     signature.material_editor_object = ui.material_editor_object;
@@ -869,11 +873,13 @@ int main(int argc, char** argv) {
                 render_backend->statistics();
             int accumulated_samples = 0;
             renderer::CudaPathStatistics cuda_statistics;
+            renderer::OpenGlTechniqueDiagnostics technique_diagnostics;
             if (const auto* gl = std::get_if<renderer::OpenGlViewerStatistics>(
                     &backend_statistics)) {
                 shader_ui_state.auto_reload = gl->shader_auto_reload;
                 shader_ui_state.valid = gl->shader_valid;
                 shader_ui_state.error = gl->shader_error;
+                technique_diagnostics = gl->techniques;
                 if (!gl->shader_vertex_path.empty()) {
                     shader_ui_state.vertex_path = gl->shader_vertex_path;
                 }
@@ -899,6 +905,7 @@ int main(int argc, char** argv) {
                 accumulated_samples,
                 interop_ui_state,
                 cuda_statistics,
+                technique_diagnostics,
                 shader_ui_state,
                 display.main_window_has_keyboard_focus());
 
@@ -1145,21 +1152,13 @@ int main(int argc, char** argv) {
                     1.0f);
                 const auto picked = viewer_scene.document.pick(camera.generate_ray(u, v));
                 const bool additive = ImGui::GetIO().KeyCtrl;
-                if (!additive) {
-                    ui_state.selected_objects.clear();
-                }
                 if (picked) {
-                    const auto found = std::find(
-                        ui_state.selected_objects.begin(),
-                        ui_state.selected_objects.end(),
-                        picked->object_id);
-                    if (additive && found != ui_state.selected_objects.end()) {
-                        ui_state.selected_objects.erase(found);
-                    } else if (found == ui_state.selected_objects.end()) {
-                        ui_state.selected_objects.push_back(picked->object_id);
-                    }
-                    ui_state.active_object = picked->object_id;
+                    renderer::select_viewer_object(
+                        ui_state,
+                        picked->object_id,
+                        additive);
                 } else if (!additive) {
+                    ui_state.selected_objects.clear();
                     ui_state.active_object = renderer::kInvalidObjectId;
                 }
             }

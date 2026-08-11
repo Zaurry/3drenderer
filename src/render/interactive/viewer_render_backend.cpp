@@ -94,6 +94,7 @@ public:
         result.shader_error = renderer_->shader_error();
         result.shader_vertex_path = renderer_->vertex_shader_path().string();
         result.shader_fragment_path = renderer_->fragment_shader_path().string();
+        result.techniques = renderer_->technique_diagnostics();
         return result;
     }
 

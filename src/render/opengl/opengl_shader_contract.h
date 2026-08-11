@@ -20,7 +20,7 @@ inline constexpr std::array<OpenGlShaderBinding, 6>
         {5, "a_color"},
     }};
 
-inline constexpr std::array<OpenGlShaderBinding, 11>
+inline constexpr std::array<OpenGlShaderBinding, 16>
     kOpenGlTextureBindingContract{{
         {0, "u_base_color_texture"},
         {1, "u_opacity_texture"},
@@ -33,6 +33,11 @@ inline constexpr std::array<OpenGlShaderBinding, 11>
         {8, "u_specular_glossiness_texture"},
         {9, "u_environment_prefilter"},
         {10, "u_environment_brdf_lut"},
+        {11, "u_ltc_matrix_lut"},
+        {12, "u_ltc_amplitude_lut"},
+        {13, "u_shadow_maps_2d"},
+        {14, "u_shadow_maps_cube"},
+        {15, "u_ambient_occlusion_texture"},
     }};
 
 inline constexpr std::array<std::string_view, 18>
@@ -57,11 +62,12 @@ inline constexpr std::array<std::string_view, 18>
         "u_texture_texcoord",
     }};
 
-inline constexpr std::array<OpenGlShaderBinding, 3>
+inline constexpr std::array<OpenGlShaderBinding, 4>
     kOpenGlLightBufferContract{{
         {0, "DirectionalLightBuffer"},
         {1, "PointLightBuffer"},
         {2, "SpotLightBuffer"},
+        {3, "RectAreaLightBuffer"},
     }};
 
 }  // namespace renderer

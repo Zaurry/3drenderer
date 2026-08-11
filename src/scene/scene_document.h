@@ -36,6 +36,7 @@ enum class SceneObjectType {
     PointLight,
     DirectionalLight,
     SpotLight,
+    RectAreaLight,
     Camera,
 };
 
@@ -112,6 +113,13 @@ struct SceneObject {
     float light_range = 0.0f;
     float spot_inner_cone_radians = 0.0f;
     float spot_outer_cone_radians = 0.7853981634f;
+    float light_source_radius = 0.05f;
+    float directional_angular_radius_radians = 0.00464257581f;
+    bool light_casts_shadows = true;
+    int light_shadow_priority = 0;
+    float area_width = 1.0f;
+    float area_height = 1.0f;
+    bool light_two_sided = false;
     SceneCameraProjection camera_projection = SceneCameraProjection::Perspective;
     float camera_vertical_fov_degrees = 45.0f;
     float camera_aspect_ratio = 0.0f;
@@ -142,6 +150,13 @@ struct SceneLightProperties {
     float range = 0.0f;
     float spot_inner_cone_radians = 0.0f;
     float spot_outer_cone_radians = 0.7853981634f;
+    float source_radius = 0.05f;
+    float directional_angular_radius_radians = 0.00464257581f;
+    bool casts_shadows = true;
+    int shadow_priority = 0;
+    float area_width = 1.0f;
+    float area_height = 1.0f;
+    bool two_sided = false;
 };
 
 class SceneDocument {
@@ -198,6 +213,15 @@ public:
         float range,
         float inner_cone_radians,
         float outer_cone_radians,
+        ObjectId parent_id = kInvalidObjectId);
+    ObjectId create_rect_area_light(
+        std::string name,
+        const Vec3& position,
+        const Vec3& direction,
+        const Color& radiance,
+        float width = 1.0f,
+        float height = 1.0f,
+        bool two_sided = false,
         ObjectId parent_id = kInvalidObjectId);
     ObjectId create_camera(
         std::string name,

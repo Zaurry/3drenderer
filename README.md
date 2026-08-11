@@ -2,8 +2,8 @@
 
 一个 C++20 教学型 3D 渲染器，提供两条产品渲染链路：
 
-- `OpenGL`：OpenGL 4.5 Core 实时预览，支持可热重载 GLSL、PBR、IBL 和 weighted blended OIT。
-- `Path`：CUDA Wavefront 路径追踪，支持渐进累积、环境/发光几何 NEE + MIS，以及 CUDA/OpenGL interop。
+- `OpenGL`：OpenGL 4.5 Core 实时预览，支持可热重载 GLSL、PBR、IBL、SSAO、GTAO + Bent Normal、Shadow Map/PCSS、环境主光提取、LTC 矩形面光和 weighted blended OIT。
+- `Path`：CUDA Wavefront 路径追踪，支持渐进累积、环境/发光几何 NEE + MIS、矩形面光，以及 CUDA/OpenGL interop。
 
 CPU Path 已从产品、CLI 和交互会话中删除。没有 CUDA 时仍可构建场景/文档系统、测试和 OpenGL Viewer；Path 模式会明确显示不可用原因，并回退到 OpenGL。
 
@@ -106,7 +106,9 @@ Viewer 只有两种模式：
 - `F5`：仅在 OpenGL 模式重载 shader。
 - `Tab`：显示或隐藏编辑器界面。
 
-Viewer 会把会话 v2 保存到 `%APPDATA%\Zaurry\3D Renderer\last-session.json`。不带参数启动时可恢复上次会话；`--no-restore-last` 禁用恢复。旧会话 v1 可只读迁移：CPU/Auto Path 字段会被忽略；CUDA 不可用时自动转到 OpenGL，并显示迁移警告。
+Viewer 会把会话 v4 保存到 `%APPDATA%\Zaurry\3D Renderer\last-session.json`。不带参数启动时可恢复上次会话；`--no-restore-last` 禁用恢复。旧会话 v1–v3 可只读迁移：新增 OpenGL 技术参数使用默认值，CPU/Auto Path 字段会被忽略；CUDA 不可用时自动转到 OpenGL，并显示迁移警告。
+
+默认可见的 `Techniques` 面板把 IBL、Shadow Map、PCSS、Dominant Light Extraction 和 LTC Area Lights 集中在 `Direct Lighting`，并提供独立的 `Ambient Occlusion` 区域切换 SSAO/GTAO、Bent Normal、空间滤波和调试视图。阴影默认使用 1024 分辨率、最多 8 盏灯；AO 默认使用全分辨率 GTAO。OpenGL 技术控件在 Path 模式中禁用，Path 始终使用完整环境和真实光线可见性。
 
 ## 场景与后端边界
 
@@ -124,9 +126,11 @@ SceneDocument transaction
 
 快照包含共享几何资产、实例矩阵、强类型材质槽、纹理、灯光、环境，以及八个单调 revision：`topology`、`geometry`、`transforms`、`material_bindings`、`materials`、`textures`、`lighting`、`environment`。后端自行比较 revision；UI 不负责维护上传失效状态。
 
-对象的有限、可逆本地 4×4 仿射矩阵是真值。TRS 只是可分解矩阵的编辑视图，因此剪切矩阵可无损导入、重父级、撤销和保存。`.rscene` 当前写入 v4；v1–v3 只读迁移。
+对象的有限、可逆本地 4×4 仿射矩阵是真值。TRS 只是可分解矩阵的编辑视图，因此剪切矩阵可无损导入、重父级、撤销和保存。`.rscene` 当前写入 v5；v1–v4 只读迁移。
 
 程序球在进入渲染快照前统一映射到一份共享的 64×32 平滑单位球网格，center/radius 进入实例矩阵，因此 OpenGL、CUDA、拾取和离线输出共享三角形、法线、UV 与材质槽语义。
+
+矩形面光在快照中同时保留解析灯光数据和一份共享单位四边形实例。OpenGL 用解析矩形与内置 64×64 LTC LUT 求值；CUDA Path 把可见四边形作为两个发光三角形加入现有 emissive NEE/MIS 分布。LTC 数据来自 Eric Heitz 等人的 `selfshadow/ltc_code`，许可和论文引用见 `shaders/opengl/LTC_LICENSE.txt`。
 
 ## CUDA 设备与帧生命周期
 

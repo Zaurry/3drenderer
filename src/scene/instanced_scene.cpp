@@ -62,6 +62,37 @@ const std::shared_ptr<const Scene>& canonical_unit_sphere_geometry() {
     return geometry;
 }
 
+const std::shared_ptr<const Scene>& canonical_unit_quad_geometry() {
+    static const std::shared_ptr<const Scene> geometry = [] {
+        Scene unit;
+        Material material;
+        material.type = MaterialType::Emissive;
+        material.base_color = Color::Ones();
+        material.emission = Color::Ones();
+        material.roughness = 1.0f;
+        material.two_sided = false;
+        unit.materials.push_back(material);
+        unit.triangles.emplace_back(
+            Vec3(-0.5f, -0.5f, 0.0f),
+            Vec3(0.5f, 0.5f, 0.0f),
+            Vec3(0.5f, -0.5f, 0.0f),
+            0,
+            Vec2(0.0f, 0.0f),
+            Vec2(1.0f, 1.0f),
+            Vec2(1.0f, 0.0f));
+        unit.triangles.emplace_back(
+            Vec3(-0.5f, -0.5f, 0.0f),
+            Vec3(-0.5f, 0.5f, 0.0f),
+            Vec3(0.5f, 0.5f, 0.0f),
+            0,
+            Vec2(0.0f, 0.0f),
+            Vec2(0.0f, 1.0f),
+            Vec2(1.0f, 1.0f));
+        return std::make_shared<const Scene>(std::move(unit));
+    }();
+    return geometry;
+}
+
 RenderSceneSnapshot make_render_scene_snapshot(Scene scene) {
     auto geometry = std::make_shared<Scene>(std::move(scene));
     std::vector<Sphere> spheres = std::move(geometry->spheres);
@@ -76,6 +107,7 @@ RenderSceneSnapshot make_render_scene_snapshot(Scene scene) {
     snapshot.point_lights = geometry->point_lights;
     snapshot.directional_lights = geometry->directional_lights;
     snapshot.spot_lights = geometry->spot_lights;
+    snapshot.rect_area_lights = geometry->rect_area_lights;
     snapshot.environment = geometry->environment;
     snapshot.environment_map = geometry->environment_map;
     snapshot.environment_intensity = geometry->environment_intensity;
@@ -149,6 +181,57 @@ RenderSceneSnapshot make_render_scene_snapshot(Scene scene) {
             snapshot.instances.push_back(std::move(instance));
         }
     }
+
+    if (!snapshot.rect_area_lights.empty()) {
+        const auto& unit_geometry = canonical_unit_quad_geometry();
+        RenderSceneAssetSnapshot quad_asset;
+        quad_asset.asset_id = std::numeric_limits<std::uint64_t>::max() - 1U;
+        quad_asset.geometry_revision = 1;
+        quad_asset.local_scene = unit_geometry;
+        quad_asset.local_bounds = Bounds3(
+            Vec3(-0.5f, -0.5f, 0.0f),
+            Vec3(0.5f, 0.5f, 0.0f));
+        quad_asset.triangle_material_slots.assign(
+            unit_geometry->triangles.size(),
+            MaterialSlot::bound(0));
+        const int quad_asset_index = static_cast<int>(snapshot.assets.size());
+        snapshot.assets.push_back(std::move(quad_asset));
+
+        for (const RectAreaLight& light : snapshot.rect_area_lights) {
+            const Vec3 axis_z = light.axis_u.cross(light.axis_v);
+            if (!light.position.allFinite() || !light.axis_u.allFinite() ||
+                !light.axis_v.allFinite() ||
+                axis_z.squaredNorm() <= 1.0e-20f) {
+                continue;
+            }
+            RenderSceneInstanceSnapshot instance;
+            instance.object_id =
+                static_cast<std::uint64_t>(snapshot.instances.size() + 1U);
+            instance.asset_index = quad_asset_index;
+            instance.object_to_world = Mat4::Identity();
+            instance.object_to_world.block<3, 1>(0, 0) = 2.0f * light.axis_u;
+            instance.object_to_world.block<3, 1>(0, 1) = 2.0f * light.axis_v;
+            instance.object_to_world.block<3, 1>(0, 2) = axis_z.normalized();
+            instance.object_to_world.topRightCorner<3, 1>() = light.position;
+            instance.world_to_object = instance.object_to_world.inverse();
+            instance.normal_to_world = instance.object_to_world
+                .topLeftCorner<3, 3>()
+                .inverse()
+                .transpose();
+            instance.world_bounds = transformed_bounds(
+                snapshot.assets[static_cast<std::size_t>(quad_asset_index)]
+                    .local_bounds,
+                instance.object_to_world);
+            Material material;
+            material.type = MaterialType::Emissive;
+            material.base_color = Color::Ones();
+            material.emission = light.radiance.cwiseMax(Color::Zero());
+            material.roughness = 1.0f;
+            material.two_sided = light.two_sided;
+            instance.materials.push_back(material);
+            snapshot.instances.push_back(std::move(instance));
+        }
+    }
     return snapshot;
 }
 
@@ -160,6 +243,7 @@ Scene flatten_render_scene_snapshot(
     result.point_lights = snapshot.point_lights;
     result.directional_lights = snapshot.directional_lights;
     result.spot_lights = snapshot.spot_lights;
+    result.rect_area_lights = snapshot.rect_area_lights;
     result.environment = snapshot.environment;
     result.environment_map = snapshot.environment_map;
     result.environment_intensity = snapshot.environment_intensity;

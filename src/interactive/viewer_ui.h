@@ -7,10 +7,12 @@
 #include "render/display_settings.h"
 #include "render/interactive/interactive_render_session.h"
 #include "render/pathtracer/cuda_pathtracer.h"
+#include "render/opengl/opengl_raster_renderer.h"
 #include "render/renderer.h"
 #include "scene/scene.h"
 #include "scene/scene_document.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <string>
@@ -37,6 +39,7 @@ struct ViewerUiState {
     bool inspector_panel_visible = true;
     bool rendering_panel_visible = true;
     bool camera_lighting_panel_visible = true;
+    bool techniques_panel_visible = true;
     std::vector<ObjectId> selected_objects;
     ObjectId active_object = kInvalidObjectId;
     int gizmo_operation = 0;
@@ -48,6 +51,32 @@ struct ViewerUiState {
     std::array<char, 160> scene_filter{};
     std::string scene_status;
 };
+
+inline void select_viewer_object(
+    ViewerUiState& state,
+    ObjectId id,
+    bool additive) {
+    if (!additive) {
+        state.selected_objects.clear();
+    }
+    const auto found = std::find(
+        state.selected_objects.begin(),
+        state.selected_objects.end(),
+        id);
+    if (additive && found != state.selected_objects.end()) {
+        state.selected_objects.erase(found);
+        if (state.active_object == id) {
+            state.active_object = state.selected_objects.empty()
+                ? kInvalidObjectId
+                : state.selected_objects.back();
+        }
+        return;
+    }
+    if (found == state.selected_objects.end()) {
+        state.selected_objects.push_back(id);
+    }
+    state.active_object = id;
+}
 
 struct OpenGlShaderUiState {
     std::string vertex_path;
@@ -113,6 +142,7 @@ public:
         int accumulated_path_samples,
         const CudaOpenGlInteropUiState& interop_state,
         const CudaPathStatistics& cuda_statistics,
+        const OpenGlTechniqueDiagnostics& technique_diagnostics,
         OpenGlShaderUiState& shader_state,
         bool scene_shortcuts_enabled);
 

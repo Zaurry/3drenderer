@@ -5,7 +5,115 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
+#include <memory>
 #include <vector>
+
+namespace {
+
+renderer::Color integrate_environment(const renderer::EnvironmentMap& environment) {
+    constexpr float pi = 3.14159265358979323846f;
+    renderer::Color integral = renderer::Color::Zero();
+    for (int y = 0; y < environment.height(); ++y) {
+        const float theta0 = pi * static_cast<float>(y) / environment.height();
+        const float theta1 =
+            pi * static_cast<float>(y + 1) / environment.height();
+        const float solid_angle =
+            (2.0f * pi / environment.width()) *
+            (std::cos(theta0) - std::cos(theta1));
+        for (int x = 0; x < environment.width(); ++x) {
+            integral += environment.pixels()[static_cast<std::size_t>(
+                y * environment.width() + x)] * solid_angle;
+        }
+    }
+    return integral;
+}
+
+void test_dominant_environment_light_extraction() {
+    constexpr int width = 16;
+    constexpr int height = 8;
+    std::vector<renderer::Color> pixels(
+        static_cast<std::size_t>(width * height),
+        renderer::Color(0.05f, 0.05f, 0.05f));
+    const renderer::Color dominant_color(40.0f, 20.0f, 5.0f);
+    const auto set_pixel = [&](int x, int y, const renderer::Color& color) {
+        pixels[static_cast<std::size_t>(y * width + x)] = color;
+    };
+
+    // The brightest connected component deliberately crosses the longitude seam.
+    for (const int y : {3, 4}) {
+        set_pixel(0, y, dominant_color);
+        set_pixel(width - 1, y, dominant_color);
+        set_pixel(width / 2, y, renderer::Color(12.0f, 12.0f, 12.0f));
+    }
+
+    const auto environment = std::make_shared<const renderer::EnvironmentMap>(
+        width,
+        height,
+        std::move(pixels));
+    const renderer::Color original_integral = integrate_environment(*environment);
+    const renderer::DominantEnvironmentLight dominant =
+        renderer::extract_dominant_environment_light(environment, 3.0f, 0.01f);
+
+    RENDER_CHECK(dominant.valid);
+    RENDER_CHECK(dominant.residual_map != nullptr);
+    RENDER_CHECK(dominant.residual_map != environment);
+    RENDER_CHECK(dominant.direction.x() < -0.98f);
+    RENDER_CHECK(std::abs(dominant.direction.y()) < 0.05f);
+    RENDER_CHECK(std::abs(dominant.direction.z()) < 0.05f);
+    RENDER_CHECK(dominant.integrated_radiance.x() >
+        dominant.integrated_radiance.y());
+    RENDER_CHECK(dominant.integrated_radiance.y() >
+        dominant.integrated_radiance.z());
+    RENDER_CHECK(dominant.energy_fraction > 0.5f);
+    RENDER_CHECK(dominant.energy_fraction < 1.0f);
+    RENDER_CHECK(dominant.solid_angle > 0.0f);
+    RENDER_CHECK(dominant.angular_radius_radians > 0.0f);
+    for (const int y : {3, 4}) {
+        RENDER_CHECK(dominant.residual_map->pixels()[static_cast<std::size_t>(
+            y * width)].isZero());
+        RENDER_CHECK(dominant.residual_map->pixels()[static_cast<std::size_t>(
+            y * width + width - 1)].isZero());
+        RENDER_CHECK(!dominant.residual_map->pixels()[static_cast<std::size_t>(
+            y * width + width / 2)].isZero());
+    }
+    const renderer::Color reconstructed =
+        integrate_environment(*dominant.residual_map) +
+        dominant.integrated_radiance;
+    RENDER_CHECK(reconstructed.isApprox(original_integral, 2.0e-5f));
+
+    const renderer::DominantEnvironmentLight rejected_by_energy =
+        renderer::extract_dominant_environment_light(environment, 3.0f, 1.0f);
+    RENDER_CHECK(!rejected_by_energy.valid);
+    RENDER_CHECK(rejected_by_energy.residual_map == environment);
+    const renderer::DominantEnvironmentLight tight_threshold =
+        renderer::extract_dominant_environment_light(environment, 0.0f, 0.01f);
+    RENDER_CHECK(tight_threshold.valid);
+    RENDER_CHECK(tight_threshold.direction.x() < -0.98f);
+    const renderer::DominantEnvironmentLight broad_threshold =
+        renderer::extract_dominant_environment_light(environment, 20.0f, 0.01f);
+    RENDER_CHECK(!broad_threshold.valid);
+    RENDER_CHECK(broad_threshold.residual_map == environment);
+
+    const auto flat_environment =
+        std::make_shared<const renderer::EnvironmentMap>(
+            width,
+            height,
+            std::vector<renderer::Color>(
+                static_cast<std::size_t>(width * height),
+                renderer::Color::Ones()));
+    const renderer::DominantEnvironmentLight flat =
+        renderer::extract_dominant_environment_light(flat_environment);
+    RENDER_CHECK(!flat.valid);
+    RENDER_CHECK(flat.residual_map == flat_environment);
+    RENDER_CHECK(!renderer::extract_dominant_environment_light(nullptr).valid);
+    RENDER_CHECK(!renderer::extract_dominant_environment_light(
+        environment,
+        std::numeric_limits<float>::quiet_NaN(),
+        0.01f).valid);
+}
+
+}  // namespace
 
 int main() {
     constexpr int width = 8;
@@ -59,5 +167,6 @@ int main() {
         const float measured = static_cast<float>(counts[index]) / sample_count;
         RENDER_CHECK(std::abs(measured - pmf[index]) < 1.0e-4f);
     }
+    test_dominant_environment_light_extraction();
     std::cout << "sampling_tests: all tests passed\n";
 }

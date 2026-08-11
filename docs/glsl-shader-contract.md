@@ -33,9 +33,10 @@ uniform vec3 u_camera_position;
 
 | Binding | Block | Element layout |
 |---:|---|---|
-| 0 | `DirectionalLightBuffer` | `vec4 direction; vec4 radiance;` |
-| 1 | `PointLightBuffer` | `vec4 position_range; vec4 intensity;` |
-| 2 | `SpotLightBuffer` | `vec4 position_range; vec4 direction_inner; vec4 intensity_outer;` |
+| 0 | `DirectionalLightBuffer` | `vec4 direction_angular; vec4 radiance; vec4 shadow;` |
+| 1 | `PointLightBuffer` | `vec4 position_range; vec4 intensity; vec4 shadow;` |
+| 2 | `SpotLightBuffer` | `vec4 position_range; vec4 direction_inner; vec4 intensity_outer; vec4 shadow;` |
+| 3 | `RectAreaLightBuffer` | `vec4 position_two_sided; vec4 axis_u; vec4 axis_v; vec4 radiance; vec4 shadow;` |
 
 计数 uniforms：
 
@@ -43,6 +44,7 @@ uniform vec3 u_camera_position;
 uniform int u_directional_light_count;
 uniform int u_point_light_count;
 uniform int u_spot_light_count;
+uniform int u_rect_area_light_count;
 ```
 
 ## Texture units
@@ -60,6 +62,11 @@ uniform int u_spot_light_count;
 | 8 | `u_specular_glossiness_texture` |
 | 9 | `u_environment_prefilter` |
 | 10 | `u_environment_brdf_lut` |
+| 11 | `u_ltc_matrix_lut` |
+| 12 | `u_ltc_amplitude_lut` |
+| 13 | `u_shadow_maps_2d` (`R32F` 2D array) |
+| 14 | `u_shadow_maps_cube` (`R32F` cube array) |
+| 15 | `u_ambient_occlusion_texture` (`RGBA16F`: view-space bent normal + visibility) |
 
 材质纹理 slot 0–8 还必须支持：
 
@@ -104,6 +111,27 @@ Alpha 语义：
 - Opaque 忽略 alpha，写入不透明 color target。
 - Mask 使用组合后的材质、纹理和 vertex alpha 与 cutoff。
 - Blend 写入 weighted blended OIT accumulation/reveal targets。
+
+## 直接阴影与 LTC
+
+方向光、聚光和环境提取主光读取线性深度 2D array；点光和矩形灯读取 cube array。`shadow` 字段保存光源角/世界尺寸、纹理层与全局调试槽。PCSS 使用稳定旋转的 Vogel disk，先搜索 blocker、还原线性 blocker 距离，再执行可变半径 PCF。关闭 PCSS 时只比较中心样本。
+
+Shadow pass 只绘制 Opaque/Mask 批次。Mask 必须复用 UV0/UV1、base-color/opacity alpha、`KHR_texture_transform` 和 alpha cutoff；Blend 不投影。该 pass 的 shader 内置于 OpenGL renderer，契约测试会校验 `R32F` 资源和 alpha 输入。
+
+矩形面光的漫反射和 GGX 高光使用 64×64 LTC matrix/amplitude LUT。LUT 及 BSD 许可位于 `shaders/opengl/ltc_1.dds`、`ltc_2.dds` 和 `LTC_LICENSE.txt`。
+
+## Ambient Occlusion
+
+SSAO/GTAO 使用以下默认辅助 shader，并与主 raster shader 一同参与自动热重载：
+
+- `fullscreen.vert`
+- `ao_gbuffer.frag`
+- `ambient_occlusion.frag`
+- `ao_denoise.frag`
+
+AO G-buffer 只绘制 Opaque/Mask，复用材质 UV、normal/bump map、opacity、vertex alpha 和 alpha cutoff；Blend 不参与。资源格式为 `DEPTH_COMPONENT32F` 共享深度、`RGB16F` view normal、`R32F` linear depth，以及 `RGBA16F` bent-normal/visibility ping-pong。
+
+默认 raster shader 仅将 AO 应用于环境 IBL。直接光、LTC、Shadow Map、Emission 和天空背景不乘 AO；GTAO 的 Bent Normal 用于漫反射环境方向，并用 GTSO 近似处理镜面环境遮蔽。自定义 raster fragment shader 如需接收该效果，必须声明 binding 15 及对应 AO uniforms。
 
 ## 输出
 

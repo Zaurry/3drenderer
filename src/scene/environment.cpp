@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <limits>
 #include <memory>
+#include <queue>
 #include <stdexcept>
 #include <string>
 
@@ -401,6 +402,166 @@ EnvironmentMapSample sample_environment(
     EnvironmentMapSample result = map->sample(select, jitter_u, jitter_v);
     result.direction = rotate_y(result.direction, rotation_degrees);
     result.radiance = fallback.cwiseProduct(result.radiance) * std::max(0.0f, intensity);
+    return result;
+}
+
+DominantEnvironmentLight extract_dominant_environment_light(
+    const std::shared_ptr<const EnvironmentMap>& map,
+    float peak_threshold_ev,
+    float minimum_energy_fraction) {
+    DominantEnvironmentLight result;
+    result.residual_map = map;
+    if (!map || !std::isfinite(peak_threshold_ev) ||
+        !std::isfinite(minimum_energy_fraction)) {
+        return result;
+    }
+
+    const int width = map->width();
+    const int height = map->height();
+    const std::vector<Color>& pixels = map->pixels();
+    std::vector<float> texel_luminance(pixels.size(), 0.0f);
+    std::vector<float> row_solid_angle(static_cast<std::size_t>(height), 0.0f);
+    float peak = 0.0f;
+    double total_energy = 0.0;
+    for (int y = 0; y < height; ++y) {
+        const float theta0 = kPi * static_cast<float>(y) /
+            static_cast<float>(height);
+        const float theta1 = kPi * static_cast<float>(y + 1) /
+            static_cast<float>(height);
+        const float solid_angle =
+            (kTwoPi / static_cast<float>(width)) *
+            (std::cos(theta0) - std::cos(theta1));
+        row_solid_angle[static_cast<std::size_t>(y)] = solid_angle;
+        for (int x = 0; x < width; ++x) {
+            const std::size_t index = static_cast<std::size_t>(y * width + x);
+            const float value = luminance(pixels[index]);
+            texel_luminance[index] = value;
+            peak = std::max(peak, value);
+            total_energy += static_cast<double>(value) * solid_angle;
+        }
+    }
+    if (!(peak > std::numeric_limits<float>::min()) ||
+        !(total_energy > std::numeric_limits<double>::min())) {
+        return result;
+    }
+
+    const float threshold = peak * std::exp2(-std::max(0.0f, peak_threshold_ev));
+    std::vector<std::uint8_t> visited(pixels.size(), 0U);
+    std::vector<std::size_t> selected;
+    double selected_energy = 0.0;
+    float selected_solid_angle = 0.0f;
+    double selected_direction_x = 0.0;
+    double selected_direction_y = 0.0;
+    double selected_direction_z = 0.0;
+    Color selected_rgb = Color::Zero();
+
+    for (int seed_y = 0; seed_y < height; ++seed_y) {
+        for (int seed_x = 0; seed_x < width; ++seed_x) {
+            const std::size_t seed =
+                static_cast<std::size_t>(seed_y * width + seed_x);
+            if (visited[seed] != 0U || texel_luminance[seed] < threshold) {
+                continue;
+            }
+            std::queue<std::pair<int, int>> pending;
+            std::vector<std::size_t> component;
+            pending.emplace(seed_x, seed_y);
+            visited[seed] = 1U;
+            double component_energy = 0.0;
+            float component_solid_angle = 0.0f;
+            double direction_x = 0.0;
+            double direction_y = 0.0;
+            double direction_z = 0.0;
+            Color integrated_rgb = Color::Zero();
+            while (!pending.empty()) {
+                const auto [x, y] = pending.front();
+                pending.pop();
+                const std::size_t index =
+                    static_cast<std::size_t>(y * width + x);
+                component.push_back(index);
+                const float solid_angle =
+                    row_solid_angle[static_cast<std::size_t>(y)];
+                const double energy =
+                    static_cast<double>(texel_luminance[index]) * solid_angle;
+                component_energy += energy;
+                component_solid_angle += solid_angle;
+                integrated_rgb += pixels[index] * solid_angle;
+                const Vec3 direction = EnvironmentMap::uv_to_direction(Vec2(
+                    (static_cast<float>(x) + 0.5f) / static_cast<float>(width),
+                    (static_cast<float>(y) + 0.5f) / static_cast<float>(height)));
+                direction_x += static_cast<double>(direction.x()) * energy;
+                direction_y += static_cast<double>(direction.y()) * energy;
+                direction_z += static_cast<double>(direction.z()) * energy;
+
+                for (int offset_y = -1; offset_y <= 1; ++offset_y) {
+                    const int neighbor_y = y + offset_y;
+                    if (neighbor_y < 0 || neighbor_y >= height) {
+                        continue;
+                    }
+                    for (int offset_x = -1; offset_x <= 1; ++offset_x) {
+                        if (offset_x == 0 && offset_y == 0) {
+                            continue;
+                        }
+                        const int neighbor_x = wrap_index(x + offset_x, width);
+                        const std::size_t neighbor = static_cast<std::size_t>(
+                            neighbor_y * width + neighbor_x);
+                        if (visited[neighbor] == 0U &&
+                            texel_luminance[neighbor] >= threshold) {
+                            visited[neighbor] = 1U;
+                            pending.emplace(neighbor_x, neighbor_y);
+                        }
+                    }
+                }
+            }
+            if (component_energy > selected_energy) {
+                selected = std::move(component);
+                selected_energy = component_energy;
+                selected_solid_angle = component_solid_angle;
+                selected_direction_x = direction_x;
+                selected_direction_y = direction_y;
+                selected_direction_z = direction_z;
+                selected_rgb = integrated_rgb;
+            }
+        }
+    }
+
+    const float energy_fraction = static_cast<float>(
+        selected_energy / total_energy);
+    const double direction_length_squared =
+        selected_direction_x * selected_direction_x +
+        selected_direction_y * selected_direction_y +
+        selected_direction_z * selected_direction_z;
+    // A component covering a hemisphere or more represents broad ambient
+    // illumination, not a useful virtual direct light (and rejects flat maps).
+    if (selected.empty() ||
+        energy_fraction < std::clamp(minimum_energy_fraction, 0.0f, 1.0f) ||
+        selected_solid_angle >= kTwoPi ||
+        direction_length_squared <= std::numeric_limits<double>::min()) {
+        return result;
+    }
+
+    const double inverse_direction_length =
+        1.0 / std::sqrt(direction_length_squared);
+    result.valid = true;
+    result.direction = Vec3(
+        static_cast<float>(selected_direction_x * inverse_direction_length),
+        static_cast<float>(selected_direction_y * inverse_direction_length),
+        static_cast<float>(selected_direction_z * inverse_direction_length));
+    result.integrated_radiance = selected_rgb.cwiseMax(Color::Zero());
+    result.solid_angle = selected_solid_angle;
+    result.energy_fraction = energy_fraction;
+    result.angular_radius_radians = std::acos(std::clamp(
+        1.0f - selected_solid_angle / kTwoPi,
+        -1.0f,
+        1.0f));
+
+    std::vector<Color> residual_pixels = pixels;
+    for (const std::size_t index : selected) {
+        residual_pixels[index] = Color::Zero();
+    }
+    result.residual_map = std::make_shared<const EnvironmentMap>(
+        width,
+        height,
+        std::move(residual_pixels));
     return result;
 }
 
