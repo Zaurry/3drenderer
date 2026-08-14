@@ -809,15 +809,14 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
             }
 
             if (ImGui::CollapsingHeader("Display", ImGuiTreeNodeFlags_DefaultOpen)) {
-                if (ImGui::SliderFloat(
-                        "Exposure", &state.display.exposure_ev, -8.0f, 8.0f, "%+.2f EV")) {
-                    actions.display_changed = true;
-                }
+                // Display settings are applied directly via
+                // ui_state.display at present time; no action flag needed.
+                ImGui::SliderFloat(
+                    "Exposure", &state.display.exposure_ev, -8.0f, 8.0f, "%+.2f EV");
                 int tone_mapper = static_cast<int>(state.display.tone_mapper);
                 constexpr const char* tone_mappers[] = {"None", "Reinhard", "ACES"};
                 if (ImGui::Combo("Tone mapping", &tone_mapper, tone_mappers, 3)) {
                     state.display.tone_mapper = static_cast<ToneMapper>(tone_mapper);
-                    actions.display_changed = true;
                 }
                 ImGui::TextDisabled("Current: %s", tone_mapper_label(state.display.tone_mapper));
             }
@@ -828,12 +827,10 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 if (ImGui::SliderInt("Font size", &font_scale_percent, 75, 200, "%d%%")) {
                     state.ui_font_scale = static_cast<float>(font_scale_percent) / 100.0f;
                     ImGui::GetStyle().FontScaleMain = state.ui_font_scale;
-                    actions.ui_style_changed = true;
                 }
                 if (ImGui::SmallButton("Reset font size")) {
                     state.ui_font_scale = 1.0f;
                     ImGui::GetStyle().FontScaleMain = state.ui_font_scale;
-                    actions.ui_style_changed = true;
                 }
             }
 

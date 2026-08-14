@@ -81,6 +81,7 @@ if(NOT TARGET Eigen3::Eigen)
     FetchContent_Declare(
         eigen3
         URL https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz
+        URL_HASH SHA256=8586084f71f9bde545ee7fa6d00288b264a2b7ac3607b974e54d13e7162c1c72
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
         SOURCE_SUBDIR _renderer_fetchcontent_only
     )
@@ -111,13 +112,10 @@ if(RENDERER_BUILD_VIEWER)
         set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
         set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
         set(SDL_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
-        set(local_sdl3_source_dir "${CMAKE_BINARY_DIR}/_deps/sdl3-src")
-        if(EXISTS "${local_sdl3_source_dir}/CMakeLists.txt")
-            set(FETCHCONTENT_SOURCE_DIR_SDL3 "${local_sdl3_source_dir}" CACHE PATH "" FORCE)
-        endif()
         FetchContent_Declare(
             sdl3
             URL https://www.libsdl.org/release/SDL3-3.2.30.tar.gz
+            URL_HASH SHA256=4c3b09330d866dc52eb65b66259a6684ad387252ca8c57901b3a2b534eb42e3d
             DOWNLOAD_EXTRACT_TIMESTAMP TRUE
         )
         FetchContent_MakeAvailable(sdl3)
@@ -137,6 +135,7 @@ if(RENDERER_BUILD_VIEWER)
     FetchContent_Declare(
         imgui
         URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.8-docking.tar.gz
+        URL_HASH SHA256=ca0653454ed371b7a87e9b0bc29a5d15c9be7f7c0fbe778042fc48c71df1d3d8
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_MakeAvailable(imgui)
@@ -144,6 +143,7 @@ if(RENDERER_BUILD_VIEWER)
     FetchContent_Declare(
         imguizmo
         URL https://github.com/CedricGuillemet/ImGuizmo/archive/dc25afb98bc3ebe00dfc9a23ba7235fead2ccb1d.tar.gz
+        URL_HASH SHA256=bee18d71469b78b4bece9051deafc4834cda9f49f71707d2a7ed49d8623f5309
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_MakeAvailable(imguizmo)
@@ -201,16 +201,17 @@ set(RENDERER_INTERACTIVE_SOURCES
     src/interactive/orbit_camera_controller.cpp
     src/interactive/viewer_session.cpp
     src/render/interactive/render_mode.cpp
-    src/render/interactive/path_interactive_session.cpp
 )
 
 if(RENDERER_HAS_CUDA)
-    set(RENDERER_CUDA_SOURCES
-        src/render/pathtracer/cuda_device_context.cu
+    set(RENDERER_CUDA_API_SOURCES
+        src/render/pathtracer/cuda_device_context.cu)
+    set(RENDERER_CUDA_PATHTRACER_SOURCES
         src/render/pathtracer/cuda_pathtracer.cu)
 else()
-    set(RENDERER_CUDA_SOURCES
-        src/render/pathtracer/cuda_device_context_stub.cpp
+    set(RENDERER_CUDA_API_SOURCES
+        src/render/pathtracer/cuda_device_context_stub.cpp)
+    set(RENDERER_CUDA_PATHTRACER_SOURCES
         src/render/pathtracer/cuda_pathtracer_stub.cpp)
 endif()
 
@@ -237,24 +238,50 @@ target_include_directories(renderer_render_common PUBLIC
     ${RENDERER_PUBLIC_INCLUDE_DIRECTORIES})
 target_link_libraries(renderer_render_common PUBLIC renderer_scene)
 
-add_library(renderer_cuda STATIC ${RENDERER_CUDA_SOURCES})
-target_include_directories(renderer_cuda PUBLIC
+# CUDA availability probing and device context (small; stubbed without CUDA).
+add_library(renderer_cuda_api STATIC ${RENDERER_CUDA_API_SOURCES})
+target_include_directories(renderer_cuda_api PUBLIC
     ${RENDERER_PUBLIC_INCLUDE_DIRECTORIES})
-target_link_libraries(renderer_cuda PUBLIC
-    renderer_scene
-    renderer_render_common)
 if(RENDERER_HAS_CUDA)
-    target_link_libraries(renderer_cuda PRIVATE CUDA::cudart)
-    set_target_properties(renderer_cuda PROPERTIES
+    target_link_libraries(renderer_cuda_api PUBLIC CUDA::cudart)
+    set_target_properties(renderer_cuda_api PROPERTIES
         CUDA_STANDARD 20
         CUDA_STANDARD_REQUIRED ON
         CUDA_EXTENSIONS OFF
         CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}"
     )
-    target_compile_definitions(renderer_cuda PUBLIC RENDERER_HAS_CUDA=1)
+    target_compile_definitions(renderer_cuda_api PUBLIC RENDERER_HAS_CUDA=1)
 else()
-    target_compile_definitions(renderer_cuda PUBLIC RENDERER_HAS_CUDA=0)
+    target_compile_definitions(renderer_cuda_api PUBLIC RENDERER_HAS_CUDA=0)
 endif()
+
+# The CUDA path tracer proper.
+add_library(renderer_cuda_pathtracer STATIC ${RENDERER_CUDA_PATHTRACER_SOURCES})
+target_include_directories(renderer_cuda_pathtracer PUBLIC
+    ${RENDERER_PUBLIC_INCLUDE_DIRECTORIES})
+target_link_libraries(renderer_cuda_pathtracer PUBLIC
+    renderer_scene
+    renderer_render_common
+    renderer_cuda_api)
+if(RENDERER_HAS_CUDA)
+    target_link_libraries(renderer_cuda_pathtracer PRIVATE CUDA::cudart)
+    set_target_properties(renderer_cuda_pathtracer PROPERTIES
+        CUDA_STANDARD 20
+        CUDA_STANDARD_REQUIRED ON
+        CUDA_EXTENSIONS OFF
+        CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}"
+    )
+endif()
+
+# Session adapter over the interactive CUDA renderer, kept separate so UI
+# libraries never drag in the path tracer.
+add_library(renderer_path_session STATIC
+    src/render/interactive/path_interactive_session.cpp)
+target_include_directories(renderer_path_session PUBLIC
+    ${RENDERER_PUBLIC_INCLUDE_DIRECTORIES})
+target_link_libraries(renderer_path_session PUBLIC
+    renderer_cuda_api
+    renderer_cuda_pathtracer)
 
 add_library(renderer_interactive STATIC ${RENDERER_INTERACTIVE_SOURCES})
 target_include_directories(renderer_interactive PUBLIC
@@ -262,21 +289,25 @@ target_include_directories(renderer_interactive PUBLIC
 target_link_libraries(renderer_interactive PUBLIC
     renderer_scene
     renderer_render_common
-    renderer_cuda)
+    renderer_cuda_api)
+
+# Aggregate aliases for binaries that want the whole core.
+add_library(renderer_cuda INTERFACE)
+target_link_libraries(renderer_cuda INTERFACE
+    renderer_scene
+    renderer_render_common
+    renderer_cuda_api
+    renderer_cuda_pathtracer
+    renderer_path_session)
 
 add_library(renderer_core INTERFACE)
 target_link_libraries(renderer_core INTERFACE
     renderer_scene
     renderer_render_common
-    renderer_cuda
+    renderer_cuda_api
+    renderer_cuda_pathtracer
+    renderer_path_session
     renderer_interactive)
-
-set(RENDERER_CORE_SOURCES
-    ${RENDERER_SCENE_SOURCES}
-    ${RENDERER_RENDER_COMMON_SOURCES}
-    ${RENDERER_INTERACTIVE_SOURCES}
-    ${RENDERER_CUDA_SOURCES}
-)
 
 add_executable(renderer src/main.cpp)
 target_link_libraries(renderer PRIVATE renderer_core)
@@ -299,7 +330,13 @@ if(RENDERER_BUILD_VIEWER)
 
     add_library(renderer_opengl STATIC ${RENDERER_OPENGL_SOURCES})
     target_include_directories(renderer_opengl PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
-    target_link_libraries(renderer_opengl PUBLIC renderer_core renderer_glad)
+    # Deliberately excludes the path tracer: static libraries may carry
+    # unresolved CudaPathInteractiveRenderer/PathInteractiveSession symbols;
+    # the final binaries link the (normal or diagnostics) pathtracer variant.
+    target_link_libraries(renderer_opengl PUBLIC
+        renderer_interactive
+        renderer_cuda_api
+        renderer_glad)
     if(RENDERER_HAS_CUDA)
         target_link_libraries(renderer_opengl PRIVATE CUDA::cudart)
         set_target_properties(renderer_opengl PROPERTIES
@@ -408,26 +445,23 @@ if(RENDERER_BUILD_BENCHMARKS)
     set_tests_properties(benchmark_tests PROPERTIES SKIP_RETURN_CODE 77)
 
     if(RENDERER_HAS_CUDA)
-        add_library(renderer_core_diagnostics STATIC ${RENDERER_CORE_SOURCES})
-        target_include_directories(renderer_core_diagnostics
-            PUBLIC
-                "${CMAKE_CURRENT_SOURCE_DIR}/src"
-                "${CMAKE_CURRENT_SOURCE_DIR}/external/stb"
-                "${CMAKE_CURRENT_SOURCE_DIR}/external/tinyobjloader"
-                "${tinyexr_SOURCE_DIR}"
-        )
-        target_link_libraries(renderer_core_diagnostics PUBLIC
-            Eigen3::Eigen
-            nlohmann_json::nlohmann_json
-            fastgltf::fastgltf
-            tinyexr
-        )
-        target_link_libraries(renderer_core_diagnostics PRIVATE CUDA::cudart)
-        target_compile_definitions(renderer_core_diagnostics PUBLIC
+        # Diagnostics variant: only the path tracer translation unit is
+        # recompiled with RENDERER_BENCHMARK_DIAGNOSTICS; the rest of the
+        # core is shared with the normal build.
+        add_library(renderer_cuda_pathtracer_diagnostics STATIC
+            src/render/pathtracer/cuda_pathtracer.cu)
+        target_include_directories(renderer_cuda_pathtracer_diagnostics PUBLIC
+            ${RENDERER_PUBLIC_INCLUDE_DIRECTORIES})
+        target_link_libraries(renderer_cuda_pathtracer_diagnostics PUBLIC
+            renderer_scene
+            renderer_render_common
+            renderer_cuda_api)
+        target_link_libraries(renderer_cuda_pathtracer_diagnostics PRIVATE
+            CUDA::cudart)
+        target_compile_definitions(renderer_cuda_pathtracer_diagnostics PUBLIC
             RENDERER_HAS_CUDA=1
-            RENDERER_BENCHMARK_DIAGNOSTICS=1
-        )
-        set_target_properties(renderer_core_diagnostics PROPERTIES
+            RENDERER_BENCHMARK_DIAGNOSTICS=1)
+        set_target_properties(renderer_cuda_pathtracer_diagnostics PROPERTIES
             CUDA_STANDARD 20
             CUDA_STANDARD_REQUIRED ON
             CUDA_EXTENSIONS OFF
@@ -439,7 +473,15 @@ if(RENDERER_BUILD_BENCHMARKS)
         )
         target_link_libraries(viewer_benchmark_diagnostics PRIVATE
             renderer_benchmark_common
-            renderer_core_diagnostics
+            renderer_scene
+            renderer_render_common
+            renderer_interactive
+            renderer_cuda_api
+            renderer_path_session
+            renderer_cuda_pathtracer_diagnostics
+            renderer_opengl
+            renderer_glad
+            ${RENDERER_SDL_TARGET}
             CUDA::cudart
         )
         target_compile_definitions(viewer_benchmark_diagnostics PRIVATE
@@ -453,10 +495,15 @@ if(RENDERER_BUILD_BENCHMARKS)
             tests/test_main.cpp
         )
         target_link_libraries(benchmark_diagnostics_tests PRIVATE
-            renderer_core_diagnostics
+            renderer_scene
+            renderer_render_common
+            renderer_cuda_api
+            renderer_path_session
+            renderer_cuda_pathtracer_diagnostics
             CUDA::cudart
         )
         target_compile_definitions(benchmark_diagnostics_tests PRIVATE
+            RENDERER_HAS_CUDA=1
             RENDERER_BENCHMARK_DIAGNOSTICS=1
         )
         add_test(
@@ -486,7 +533,9 @@ endfunction()
 set(RENDERER_NATIVE_TARGETS
     renderer_scene
     renderer_render_common
-    renderer_cuda
+    renderer_cuda_api
+    renderer_cuda_pathtracer
+    renderer_path_session
     renderer_interactive
     renderer
     ${RENDERER_TEST_TARGETS})
@@ -498,7 +547,7 @@ if(RENDERER_BUILD_BENCHMARKS)
         renderer_benchmark_common viewer_benchmark benchmark_tests)
     if(RENDERER_HAS_CUDA)
         list(APPEND RENDERER_NATIVE_TARGETS
-            renderer_core_diagnostics viewer_benchmark_diagnostics
+            renderer_cuda_pathtracer_diagnostics viewer_benchmark_diagnostics
             benchmark_diagnostics_tests)
     endif()
 endif()
@@ -541,7 +590,9 @@ endfunction()
 target_enable_warnings(renderer)
 target_enable_warnings(renderer_scene)
 target_enable_warnings(renderer_render_common)
-target_enable_warnings(renderer_cuda)
+target_enable_warnings(renderer_cuda_api)
+target_enable_warnings(renderer_cuda_pathtracer)
+target_enable_warnings(renderer_path_session)
 target_enable_warnings(renderer_interactive)
 foreach(test_target IN LISTS RENDERER_TEST_TARGETS)
     target_enable_warnings(${test_target})
@@ -551,7 +602,7 @@ if(RENDERER_BUILD_BENCHMARKS)
     target_enable_warnings(viewer_benchmark)
     target_enable_warnings(benchmark_tests)
     if(RENDERER_HAS_CUDA)
-        target_enable_warnings(renderer_core_diagnostics)
+        target_enable_warnings(renderer_cuda_pathtracer_diagnostics)
         target_enable_warnings(viewer_benchmark_diagnostics)
         target_enable_warnings(benchmark_diagnostics_tests)
     endif()

@@ -437,7 +437,9 @@ InputState SdlDisplayBackend::poll_input() {
                 } else if (event.key.scancode == SDL_SCANCODE_TAB) {
                     input.toggle_ui = true;
                 } else if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
-                    input.quit_requested = true;
+                    // The main loop resolves Escape after the UI frame so
+                    // ImGui popups/text edits can consume it first.
+                    input.escape_pressed = true;
                 }
             }
             break;
@@ -534,8 +536,10 @@ void SdlDisplayBackend::dialog_callback(
     {
         std::scoped_lock lock(inbox->mutex);
         inbox->results.push_back(std::move(result));
+        // Close under the same lock so the main thread cannot start a second
+        // dialog while this result is still queued.
+        inbox->open = false;
     }
-    inbox->open = false;
 }
 
 bool SdlDisplayBackend::show_dialog(

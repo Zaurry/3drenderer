@@ -772,8 +772,12 @@ int main(int argc, char** argv) {
         auto previous_time = std::chrono::steady_clock::now();
         while (running) {
             const auto frame_begin = std::chrono::steady_clock::now();
-            const float delta_seconds =
-                std::chrono::duration<float>(frame_begin - previous_time).count();
+            // Clamp the frame delta: dialog pauses, shader compiles, or a
+            // dragged window would otherwise produce spikes that teleport the
+            // free camera.
+            const float delta_seconds = std::min(
+                std::chrono::duration<float>(frame_begin - previous_time).count(),
+                0.1f);
             previous_time = frame_begin;
 
             const renderer::InputState input = display.poll_input();
@@ -912,6 +916,14 @@ int main(int argc, char** argv) {
                 technique_diagnostics,
                 shader_ui_state,
                 display.main_window_has_keyboard_focus());
+
+            // Escape quits only when neither ImGui nor the viewer wants the
+            // keyboard (dismissing a popup/text edit must not close the app).
+            if (input.escape_pressed &&
+                !ImGui::GetIO().WantCaptureKeyboard &&
+                !display.wants_keyboard_capture()) {
+                running = false;
+            }
 
             if (ui_actions.import_files_requested &&
                 !display.show_import_files_dialog()) {
@@ -1092,7 +1104,9 @@ int main(int argc, char** argv) {
                 input.right_mouse_down &&
                 mouse_available;
             if (!display.set_relative_mouse_mode(desired_relative_mouse)) {
-                throw std::runtime_error(display.last_error());
+                // Recoverable input-mode issue (e.g. focus lost mid-drag);
+                // degrade to absolute input instead of terminating.
+                ui_state.scene_status = display.last_error();
             }
 
             const bool mouse_moved =

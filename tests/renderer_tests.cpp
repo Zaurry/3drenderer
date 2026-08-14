@@ -495,12 +495,6 @@ RENDER_TEST(test_viewer_ui_actions_classify_path_resets) {
     RENDER_CHECK(interop_state.detail.empty());
 
     renderer::ViewerUiActions actions;
-    actions.display_changed = true;
-    RENDER_CHECK(!actions.resets_path_accumulation());
-    actions = renderer::ViewerUiActions{};
-    actions.ui_style_changed = true;
-    RENDER_CHECK(!actions.resets_path_accumulation());
-    actions = renderer::ViewerUiActions{};
     actions.shader_reload_requested = true;
     RENDER_CHECK(!actions.resets_path_accumulation());
     actions = renderer::ViewerUiActions{};
@@ -3621,7 +3615,7 @@ renderer::Color render_instanced_document_pixel(
     }
     RENDER_CHECK(
         session.accumulated_samples() ==
-        1024);
+        samples_per_pixel);
     return framebuffer.pixel(0, 0);
 }
 

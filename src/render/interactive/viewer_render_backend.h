@@ -54,6 +54,9 @@ public:
         const Camera& camera,
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state) = 0;
+    // The last completed frame, valid until the next render() call. When
+    // rendering is skipped (e.g. paused progressive accumulation), callers
+    // present this same handle to show the frozen frame on purpose.
     virtual const RenderFrameOutput& output() const = 0;
     virtual ViewerRenderBackendStatistics statistics() const = 0;
 };

@@ -31,6 +31,7 @@ struct FileDialogResult {
 
 struct InputState {
     bool quit_requested = false;
+    bool escape_pressed = false;
     bool window_resized = false;
     int window_width = 0;
     int window_height = 0;

@@ -2,8 +2,16 @@
 build/
 CMakeUserPresets.json
 Computer Graphics Archive/
-output/*.png
-output/*.ppm
-output/*.jpg
-output/*.jpeg
-output/*.bmp
+
+# Personal course material, unrelated to the renderer build.
+learning/
+tmp/
+
+# Generated analysis artifacts. Keep only .gitkeep and curated outputs.
+output/**
+!output/.gitkeep
+
+# Benchmark machine outputs: raw samples are bulky and machine-generated;
+# summary.md and baselines are curated separately.
+benchmarks/results/**/raw.json
+benchmarks/results/**/timing/raw.json

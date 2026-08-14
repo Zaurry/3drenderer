@@ -91,6 +91,10 @@ struct CudaOpenGlInteropUiState {
     std::string detail;
 };
 
+// Frame-local UI action flags. They are advisory hints for the main loop:
+// the render backends treat scene revisions and the progressive render key
+// as the authoritative change source. Flags must be consumed the same frame;
+// they do not latch.
 struct ViewerUiActions {
     bool mode_changed = false;
     bool camera_mode_changed = false;
@@ -102,8 +106,6 @@ struct ViewerUiActions {
     bool path_depth_changed = false;
     bool path_roulette_changed = false;
     bool reset_requested = false;
-    bool display_changed = false;
-    bool ui_style_changed = false;
     bool shader_reload_requested = false;
     bool shader_auto_reload_changed = false;
     bool import_files_requested = false;
