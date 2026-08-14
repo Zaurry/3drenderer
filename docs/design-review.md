@@ -6,6 +6,34 @@
 > 严重级别：🔴 高（正确性/可维护性/性能的主要风险）、🟡 中（明显设计缺陷）、🟢 低（局部问题）
 >
 > **事实核查**：本报告已经 [design-review-verification.md](design-review-verification.md)（2026-08-15，代码基线 `0235f84`）逐项核查：46 条成立、25 条部分成立、1 条不成立（§1.6）。本版本已按核查结果改写事实、数量与因果表述。标注 **⚠️ 风险** 的条目表示"未来并发 / 大场景下的潜在风险"，当前代码中尚未证实发生；性能类表述（如"卡顿""数十 MB"）未经基准测量，仅作为风险推测。
+>
+> **整改状态**：已在分支 `fix/design-review-issues` 上修复的问题：
+>
+> | 条目 | 状态 | 说明 |
+> |---|---|---|
+> | §1.6、§1.8 | ✅ | 程序球双表示已文档化；`Random`、`world_matrix_recursive`、`ExecutionBackend` 已删除，测试专用函数已标注 |
+> | §2.1 | ✅ | 事务备份不再拷贝整条撤销历史；事务期间 `undo()/redo()` 抛错 |
+> | §2.2 | ✅ | undo/redo 经 `history_pruned_assets_` 管理资产生命周期（撤销导入即分离资产、重做可复原） |
+> | §2.3 | ⚠️→文档 | 单线程契约已写入 `scene_document.h` 头注释 |
+> | §2.4、§2.5 | ✅ | `find_mutable` 改为置脏的 `mutable_object_for_edit`；`find_asset` 改为惰性哈希索引 |
+> | §3.4 | ✅ | MIS 权重收敛到共享 `render/mis_weight.h`（host/device 同源）+ 边界单测 |
+> | §3.6、§3.7、§3.9 | ✅ | 契约常量上移 `opengl_shader_contract.h`；亮度权重/衰减进 `render/shading_constants.h`；lint 测试由契约数组生成期望 |
+> | §3.11、§3.19 | ✅ | 渲染器内重复条件合并为一处；Path 后端不再重复计算 scene diff |
+> | §3.17 | ✅ | `statistics()` 只读缓存 + 显式 `refresh_statistics()` |
+> | §3.20 | ✅ | sky/shadow/composite 五个内嵌 GLSL 移到 `shaders/opengl/` 并接入热重载 |
+> | §3.21 | ✅ | no-CUDA stub 全部统一抛错 |
+> | §3.22 | ✅ | `shared_ptr<const void>` 租约改为类型化 `TextureLifetimeOwner` |
+> | §4.3 | ✅ | 删除无人读取的 `display_changed`/`ui_style_changed`；flags 标注为咨询性 |
+> | §4.6 | ✅ | Escape 改为 UI 帧后按键盘捕获判定退出，不再绕过 ImGui |
+> | §4.10、§4.11 | ✅ | delta 上限 0.1s；relative-mouse 失败降级为状态提示 |
+> | §4.12、§5.4 | ✅ | last-frame 呈现契约写入接口注释；对话框 `open` 标志移入锁作用域 |
+> | §6.1、§6.2、§6.3、§6.4 | ✅ | 4 个依赖补 `URL_HASH`；删除 SDL3 hack；`renderer_cuda` 拆分为 api/pathtracer/path_session，诊断构建只重编 `cuda_pathtracer.cu` |
+> | §7.1、§7.2、§7.3、§7.4 | ✅ | 注册表式测试运行器（`--filter`、显式 skip、exit 77 + `SKIP_RETURN_CODE`）；CUDA 测试诚实跳过；领域测试拆分；lint 与数值契约测试分离 |
+> | §7.5 | ✅ | CI smoke 断言改为稳定标记 `path-mode-unavailable`；README 更新 skip 语义 |
+> | §8.1、§8.3、§8.4 | ✅ | `learning/`、`output/**` 分析产物、benchmark raw.json 已停止跟踪（约 270 MiB） |
+> | §9.1 | ✅ | `scene-object-system.md` 会话版本修正为 v4；本报告事实已按核查修订 |
+>
+> 未整改的结构性条目（§1.1 覆盖结构、§1.2 variant、§1.4 每实例材质、§2.6 深度上限、§3.1/3.2 模块拆分、§3.5 设备结构体 schema、§4.1/4.2 上帝对象、§5.2 迁移管线等）作为后续批次处理。
 
 ---
 
