@@ -7,14 +7,9 @@
 
 namespace renderer {
 
-enum class ExecutionBackend {
-    Cuda
-};
-
 struct RenderResult {
     Image image;
     float seconds = 0.0f;
-    ExecutionBackend backend = ExecutionBackend::Cuda;
 };
 
 }  // namespace renderer

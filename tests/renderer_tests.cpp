@@ -2525,7 +2525,6 @@ void test_cuda_pathtracer_is_deterministic_when_available() {
         render_cuda_scene(scene, camera, settings);
     const renderer::RenderResult cuda =
         render_cuda_scene(scene, camera, settings);
-    RENDER_CHECK(cuda.backend == renderer::ExecutionBackend::Cuda);
     RENDER_CHECK(image_colors_are_finite(cuda.image));
     const renderer::Color first_mean = image_mean(first.image);
     const renderer::Color cuda_mean = image_mean(cuda.image);
@@ -2579,7 +2578,6 @@ void test_cuda_pathtracer_alpha_texture_and_interactive_reset_when_available() {
     session.reset(snapshot, settings);
     session.render_next_frame(snapshot, camera, settings, frame_state, framebuffer);
     session.render_next_frame(snapshot, camera, settings, frame_state, framebuffer);
-    RENDER_CHECK(session.active_backend() == renderer::ExecutionBackend::Cuda);
     RENDER_CHECK(session.accumulated_samples() == 2);
     RENDER_CHECK(framebuffer_colors_are_finite(framebuffer));
     const renderer::CudaPathStatistics before_camera_reset =

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <random>
 
 namespace renderer {
 
@@ -32,23 +31,6 @@ public:
 private:
     std::uint64_t state_ = 0;
     std::uint64_t increment_ = 1;
-};
-
-class Random {
-public:
-    explicit Random(unsigned int seed = 1) : engine_(seed) {}
-
-    float next_float() {
-        return distribution_(engine_);
-    }
-
-    float next_float(float min_value, float max_value) {
-        return min_value + (max_value - min_value) * next_float();
-    }
-
-private:
-    std::mt19937 engine_;
-    std::uniform_real_distribution<float> distribution_{0.0f, 1.0f};
 };
 
 }  // namespace renderer

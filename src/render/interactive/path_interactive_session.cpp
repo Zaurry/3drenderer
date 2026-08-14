@@ -70,10 +70,6 @@ int PathInteractiveSession::accumulated_samples() const {
     return accumulated_samples_;
 }
 
-ExecutionBackend PathInteractiveSession::active_backend() const {
-    return ExecutionBackend::Cuda;
-}
-
 CudaStreamHandle PathInteractiveSession::cuda_stream_handle() const {
     return cuda_renderer_ ? cuda_renderer_->stream_handle() : 0;
 }

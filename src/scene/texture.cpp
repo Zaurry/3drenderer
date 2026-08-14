@@ -357,6 +357,9 @@ float ImageTexture::alpha(int x, int y) const {
     return storage_->alpha[static_cast<std::size_t>(y * width() + x)];
 }
 
+// Test-only helper: legacy diffuse-texture base color path. Product shading
+// goes through material_evaluator.cpp; tests/renderer_tests.cpp exercises
+// this function directly.
 Color sample_material_base_color(const Scene& scene, const Material& material, const Vec2& uv) {
     if (!valid_texture_id(scene, material.diffuse_texture_id)) {
         return material.base_color;

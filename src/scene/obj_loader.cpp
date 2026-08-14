@@ -88,6 +88,9 @@ Vec3 normal_from_index(const tinyobj::attrib_t& attrib, const tinyobj::index_t& 
 
 }  // namespace
 
+// Test-only helper: parses an OBJ file into a flat Mesh. Product code loads
+// OBJ through scene_asset_loader.cpp instead; this path is exercised by
+// tests/renderer_tests.cpp to cover the raw loader behavior.
 Mesh load_obj_mesh(const std::string& path, int material_id) {
     tinyobj::ObjReaderConfig config;
     config.triangulate = true;

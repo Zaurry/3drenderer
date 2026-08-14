@@ -28,7 +28,6 @@ public:
     void download_current_cuda_frame(Framebuffer& target);
 
     int accumulated_samples() const;
-    ExecutionBackend active_backend() const;
     CudaStreamHandle cuda_stream_handle() const;
     const CudaPathStatistics* cuda_statistics() const;
     void set_cuda_presentation_state(bool interop_active, bool fallback_active);

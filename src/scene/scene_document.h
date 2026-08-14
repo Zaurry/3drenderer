@@ -341,7 +341,6 @@ private:
     ObjectId clone_subtree(ObjectId source_id, ObjectId parent_id);
     bool is_descendant(ObjectId candidate, ObjectId ancestor) const;
     bool is_effectively_visible(ObjectId id) const;
-    Mat4 world_matrix_recursive(ObjectId id, int depth) const;
     nlohmann::json serialize_document(
         const std::filesystem::path& base,
         bool session_snapshot) const;

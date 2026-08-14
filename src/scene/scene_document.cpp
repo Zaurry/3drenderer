@@ -1658,10 +1658,6 @@ void SceneDocument::rebuild_spatial_cache() const {
     spatial_cache_dirty_ = false;
 }
 
-Mat4 SceneDocument::world_matrix_recursive(ObjectId id, int) const {
-    return world_matrix(id);
-}
-
 Mat4 SceneDocument::world_matrix(ObjectId id) const {
     if (spatial_cache_dirty_) {
         rebuild_spatial_cache();

@@ -7032,7 +7032,7 @@ RenderResult render_cuda_path(
         settings.path);
     Image image(settings.width, settings.height);
     image.set_pixels(frame.download_pixels(false));
-    return RenderResult{std::move(image), timer.elapsed_seconds(), ExecutionBackend::Cuda};
+    return RenderResult{std::move(image), timer.elapsed_seconds()};
 }
 
 class CudaPathInteractiveRenderer::Impl {
