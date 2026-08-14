@@ -1,6 +1,8 @@
 #include "render/opengl/opengl_raster_renderer.h"
 
+#include "render/opengl/opengl_shader_contract.h"
 #include "render/opengl/opengl_shadow_math.h"
+#include "render/shading_constants.h"
 
 #include "platform/opengl/gl_shader_program.h"
 #include "scene/environment.h"
@@ -274,7 +276,12 @@ Mat4 view_projection_matrix(const Camera& camera, float near_plane) {
 }
 
 float color_luminance(const Color& color) {
-    return std::max(0.0f, color.dot(Color(0.2126f, 0.7152f, 0.0722f)));
+    return std::max(
+        0.0f,
+        color.dot(Color(
+            kLuminanceWeights[0],
+            kLuminanceWeights[1],
+            kLuminanceWeights[2])));
 }
 
 Vec3 rotate_y_degrees(const Vec3& direction, float degrees) {
@@ -683,174 +690,6 @@ std::vector<std::uint16_t> load_ltc_dds(
     return values;
 }
 
-constexpr const char* kSkyVertexShader = R"GLSL(
-#version 450 core
-out vec2 v_ndc;
-void main() {
-    vec2 positions[3] = vec2[3](vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
-    vec2 position = positions[gl_VertexID];
-    v_ndc = position;
-    gl_Position = vec4(position, 0.999999, 1.0);
-}
-)GLSL";
-
-constexpr const char* kShadowVertexShader = R"GLSL(
-#version 450 core
-layout(location = 0) in vec3 a_position;
-layout(location = 2) in vec2 a_uv;
-layout(location = 4) in vec2 a_uv1;
-layout(location = 5) in vec4 a_color;
-uniform mat4 u_light_view_projection;
-out vec3 v_world_position;
-out vec2 v_uv;
-out vec2 v_uv1;
-out float v_vertex_alpha;
-void main() {
-    v_world_position = a_position;
-    v_uv = a_uv;
-    v_uv1 = a_uv1;
-    v_vertex_alpha = a_color.a;
-    gl_Position = u_light_view_projection * vec4(a_position, 1.0);
-}
-)GLSL";
-
-constexpr const char* kShadowFragmentShader = R"GLSL(
-#version 450 core
-layout(binding = 0) uniform sampler2D u_base_color_texture;
-layout(binding = 1) uniform sampler2D u_opacity_texture;
-uniform int u_alpha_mode;
-uniform float u_alpha_cutoff;
-uniform float u_opacity;
-uniform int u_has_base_color_texture;
-uniform int u_has_opacity_texture;
-uniform vec4 u_texture_offset_scale[2];
-uniform float u_texture_rotation[2];
-uniform int u_texture_texcoord[2];
-uniform int u_texture_top_left[2];
-uniform int u_cube_pass;
-uniform vec3 u_shadow_origin;
-uniform vec3 u_shadow_direction;
-uniform float u_shadow_near;
-uniform float u_shadow_far;
-in vec3 v_world_position;
-in vec2 v_uv;
-in vec2 v_uv1;
-in float v_vertex_alpha;
-layout(location = 0) out float out_linear_depth;
-float luminance(vec3 color) {
-    return dot(color, vec3(0.2126, 0.7152, 0.0722));
-}
-vec2 material_uv(int slot) {
-    vec2 uv = u_texture_texcoord[slot] == 1 ? v_uv1 : v_uv;
-    uv *= u_texture_offset_scale[slot].zw;
-    float cosine = cos(u_texture_rotation[slot]);
-    float sine = sin(u_texture_rotation[slot]);
-    uv = mat2(cosine, sine, -sine, cosine) * uv;
-    uv += u_texture_offset_scale[slot].xy;
-    if (u_texture_top_left[slot] != 0) {
-        uv.y = 1.0 - uv.y;
-    }
-    return uv;
-}
-void main() {
-    if (u_alpha_mode == 1) {
-        float opacity = u_opacity * v_vertex_alpha;
-        if (u_has_base_color_texture != 0) {
-            opacity *= texture(u_base_color_texture, material_uv(0)).a;
-        }
-        if (u_has_opacity_texture != 0) {
-            opacity *= luminance(texture(u_opacity_texture, material_uv(1)).rgb);
-        }
-        if (opacity < u_alpha_cutoff) {
-            discard;
-        }
-    }
-    float linear_distance = u_cube_pass != 0
-        ? length(v_world_position - u_shadow_origin)
-        : dot(v_world_position - u_shadow_origin, u_shadow_direction);
-    out_linear_depth = clamp(
-        (linear_distance - u_shadow_near) /
-        max(u_shadow_far - u_shadow_near, 1.0e-6),
-        0.0,
-        1.0);
-}
-)GLSL";
-
-constexpr const char* kSkyFragmentShader = R"GLSL(
-#version 450 core
-layout(binding = 6) uniform samplerCube u_environment_prefilter;
-uniform vec3 u_camera_forward;
-uniform vec3 u_camera_right;
-uniform vec3 u_camera_up;
-uniform float u_viewport_width;
-uniform float u_viewport_height;
-uniform vec3 u_environment_color;
-uniform float u_environment_intensity;
-uniform float u_environment_rotation_radians;
-in vec2 v_ndc;
-layout(location = 0) out vec4 out_linear_color;
-vec3 rotate_y(vec3 direction, float radians) {
-    float c = cos(radians);
-    float s = sin(radians);
-    return vec3(c * direction.x + s * direction.z, direction.y, -s * direction.x + c * direction.z);
-}
-void main() {
-    vec3 direction = normalize(
-        u_camera_forward +
-        v_ndc.x * 0.5 * u_viewport_width * u_camera_right +
-        v_ndc.y * 0.5 * u_viewport_height * u_camera_up);
-    direction = rotate_y(direction, -u_environment_rotation_radians);
-    vec3 radiance = textureLod(u_environment_prefilter, direction, 0.0).rgb;
-    out_linear_color = vec4(radiance * u_environment_color * u_environment_intensity, 1.0);
-}
-)GLSL";
-
-constexpr const char* kCompositeFragmentShader = R"GLSL(
-#version 450 core
-layout(binding = 0) uniform sampler2D u_opaque;
-layout(binding = 1) uniform sampler2D u_accum;
-layout(binding = 2) uniform sampler2D u_reveal;
-layout(binding = 3) uniform sampler2D u_ao_bent_normal;
-layout(binding = 4) uniform sampler2D u_view_normal;
-layout(binding = 5) uniform sampler2D u_linear_depth;
-uniform int u_ao_debug_view;
-uniform float u_scene_radius;
-in vec2 v_ndc;
-layout(location = 0) out vec4 out_linear_color;
-void main() {
-    vec2 uv = v_ndc * 0.5 + 0.5;
-    if (u_ao_debug_view != 0) {
-        float depth = texture(u_linear_depth, uv).r;
-        vec3 view_normal = texture(u_view_normal, uv).xyz;
-        vec4 ao = texture(u_ao_bent_normal, uv);
-        vec3 debug_color = vec3(0.0);
-        if (u_ao_debug_view == 1) {
-            debug_color = vec3(depth > 0.0 ? ao.a : 1.0);
-        } else if (u_ao_debug_view == 2) {
-            debug_color = depth > 0.0
-                ? normalize(ao.xyz) * 0.5 + 0.5
-                : vec3(0.0);
-        } else if (u_ao_debug_view == 3) {
-            debug_color = depth > 0.0
-                ? normalize(view_normal) * 0.5 + 0.5
-                : vec3(0.0);
-        } else {
-            debug_color = vec3(clamp(
-                depth / max(u_scene_radius * 4.0, 1.0e-5),
-                0.0,
-                1.0));
-        }
-        out_linear_color = vec4(debug_color, 1.0);
-        return;
-    }
-    vec3 opaque = texture(u_opaque, uv).rgb;
-    vec4 accum = texture(u_accum, uv);
-    float reveal = clamp(texture(u_reveal, uv).r, 0.0, 1.0);
-    vec3 transparent = accum.rgb / max(accum.a, 1.0e-5);
-    out_linear_color = vec4(transparent * (1.0 - reveal) + opaque * reveal, 1.0);
-}
-)GLSL";
-
 }  // namespace
 
 class OpenGlRasterRenderer::Impl {
@@ -877,6 +716,11 @@ public:
         ao_gbuffer_fragment_path_ = locate_auxiliary_shader("ao_gbuffer.frag");
         ao_fragment_path_ = locate_auxiliary_shader("ambient_occlusion.frag");
         ao_denoise_fragment_path_ = locate_auxiliary_shader("ao_denoise.frag");
+        sky_vertex_path_ = locate_auxiliary_shader("sky.vert");
+        sky_fragment_path_ = locate_auxiliary_shader("sky.frag");
+        shadow_vertex_path_ = locate_auxiliary_shader("shadow.vert");
+        shadow_fragment_path_ = locate_auxiliary_shader("shadow.frag");
+        composite_fragment_path_ = locate_auxiliary_shader("composite.frag");
         glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
         glGenVertexArrays(1, &vao_);
         glGenBuffers(1, &vertex_buffer_);
@@ -893,21 +737,24 @@ public:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        std::string sky_error;
-        if (!sky_program_.load_sources(kSkyVertexShader, kSkyFragmentShader, sky_error)) {
-            throw std::runtime_error(sky_error);
+        std::string auxiliary_error;
+        if (!sky_program_.load(
+                sky_vertex_path_,
+                sky_fragment_path_,
+                auxiliary_error)) {
+            throw std::runtime_error("Sky shader: " + auxiliary_error);
         }
-        if (!composite_program_.load_sources(
-                kSkyVertexShader,
-                kCompositeFragmentShader,
-                sky_error)) {
-            throw std::runtime_error(sky_error);
+        if (!composite_program_.load(
+                sky_vertex_path_,
+                composite_fragment_path_,
+                auxiliary_error)) {
+            throw std::runtime_error("Composite shader: " + auxiliary_error);
         }
-        if (!shadow_program_.load_sources(
-                kShadowVertexShader,
-                kShadowFragmentShader,
-                sky_error)) {
-            throw std::runtime_error(sky_error);
+        if (!shadow_program_.load(
+                shadow_vertex_path_,
+                shadow_fragment_path_,
+                auxiliary_error)) {
+            throw std::runtime_error("Shadow shader: " + auxiliary_error);
         }
         create_brdf_lut();
         create_ltc_luts();
@@ -1152,7 +999,7 @@ public:
             uniforms_.rect_area_light_count,
             static_cast<int>(scene.rect_area_lights.size()));
 
-        std::array<Mat4, 32> shadow_matrices;
+        std::array<Mat4, kOpenGlMaxShadowLightSlots> shadow_matrices;
         std::array<float, 32 * 4> shadow_origin_far{};
         std::array<float, 32 * 4> shadow_direction_near{};
         std::array<float, 32 * 4> cube_position_far{};
@@ -1161,7 +1008,7 @@ public:
             matrix = Mat4::Identity();
         }
         for (const ShadowSlot& slot : shadow_slots_) {
-            if (slot.layer < 0 || slot.layer >= 32) {
+            if (slot.layer < 0 || slot.layer >= kOpenGlMaxShadowLightSlots) {
                 continue;
             }
             const std::size_t layer = static_cast<std::size_t>(slot.layer);
@@ -1191,7 +1038,10 @@ public:
                 shadow_matrices[0].data());
         }
         if (uniforms_.shadow_origin_far >= 0) {
-            glUniform4fv(uniforms_.shadow_origin_far, 32, shadow_origin_far.data());
+            glUniform4fv(
+                uniforms_.shadow_origin_far,
+                kOpenGlMaxShadowLightSlots,
+                shadow_origin_far.data());
         }
         if (uniforms_.shadow_direction_near >= 0) {
             glUniform4fv(
@@ -1206,7 +1056,10 @@ public:
                 cube_position_far.data());
         }
         if (uniforms_.cube_shadow_near >= 0) {
-            glUniform1fv(uniforms_.cube_shadow_near, 32, cube_near.data());
+            glUniform1fv(
+                uniforms_.cube_shadow_near,
+                kOpenGlMaxShadowLightSlots,
+                cube_near.data());
         }
         const auto& shadow_settings = settings.opengl.shadow_map;
         const auto& pcss_settings = settings.opengl.pcss;
@@ -1218,9 +1071,15 @@ public:
             std::max(0.0f, shadow_settings.slope_bias));
         set_uniform(uniforms_.pcss_enabled, pcss_settings.enabled ? 1 : 0);
         set_uniform(uniforms_.pcss_blocker_samples,
-            std::clamp(pcss_settings.blocker_samples, 1, 64));
+            std::clamp(
+                pcss_settings.blocker_samples,
+                1,
+                kOpenGlMaxPcssSamples));
         set_uniform(uniforms_.pcss_filter_samples,
-            std::clamp(pcss_settings.filter_samples, 1, 64));
+            std::clamp(
+                pcss_settings.filter_samples,
+                1,
+                kOpenGlMaxPcssSamples));
         set_uniform(uniforms_.pcss_max_penumbra_texels,
             std::clamp(pcss_settings.max_penumbra_texels, 0.0f, 256.0f));
         set_uniform(uniforms_.pcss_light_size_scale,
@@ -1360,12 +1219,21 @@ public:
             file_write_time(ao_gbuffer_fragment_path_),
             file_write_time(ao_fragment_path_),
             file_write_time(ao_denoise_fragment_path_)};
+        const std::array<std::filesystem::file_time_type, 5>
+            auxiliary_write_times{
+                file_write_time(sky_vertex_path_),
+                file_write_time(sky_fragment_path_),
+                file_write_time(shadow_vertex_path_),
+                file_write_time(shadow_fragment_path_),
+                file_write_time(composite_fragment_path_)};
         const bool main_changed =
             vertex_write_time != vertex_write_time_ ||
             fragment_write_time != fragment_write_time_;
         const bool ao_changed = main_changed || ao_write_times != ao_write_times_;
+        const bool auxiliary_changed =
+            main_changed || auxiliary_write_times != auxiliary_write_times_;
         if (!reload_requested_ &&
-            !main_changed && !ao_changed) {
+            !main_changed && !ao_changed && !auxiliary_changed) {
             return;
         }
         const bool reload_all = reload_requested_;
@@ -1373,6 +1241,7 @@ public:
         vertex_write_time_ = vertex_write_time;
         fragment_write_time_ = fragment_write_time;
         ao_write_times_ = ao_write_times;
+        auxiliary_write_times_ = auxiliary_write_times;
 
         std::string errors;
         if (reload_all || main_changed) {
@@ -1416,6 +1285,39 @@ public:
                 ao_shaders_available_ = static_cast<bool>(ao_gbuffer_program_) &&
                     static_cast<bool>(ao_program_) &&
                     static_cast<bool>(ao_denoise_program_);
+                if (!errors.empty()) {
+                    errors += '\n';
+                }
+                errors += error;
+            }
+        }
+        if (reload_all || auxiliary_changed) {
+            GlShaderProgram sky_replacement;
+            GlShaderProgram composite_replacement;
+            GlShaderProgram shadow_replacement;
+            std::string error;
+            bool valid = sky_replacement.load(
+                sky_vertex_path_, sky_fragment_path_, error);
+            if (!valid) {
+                error = "Sky shader: " + error;
+            } else if (!composite_replacement.load(
+                           sky_vertex_path_,
+                           composite_fragment_path_,
+                           error)) {
+                valid = false;
+                error = "Composite shader: " + error;
+            } else if (!shadow_replacement.load(
+                           shadow_vertex_path_,
+                           shadow_fragment_path_,
+                           error)) {
+                valid = false;
+                error = "Shadow shader: " + error;
+            }
+            if (valid) {
+                sky_program_ = std::move(sky_replacement);
+                composite_program_ = std::move(composite_replacement);
+                shadow_program_ = std::move(shadow_replacement);
+            } else {
                 if (!errors.empty()) {
                     errors += '\n';
                 }
@@ -1480,11 +1382,17 @@ private:
     std::filesystem::path ao_gbuffer_fragment_path_;
     std::filesystem::path ao_fragment_path_;
     std::filesystem::path ao_denoise_fragment_path_;
+    std::filesystem::path sky_vertex_path_;
+    std::filesystem::path sky_fragment_path_;
+    std::filesystem::path shadow_vertex_path_;
+    std::filesystem::path shadow_fragment_path_;
+    std::filesystem::path composite_fragment_path_;
     std::filesystem::file_time_type vertex_write_time_ =
         std::filesystem::file_time_type::min();
     std::filesystem::file_time_type fragment_write_time_ =
         std::filesystem::file_time_type::min();
     std::array<std::filesystem::file_time_type, 4> ao_write_times_{};
+    std::array<std::filesystem::file_time_type, 5> auxiliary_write_times_{};
     std::chrono::steady_clock::time_point next_shader_check_ =
         std::chrono::steady_clock::time_point::min();
     bool auto_reload_ = true;
@@ -2167,7 +2075,10 @@ private:
                     right.priority,
                     right.contribution);
             });
-        const int budget = std::clamp(configured.max_shadow_lights, 1, 32);
+        const int budget = std::clamp(
+            configured.max_shadow_lights,
+            1,
+            kOpenGlMaxShadowLightSlots);
         if (static_cast<int>(candidates.size()) > budget) {
             shadow_budget_excluded_count_ =
                 static_cast<int>(candidates.size()) - budget;
@@ -2179,7 +2090,10 @@ private:
         const int maximum_cube_layers = std::max(0, hardware_layers / 6);
         int layers_2d = 0;
         int cube_layers = 0;
-        const int resolution = std::clamp(configured.resolution, 128, 4096);
+        const int resolution = std::clamp(
+            configured.resolution,
+            kOpenGlShadowResolutionMin,
+            kOpenGlShadowResolutionMax);
         for (const ShadowCandidate& candidate : candidates) {
             int layer = -1;
             if (candidate.cube) {

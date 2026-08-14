@@ -5,6 +5,13 @@
 
 namespace renderer {
 
+// Shared C++/GLSL constants. The GLSL sources must match these values; the
+// source-text lint (tests/opengl_shader_lint_tests.cpp) verifies that.
+inline constexpr int kOpenGlMaxShadowLightSlots = 32;
+inline constexpr int kOpenGlMaxPcssSamples = 64;
+inline constexpr int kOpenGlShadowResolutionMin = 128;
+inline constexpr int kOpenGlShadowResolutionMax = 4096;
+
 struct OpenGlShaderBinding {
     int location = -1;
     std::string_view name;

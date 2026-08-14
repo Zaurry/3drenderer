@@ -112,7 +112,10 @@ public:
     int accumulated_samples() const;
     CudaStreamHandle stream_handle() const;
     int device_id() const;
+    // Returns the cached statistics snapshot. Call refresh_statistics() to
+    // fold in the latest GPU event timings first.
     const CudaPathStatistics& statistics() const;
+    void refresh_statistics();
     CudaPathDiagnosticProfile download_diagnostic_profile();
     void set_presentation_state(bool interop_active, bool fallback_active);
 

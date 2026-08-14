@@ -78,6 +78,12 @@ const CudaPathStatistics* PathInteractiveSession::cuda_statistics() const {
     return cuda_renderer_ ? &cuda_renderer_->statistics() : nullptr;
 }
 
+void PathInteractiveSession::refresh_cuda_statistics() const {
+    if (cuda_renderer_) {
+        cuda_renderer_->refresh_statistics();
+    }
+}
+
 void PathInteractiveSession::set_cuda_presentation_state(
     bool interop_active,
     bool fallback_active) {

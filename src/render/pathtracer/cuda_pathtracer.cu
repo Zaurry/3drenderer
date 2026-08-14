@@ -3,6 +3,7 @@
 
 #include "acceleration/bvh.h"
 #include "core/timer.h"
+#include "render/mis_weight.h"
 #include "scene/material.h"
 #include "scene/texture.h"
 
@@ -854,18 +855,6 @@ __device__ float linear_determinant(
         matrix.values[2] *
             (matrix.values[4] * matrix.values[9] -
              matrix.values[5] * matrix.values[8]);
-}
-
-__device__ float power_heuristic(float first_pdf, float second_pdf) {
-    if (!(first_pdf > 0.0f) || !isfinite(first_pdf)) {
-        return 0.0f;
-    }
-    if (!(second_pdf > 0.0f) || !isfinite(second_pdf)) {
-        return 1.0f;
-    }
-    const float first_squared = first_pdf * first_pdf;
-    const float second_squared = second_pdf * second_pdf;
-    return first_squared / (first_squared + second_squared);
 }
 
 __device__ DVec3 reflect_vector(DVec3 value, DVec3 normal) {
@@ -7117,13 +7106,15 @@ public:
         const bool progressive_key_changed =
             !has_progressive_key_ ||
             !(progressive_key == progressive_key_);
-        const bool reset_accumulation =
+        // Single invalidation predicate: both the accumulation reset and the
+        // interaction/preview fast path below use the same five conditions.
+        const bool interaction_changed =
             progressive_key_changed ||
             frame_state.camera_changed ||
             scene_changes != SceneChange::None ||
             frame_state.framebuffer_resized ||
             frame_state.reset_requested;
-        if (reset_accumulation) {
+        if (interaction_changed) {
             frame_.reset(
                 settings.width,
                 settings.height,
@@ -7166,12 +7157,6 @@ public:
             return;
         }
 
-        const bool interaction_changed =
-            progressive_key_changed ||
-            frame_state.camera_changed ||
-            scene_changes != SceneChange::None ||
-            frame_state.framebuffer_resized ||
-            frame_state.reset_requested;
         if (interaction_changed) {
             idle_frames_ = 0;
             preview_dirty_ = true;
@@ -7267,13 +7252,16 @@ public:
         return reinterpret_cast<CudaStreamHandle>(frame_.stream());
     }
 
-    const CudaPathStatistics& statistics() {
+    const CudaPathStatistics& statistics() const {
+        return statistics_;
+    }
+
+    void refresh_statistics() {
         frame_.update_timings();
         preview_frame_.update_timings();
         if (scene_) {
             scene_->update_timing();
         }
-        return statistics_;
     }
 
     CudaPathDiagnosticProfile download_diagnostic_profile() {
@@ -7733,6 +7721,10 @@ int CudaPathInteractiveRenderer::device_id() const {
 
 const CudaPathStatistics& CudaPathInteractiveRenderer::statistics() const {
     return impl_->statistics();
+}
+
+void CudaPathInteractiveRenderer::refresh_statistics() {
+    impl_->refresh_statistics();
 }
 
 CudaPathDiagnosticProfile

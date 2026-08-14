@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/interactive/interactive_render_session.h"
+#include "render/interactive/render_frame_output.h"
 
 #include <filesystem>
 #include <memory>
@@ -25,7 +26,7 @@ constexpr bool open_gl_requires_geometry_upload(SceneChangeSet changes) {
         has_scene_change(changes, SceneChange::InstanceTransforms);
 }
 
-class OpenGlRasterRenderer {
+class OpenGlRasterRenderer : public TextureLifetimeOwner {
 public:
     OpenGlRasterRenderer(
         std::filesystem::path vertex_shader_path,

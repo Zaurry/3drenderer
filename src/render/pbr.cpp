@@ -1,5 +1,8 @@
 #include "render/pbr.h"
 
+#include "render/mis_weight.h"
+#include "render/shading_constants.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -39,7 +42,10 @@ float smith_g1(float n_dot_v, float alpha) {
 }
 
 float specular_probability(const PbrSurface& surface) {
-    const Color luminance_weights(0.2126f, 0.7152f, 0.0722f);
+    const Color luminance_weights(
+        kLuminanceWeights[0],
+        kLuminanceWeights[1],
+        kLuminanceWeights[2]);
     const float diffuse_energy = std::max(0.0f, surface.diffuse_color.dot(luminance_weights));
     const float specular_energy = std::max(0.0f, surface.specular_f0.dot(luminance_weights));
     const float total = diffuse_energy + specular_energy;
@@ -201,12 +207,6 @@ PbrSample sample_pbr(
         evaluated.brdf * (cosine / evaluated.pdf),
         evaluated.pdf,
         true};
-}
-
-float power_heuristic(float pdf_a, float pdf_b) {
-    const float a2 = pdf_a * pdf_a;
-    const float b2 = pdf_b * pdf_b;
-    return a2 / std::max(a2 + b2, 1.0e-20f);
 }
 
 }  // namespace renderer

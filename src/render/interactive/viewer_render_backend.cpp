@@ -151,9 +151,6 @@ public:
                 selection_reason);
         }
         session_.reset(snapshot, settings);
-        source_id_ = snapshot.source_id;
-        revisions_ = snapshot.revisions;
-        has_snapshot_ = true;
         framebuffer_->resize(settings.width, settings.height);
         output_ = HostFrameHandle{framebuffer_};
         interop_->initialize(*device_context);
@@ -164,16 +161,9 @@ public:
         const Camera& camera,
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state) override {
-        InteractiveFrameState effective_frame_state = frame_state;
-        effective_frame_state.scene_changes = scene_changes_for_snapshot(
-            source_id_,
-            revisions_,
-            has_snapshot_,
-            snapshot,
-            frame_state.scene_changes);
-        source_id_ = snapshot.source_id;
-        revisions_ = snapshot.revisions;
-        has_snapshot_ = true;
+        // Scene-change detection is owned by CudaPathInteractiveRenderer,
+        // which diffs revisions against its uploaded snapshot. The caller's
+        // hint flows through unchanged.
         if (interop_->state() != CudaOpenGlInteropState::Fallback &&
             interop_->state() != CudaOpenGlInteropState::Unavailable) {
             const CudaStreamHandle stream = session_.cuda_stream_handle();
@@ -188,7 +178,7 @@ public:
                         snapshot,
                         camera,
                         settings,
-                        effective_frame_state,
+                        frame_state,
                         surface);
                 } catch (...) {
                     interop_->cancel_frame();
@@ -215,7 +205,7 @@ public:
             snapshot,
             camera,
             settings,
-            effective_frame_state,
+            frame_state,
             *framebuffer_);
         session_.set_cuda_presentation_state(false, true);
         output_ = HostFrameHandle{framebuffer_};
@@ -231,6 +221,7 @@ public:
         result.accumulated_samples = session_.accumulated_samples();
         result.interop_status = interop_state_name(interop_->state());
         result.interop_detail = interop_->reason();
+        session_.refresh_cuda_statistics();
         if (const CudaPathStatistics* cuda = session_.cuda_statistics()) {
             result.cuda = *cuda;
         }
@@ -244,9 +235,6 @@ private:
     std::shared_ptr<Framebuffer> framebuffer_ =
         std::make_shared<Framebuffer>(1, 1);
     RenderFrameOutput output_;
-    std::uint64_t source_id_ = 0;
-    SceneRevisions revisions_;
-    bool has_snapshot_ = false;
 };
 
 }  // namespace

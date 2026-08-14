@@ -1,5 +1,6 @@
 #include "test_framework.h"
 
+#include "render/mis_weight.h"
 #include "scene/environment.h"
 
 #include <algorithm>
@@ -114,6 +115,30 @@ RENDER_TEST(test_dominant_environment_light_extraction) {
 }
 
 }  // namespace
+
+RENDER_TEST(test_power_heuristic_edge_contract) {
+    // Canonical MIS weighting shared by pbr.cpp and cuda_pathtracer.cu via
+    // render/mis_weight.h; invalid pdfs follow the guarded convention.
+    RENDER_CHECK(renderer::power_heuristic(0.0f, 1.0f) == 0.0f);
+    RENDER_CHECK(renderer::power_heuristic(1.0f, 0.0f) == 1.0f);
+    RENDER_CHECK(renderer::power_heuristic(0.0f, 0.0f) == 0.0f);
+    RENDER_CHECK(renderer::power_heuristic(-1.0f, 1.0f) == 0.0f);
+    RENDER_CHECK(renderer::power_heuristic(1.0f, -1.0f) == 1.0f);
+    RENDER_CHECK(
+        renderer::power_heuristic(
+            std::numeric_limits<float>::quiet_NaN(),
+            1.0f) == 0.0f);
+    RENDER_CHECK(
+        renderer::power_heuristic(
+            1.0f,
+            std::numeric_limits<float>::infinity()) == 1.0f);
+    RENDER_CHECK(nearly_equal(
+        renderer::power_heuristic(2.0f, 1.0f),
+        0.8f));
+    RENDER_CHECK(nearly_equal(
+        renderer::power_heuristic(1.0f, 2.0f),
+        0.2f));
+}
 
 RENDER_TEST(test_environment_importance_pdf_and_sampling) {
     constexpr int width = 8;

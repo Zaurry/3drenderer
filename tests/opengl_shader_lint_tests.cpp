@@ -1,6 +1,7 @@
 #include "test_framework.h"
 
 #include "render/opengl/opengl_shader_contract.h"
+#include "render/shading_constants.h"
 
 #include <filesystem>
 #include <fstream>
@@ -101,6 +102,11 @@ RENDER_TEST(test_opengl_shader_source_contract_lint) {
     }
     for (const char* filename : {
              "fullscreen.vert",
+             "sky.vert",
+             "sky.frag",
+             "shadow.vert",
+             "shadow.frag",
+             "composite.frag",
              "ao_gbuffer.frag",
              "ambient_occlusion.frag",
              "ao_denoise.frag"}) {
@@ -119,4 +125,30 @@ RENDER_TEST(test_opengl_shader_source_contract_lint) {
         RENDER_CHECK(fragment.find(declaration) != std::string::npos);
         RENDER_CHECK(fragment.find(binding.name) != std::string::npos);
     }
+    // Shared C++/GLSL constants must stay in sync.
+    const std::string shadow_slot_declaration =
+        "u_shadow_matrices[" +
+        std::to_string(renderer::kOpenGlMaxShadowLightSlots) + "]";
+    RENDER_CHECK(
+        fragment.find(shadow_slot_declaration) != std::string::npos);
+    const std::string pcss_sample_cap =
+        "sample_index < " +
+        std::to_string(renderer::kOpenGlMaxPcssSamples);
+    RENDER_CHECK(fragment.find(pcss_sample_cap) != std::string::npos);
+    const std::string luminance_literal = "0.2126, 0.7152, 0.0722";
+    RENDER_CHECK(fragment.find(luminance_literal) != std::string::npos);
+    RENDER_CHECK(ao_gbuffer.find(luminance_literal) != std::string::npos);
+    const std::string shadow_fragment_source =
+        read_text(shader_root / "shadow.frag");
+    RENDER_CHECK(
+        shadow_fragment_source.find(luminance_literal) !=
+        std::string::npos);
+    // Punctual falloff (raster.frag) matches shading_constants.h.
+    RENDER_CHECK(
+        fragment.find("ratio * ratio * ratio * ratio") !=
+        std::string::npos);
+    RENDER_CHECK(renderer::kOpenGlShadowResolutionMin > 0);
+    RENDER_CHECK(
+        renderer::kOpenGlShadowResolutionMax >=
+        renderer::kOpenGlShadowResolutionMin);
 }

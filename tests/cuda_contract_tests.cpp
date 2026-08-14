@@ -39,6 +39,34 @@ RENDER_TEST(test_cuda_availability_contracts) {
     RENDER_CHECK(!reason.empty());
 }
 
+RENDER_TEST(test_cuda_stub_throws_uniformly_when_uncompiled) {
+    if (renderer::cuda_path_backend_compiled()) {
+        RENDER_SKIP("CUDA backend compiled; stub contract not exercised");
+    }
+    renderer::CudaPathInteractiveRenderer renderer_instance;
+    bool threw = false;
+    try {
+        (void)renderer_instance.statistics();
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    RENDER_CHECK(threw);
+    threw = false;
+    try {
+        (void)renderer_instance.stream_handle();
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    RENDER_CHECK(threw);
+    threw = false;
+    try {
+        renderer_instance.set_presentation_state(false, false);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    RENDER_CHECK(threw);
+}
+
 RENDER_TEST(test_cuda_interactive_upload_contracts) {
     std::string reason;
     if (!renderer::cuda_path_backend_available(0, &reason)) {

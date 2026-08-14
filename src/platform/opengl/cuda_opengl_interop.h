@@ -1,5 +1,6 @@
 #pragma once
 
+#include "render/interactive/render_frame_output.h"
 #include "render/pathtracer/cuda_pathtracer.h"
 
 #include <memory>
@@ -20,7 +21,7 @@ select_cuda_device_for_current_opengl_context(
     int requested_device,
     std::string* reason = nullptr);
 
-class CudaOpenGlInteropTexture {
+class CudaOpenGlInteropTexture : public TextureLifetimeOwner {
 public:
     CudaOpenGlInteropTexture();
     ~CudaOpenGlInteropTexture();
