@@ -4,6 +4,8 @@
 > 范围：`src/`、`shaders/`、`tests/`、`tools/`、`benchmarks/`、`CMakeLists.txt`、`CMakePresets.json`、`.github/`、`docs/`
 > 方式：只读代码审查（未修改任何代码），逐文件核对实现并交叉验证引用关系
 > 严重级别：🔴 高（正确性/可维护性/性能的主要风险）、🟡 中（明显设计缺陷）、🟢 低（局部问题）
+>
+> **事实核查**：本报告已经 [design-review-verification.md](design-review-verification.md)（2026-08-15，代码基线 `0235f84`）逐项核查：46 条成立、25 条部分成立、1 条不成立（§1.6）。本版本已按核查结果改写事实、数量与因果表述。标注 **⚠️ 风险** 的条目表示"未来并发 / 大场景下的潜在风险"，当前代码中尚未证实发生；性能类表述（如"卡顿""数十 MB"）未经基准测量，仅作为风险推测。
 
 ---
 
@@ -13,18 +15,18 @@
 |---|---|---|---|
 | 1 | 编辑事务 `begin_edit` 深拷贝**整条撤销历史**，undo 为全量场景快照 | 🔴 | `src/scene/scene_document.cpp:2139-2175, 2267-2301` |
 | 2 | `SceneMaterialOverride` 是 `Material` 的损副本，5 处手工同步、静默丢失 PBR/纹理变换字段 | 🔴 | `src/scene/scene_document.h:78-101` vs `src/scene/material.h:21-58` |
-| 3 | BRDF/采样逻辑三份独立实现（pbr.cpp / CUDA / GLSL），`power_heuristic` 已经漂移 | 🔴 | `src/render/pbr.cpp:206-210` vs `src/render/pathtracer/cuda_pathtracer.cu:859-869` vs `shaders/opengl/raster.frag:188-250` |
+| 3 | BRDF 求值三份独立实现（pbr.cpp / CUDA / GLSL；路径采样仅 C++/CUDA 两份），`power_heuristic` 的 NaN/非有限边界语义已漂移 | 🔴 | `src/render/pbr.cpp:206-210` vs `src/render/pathtracer/cuda_pathtracer.cu:859-869` vs `shaders/opengl/raster.frag:188-250` |
 | 4 | 主机→设备结构体用 ~50 字段的**位置聚合初始化**打包，无共享头文件、无布局断言 | 🔴 | `src/render/pathtracer/cuda_pathtracer.cu:117-296, 4753-4843` |
 | 5 | CUDA 路径追踪器 7,749 行单文件；OpenGL 渲染器 3,222 行单类，无模块/测试接缝 | 🔴 | `cuda_pathtracer.cu:28-7749`；`opengl_raster_renderer.cpp:856-3149` |
 | 6 | 渐进累积重置策略散布在 UI、主循环、渲染器三层（渲染器内部同一条件写了两遍） | 🔴 | `viewer_ui.h:118-129`；`viewer_main.cpp:1065-1074,1190-1203`；`cuda_pathtracer.cu:7110-7174` |
 | 7 | 渲染全部在主线程；interop 不可用时回退路径阻塞 `cudaStreamSynchronize` | 🔴 | `viewer_main.cpp:1204-1224`；`viewer_render_backend.cpp:207-221`；`cuda_pathtracer.cu:6319-6362` |
 | 8 | `viewer_main.cpp` 的 `main()` ≈825 行 god function；`ViewerUi::draw()` ≈1,807 行 13 参数 | 🔴 | `src/viewer_main.cpp:490-1314`；`src/interactive/viewer_ui.cpp:442-2248` |
-| 9 | `mutable` 缓存由 `const` 方法修改：线程不安全，"不可变快照"契约泄漏引用 | 🔴 | `src/scene/scene_document.h:294-301`；`scene_document.cpp:743,1594,1756,2047-2050` |
+| 9 | ⚠️ 风险：`mutable` 缓存由 `const` 方法修改，未来引入并发（渲染线程/异步加载）后将线程不安全 | 🟡 | `src/scene/scene_document.h:294-301`；`scene_document.cpp:743,1594,1756,2047-2050` |
 | 10 | CUDA 相关测试在无 GPU 时**静默跳过仍报绿**，与 README/CI 的声明矛盾 | 🔴 | `tests/cuda_contract_tests.cpp:14-236`；`tests/renderer_tests.cpp:1606-1609`；`README.md:180` |
 | 11 | 4 个 FetchContent 依赖无 `URL_HASH`；`renderer_core_diagnostics` 把整个核心（含 278KB .cu）重复编译一遍 | 🔴 | `CMakeLists.txt:81-148, 274-279, 403-428` |
-| 12 | 测试框架只有 `exit(1)` 断言；`renderer_tests.cpp` 5,874 行混合 10+ 领域；`opengl_contract_tests` 实际是 grep 文本 | 🔴 | `tests/test_framework.h:8-19`；`tests/opengl_contract_tests.cpp:157-248` |
-| 13 | `learning/`（GAMES202 课程作业）5,085 个文件、约 390MB 全部入库（占仓库跟踪文件 97%） | 🔴 | `git ls-files`；`.gitignore` 未包含 `learning/` |
-| 14 | `ViewerUiActions` 22 个布尔标志的"穷人事件系统"，其中 2 个标志无人读取 | 🟡 | `src/interactive/viewer_ui.h:94-130`；`viewer_ui.cpp:814,820,831,836` |
+| 12 | 测试框架只有 `exit(1)` 断言；`renderer_tests.cpp` 5,874 行混合 10+ 领域；`opengl_contract_tests` 的 shader 契约部分靠源码子串检查 | 🔴 | `tests/test_framework.h:8-19`；`tests/opengl_contract_tests.cpp:157-248` |
+| 13 | `learning/`（GAMES202 课程作业）5,085 个文件、跟踪体积约 270 MiB 入库（占跟踪文件 96.8%） | 🔴 | `git ls-files`；`.gitignore` 未包含 `learning/` |
+| 14 | `ViewerUiActions` 19 个布尔标志的"穷人事件系统"，其中 2 个标志无人读取 | 🟡 | `src/interactive/viewer_ui.h:94-130`；`viewer_ui.cpp:814,820,831,836` |
 | 15 | 两层会话抽象三重委托；GLSL↔C++ 契约字符串化且大部分未被使用 | 🟡 | `interactive_render_session.h:116-128`；`opengl_shader_contract.h` vs `opengl_raster_renderer.cpp:104-464` |
 
 ---
@@ -34,9 +36,9 @@
 ### 1.1 🔴 `SceneMaterialOverride` 是 `Material` 的损副本，需要 5 处手工同步
 **位置**：`src/scene/scene_document.h:78-101` vs `src/scene/material.h:21-58`；`src/scene/scene_document.cpp:208-233, 235-262, 264-308, 2471-2506, 2817-2883`
 
-`SceneMaterialOverride` 复制了 `Material` 的 11 个标量字段，但**丢失**了 `pbr_workflow`、`specular_color/factor/glossiness`、3 个 specular 纹理 id 和全部 8 个 `TextureTransform`。字段映射在 5 个位置手工维护（校验、从 Material 转换、应用、序列化、反序列化）。给 `Material` 增加一个字段会静默破坏材质覆盖；并且覆盖用倒置的 `use_*_texture` 布尔表达纹理，`apply_material_override` 只会把 `texture_id` 置 -1（`scene_document.cpp:284-307`），覆盖永远无法"重新启用或改指"纹理——这是个单向门。
+`SceneMaterialOverride` 复制了 `Material` 的 11 个标量字段，但**丢失**了 `pbr_workflow`、`specular_color/factor/glossiness`、3 个 specular 纹理 id 和全部 8 个 `TextureTransform`。字段映射在 5 个位置手工维护（校验、从 Material 转换、应用、序列化、反序列化），给 `Material` 增加一个字段会静默破坏材质覆盖。`use_*_texture` 的语义为：`false` 禁用该纹理、`true` 保留源材质纹理；由于每次构建快照都从资产源材质**重新复制**后再应用覆盖（`scene_document.cpp:1977-1992`），把开关从 `false` 改回 `true` 可以重新启用原纹理；但覆盖结构不携带纹理 id，因此无法把纹理**改指**到另一张纹理。
 
-**影响**：编辑器里修改材质覆盖会丢 specular-glossiness 工作流的全部参数；纹理开关语义与名字相反；每次扩展材质都要碰 5 处代码。
+**影响**：编辑器里修改材质覆盖会丢 specular-glossiness 工作流的全部参数；每次扩展材质都要碰 5 处代码。
 
 **建议**：让覆盖直接持有完整 `Material` + 槽位，或用稀疏字段表；参照 `kMaterialTextureIds`（`scene_document.cpp:36-48` 的成员指针表）用一张表生成所有拷贝/校验/序列化代码。
 
@@ -68,16 +70,16 @@
 ### 1.5 🟢 环境/灯光状态在 `Scene`、`RenderSceneSnapshot`、`SceneDocument::State` 三处逐字重复
 **位置**：`src/scene/scene.h:22-30`；`src/scene/instanced_scene.h:80-88`；`src/scene/scene_document.h:284-289`
 
-环境 5 个字段和 4 个灯光 vector 在三种表示中重复，新增一个环境参数要改三处 + 快照装配（`scene_document.cpp:1764-1768`）+ flatten（`instanced_scene.cpp:240-253`）。
+环境 5 个字段（`environment`/`environment_map`/`environment_intensity`/`environment_rotation_degrees`/`environment_background_visible`）在 `Scene`、`RenderSceneSnapshot`、`SceneDocument::State` 三种表示中重复，新增一个环境参数要改三处 + 快照装配（`scene_document.cpp:1764-1768`）+ flatten（`instanced_scene.cpp:240-253`）。四组灯光 vector 则只存在于 `Scene` 与 `RenderSceneSnapshot`（`State` 中灯光以 `SceneObject` 表示）。
 
-**建议**：提取共享 `EnvironmentState` / `LightSet` 结构体。
+**建议**：提取共享 `EnvironmentState` 结构体。
 
-### 1.6 🟢 程序球几何存了三份
+### 1.6 🟢 程序球几何存在两种表示，且靠"空 render_geometry"分支区分
 **位置**：`src/scene/scene_document.cpp:559-609`；`src/scene/scene_document.h:63-76`
 
-纯球场景同时持有：细分后的三角形（`local_scene`）、未细分的 `render_geometry`（`spheres.clear()` 后为空）、`procedural_spheres` 列表——同一几何三个副本，快照逻辑要靠"render_geometry 为空则回退 procedural_spheres"的分支（`scene_document.cpp:1803-1805, 1996-2040`）才能工作。
+对于含程序球的场景：`local_scene` 保存球细分后的三角形（供文档拾取），`procedural_spheres` 保存原始球参数（供快照实例化）；`render_geometry` 是细分前复制的场景、其 `spheres` 随即被清空——纯球场景下它为空，并不构成第三份球几何。快照逻辑靠"render_geometry 为空则回退 procedural_spheres"的分支（`scene_document.cpp:1803-1805, 1996-2040`）区分两种表示。
 
-**建议**：只保留规范化实例 primitive 一种表示。
+**建议**：只保留规范化实例 primitive 一种表示，消除空 `render_geometry` 回退分支。
 
 ### 1.7 🟡 正交相机在数据模型中存在，但没有任何后端能渲染它
 **位置**：`src/scene/scene_document.h:43,123`；运行时 `Camera` 只有透视构造（`src/scene/camera.h:10-15`）；`src/interactive/viewer_ui.cpp:1654-1655` 显示 "Orthographic (perspective preview)"
@@ -89,16 +91,16 @@
 **建议**：要么在 Camera/渲染器实现正交，要么在导入时显式降级并警告。
 
 ### 1.8 🟢 死代码与误导性残留
-**位置**：`src/core/random.h:37-52`（`Random` 类无任何引用）；`src/scene/obj_loader.cpp:91`（`load_obj_mesh` 无调用者）；`src/scene/texture.cpp:360`（`sample_material_base_color` 无调用者）；`src/scene/scene_document.cpp:1661-1663`（`world_matrix_recursive` 忽略 depth 参数且无调用者）；`src/render/renderer.h:10-12`（`ExecutionBackend` 只有一个枚举值 `Cuda`）；`SceneMeshAsset::geometry_revision` 恒为 1 却被 CUDA BLAS 缓存作为键（`cuda_pathtracer.cu:5552`）
+**位置**：`src/core/random.h:37-52`（`Random` 类无任何引用）；`src/scene/obj_loader.cpp:91`（`load_obj_mesh` 仅被 `tests/renderer_tests.cpp:2159` 调用）；`src/scene/texture.cpp:360`（`sample_material_base_color` 仅被 `tests/renderer_tests.cpp:2310,4096` 调用）；`src/scene/scene_document.cpp:1661-1663`（`world_matrix_recursive` 忽略 depth 参数且无调用者）；`src/render/renderer.h:10-12`（`ExecutionBackend` 只有一个枚举值 `Cuda`）；`SceneMeshAsset::geometry_revision` 在文档资产中无递增路径、恒为 1，却被 CUDA BLAS 缓存作为键（`cuda_pathtracer.cu:5552`）
 
 **影响**：误导后续开发者依赖不存在的语义（geometry_revision 尤其危险）。
 
-**建议**：删除死代码；要么实现要么移除 `geometry_revision` 管线。
+**建议**：删除 `Random` 与 `world_matrix_recursive`；`load_obj_mesh`/`sample_material_base_color` 标注为测试专用；删除 `ExecutionBackend` 残留；要么实现要么移除 `geometry_revision` 管线。
 
 ### 1.9 🟡 `Material` 双轨字段：legacy `Diffuse` 与 PBR 并存、语义按来源漂移
-**位置**：`src/scene/material.h:39-48`；`material_evaluator.cpp:120-128` 优先 `base_color_texture_id` 回退 `diffuse_texture_id`；OBJ loader 只写 `diffuse_*`（`scene_asset_loader.cpp:252`），glTF loader 只写 `base_color_*`（`gltf_loader.cpp:389`）；默认 `two_sided = true`（`material.h:35`）与灯光侧的 `two_sided = false`（`light.h:44`）不一致且命名分叉为 `two_sided`/`light_two_sided`
+**位置**：`src/scene/material.h:39-48`；`material_evaluator.cpp:120-128` 优先 `base_color_texture_id` 回退 `diffuse_texture_id`；OBJ loader 写 `diffuse_*`（`scene_asset_loader.cpp:252`，同时把 diffuse 颜色写入 `Material::base_color`），glTF loader 写 `base_color_*`（`gltf_loader.cpp:389`），同一字段对不同来源含义不同，覆盖结构必须同时跟踪 `use_diffuse_texture` 与 `use_base_color_texture`。材质 `two_sided` 默认 `true`（`material.h:35`）与面积灯 `light_two_sided` 默认 `false`（`light.h:44`）表达不同对象语义，不能单独据此认定设计不一致，但命名分叉（`two_sided`/`light_two_sided`）值得统一。
 
-**建议**：加载时统一到一套 base-color 字段；统一单面默认值（glTF 规范默认单面）与命名。
+**建议**：加载时统一到一套 base-color 字段；统一 sidedness 命名。
 
 ---
 
@@ -113,21 +115,19 @@
 
 **建议**：命令对象 + 结构性共享（persistent vector / copy-on-write）；事务只备份增量。
 
-### 2.2 🟡 undo/redo 不恢复 `assets_`，撤销导入泄漏孤儿资产
+### 2.2 🟡 undo/redo 不恢复 `assets_`，撤销导入后孤儿资产保留到文档生命周期
 **位置**：`src/scene/scene_document.cpp:2267-2301`（checkpoint 只存 state_）vs `2303-2327`（undo/redo 只恢复 state_）；`Backup::assets` 只在事务路径存在（`2141,2239`）
 
-撤销一次导入会删掉 mesh 对象，但 `SceneMeshAsset`（含几何、BVH、拾取加速结构）永久留在 `assets_`；`load_asset` 的路径去重（`1036-1042`）甚至会把它复活。正确性取决于"所有导入都包在事务里"这一未强制的不变量。
+撤销一次导入会删掉 mesh 对象，但 `SceneMeshAsset`（含几何、BVH、拾取加速结构）保留在 `assets_` 中，且 `load_asset` 会按路径复用它（`1036-1042`）。准确描述是"文档生命周期内保留孤儿资产缓存"，而非不可达内存泄漏。另外 `import_path` 自带回滚（备份 state、资产数量、warnings 与 ID 计数器，异常时恢复，`1233-1343`），其正确性不依赖"所有导入都包在事务里"。
 
-**建议**：撤销状态中包含资产引用集合/引用计数，或让资产生命周期跟随引用它的对象。
+**建议**：提供显式的 `prune_unreferenced_assets()` 并在 undo/redo 后调用；或把资产保留明确文档化为路径缓存语义。
 
-### 2.3 🔴 `mutable` 缓存由 `const` 方法修改，快照引用可被下一次编辑作废
+### 2.3 🟡 ⚠️ 风险：`mutable` 缓存由 `const` 方法修改，未来引入并发后将线程不安全
 **位置**：`src/scene/scene_document.h:294-301`；`scene_document.cpp:743,1594,1756,2047-2050`
 
-`object_indices_`、`children_by_parent_`、`world_matrices_`、`world_bounds_`、`render_scene_snapshot_` 和三个 dirty 标志全是 `mutable`，由 `const` 方法重建。`render_scene_snapshot()` 返回指向共享可变缓存的 `const&`，OpenGL/CUDA/拾取后端都消费它：并发读 + 编辑即数据竞争；返回的引用也可能在下一次编辑后被改写——"不可变快照"契约不成立。没有任何锁或双缓冲。
+`object_indices_`、`children_by_parent_`、`world_matrices_`、`world_bounds_`、`render_scene_snapshot_` 和三个 dirty 标志全是 `mutable`，由 `const` 方法重建；`render_scene_snapshot()` 返回指向共享可变缓存的 `const&`。**当前代码没有渲染线程，OpenGL/CUDA 后端也不跨帧持有该引用**，因此这不是已发生的数据竞争或悬空引用；但"不可变快照"契约与实现不一致，一旦引入后台线程（渲染线程、异步资产加载）即构成数据竞争风险。
 
-**影响**：一旦未来引入后台线程（如资产异步加载回调）即触发数据竞争；后端持有跨帧引用存在被静默改写风险。
-
-**建议**：显式构建快照并返回共享/不可变句柄，或 `std::shared_mutex` 保护并强制单线程消费。
+**建议**：显式构建快照并返回共享/不可变句柄，或 `std::shared_mutex` 保护；至少在头文件中写明单线程契约与引用生命周期。
 
 ### 2.4 🟡 `find_mutable` 的 const_cast 逃逸口绕过 revision/dirty 簿记
 **位置**：`src/scene/scene_document.cpp:738-741`；直接改字段的调用点 `625-693, 1134-1135`
@@ -189,22 +189,22 @@ Shadow/AO/OIT/合成全部是 Impl 的平铺方法，没有 `AoPass`/`ShadowPass
 
 **建议**：拆成各自拥有 FBO/纹理并带 `resize()/release()` 的 Pass 类，`Impl::render` 只做编排。
 
-### 3.3 🔴 BRDF/采样三份独立实现，且 C++ 副本不作为有效交叉验证
+### 3.3 🔴 BRDF 求值三份独立实现，且 C++ 副本不作为有效交叉验证
 **位置**：`src/render/pbr.cpp:100-210`；`cuda_pathtracer.cu:2933-3014, 3035-3060`；`shaders/opengl/raster.frag:188-250, 653-729`
 
-GGX/`fresnel_schlick`/`smith_g1`/`sample_visible_ggx`/`evaluate_pbr` 在 C++、CUDA、GLSL 各写一份。C++ 版产品代码中无任何调用者，仅被 `tests/renderer_tests.cpp:5012-5077` 自测（只验证自身 pdf 一致性，**不与 CUDA/GLSL 对比**），所以它不是有效的防漂移 oracle。
+GGX/`fresnel_schlick`/`smith_g1`/`evaluate_pbr` 在 C++、CUDA、GLSL 各写一份；`sample_visible_ggx` 等路径采样只存在于 C++ 与 CUDA（光栅 GLSL 不做这类采样）。C++ 版产品代码中无任何调用者，仅被 `tests/renderer_tests.cpp:5012-5077` 自测（只验证自身 pdf 一致性，**不与 CUDA/GLSL 对比**），所以它不是有效的防漂移 oracle。
 
 ### 3.4 🟡 `power_heuristic` 已实际漂移
 **位置**：`src/render/pbr.cpp:206-210` vs `cuda_pathtracer.cu:859-869`
 
-C++ 版：`a²/max(a²+b², 1e-20)`，无 NaN/0 处理；CUDA 版：非正/非有限 pdf 分别返回 0.0/1.0，否则直接除。pdf 恰为 0 或 NaN 时两版结果不同，且没有任何测试能发现。
+C++ 版：`a²/max(a²+b², 1e-20)`，无 NaN/非有限防御；CUDA 版：非正/非有限 pdf 分别返回 0.0/1.0，否则直接除。pdf 恰为 0 的三种情况（0/正、正/0、0/0）两版结果一致；**NaN 或非有限 pdf 时两版结果不同**，且没有任何测试能发现。
 
 **建议**：MIS 权重收敛为单一定义（边界行为一致）并在测试中断言两版等价。
 
 ### 3.5 🔴 主机→设备结构体打包：位置聚合初始化、无共享头、无布局断言
 **位置**：`cuda_pathtracer.cu:117-296`（`DMaterial`/`DTexture`/`DScene`/`DInstance` 文件局部）；`4753-4843`（`pack_material`/`pack_instance` 约 50 字段 / 9 字段位置聚合初始化）
 
-新增/重排 `DMaterial` 字段而不同步改 `pack_material` 会**静默交换值**（如 texcoord int 落到 rotation float）。没有任何 `static_assert(sizeof/offsetof)`，也没有与 `Material`/GLSL uniform block 共享的头。每个材质特性要手加到 `Material`、`DMaterial`、`pack_material`、`UniformLocations`+`find_uniforms`、`raster.frag` 五处。
+`DMaterial` 用很长的位置聚合初始化构造，重排同类型字段可能造成静默错位，这个维护风险成立。但 `Material` 并不是按二进制布局直接复制成 `DMaterial`——代码逐字段构造 `DMaterial`，且同一 CUDA 翻译单元在主机与设备两侧使用它，因此缺少 `Material`/`DMaterial` 间布局断言**不会**直接造成 ABI 错配；真正的问题是字段映射与聚合初始化缺少编译期约束。每个材质特性要手加到 `Material`、`DMaterial`、`pack_material`、`UniformLocations`+`find_uniforms`、`raster.frag` 五处。
 
 **建议**：从一个材质 schema 生成设备结构体与打包器（以及 GLSL uniform/SSBO block），或至少把 `D*` 移进共享 `.cuh` 并对 `Material`/`DMaterial`/SSBO 做布局静态断言。
 
@@ -222,10 +222,10 @@ C++ 版：`a²/max(a²+b², 1e-20)`，无 NaN/0 处理；CUDA 版：非正/非�
 
 **建议**：共享常量进契约头并从它生成/预处理 shader 源，或启动时断言一致。
 
-### 3.8 🟡 四套几何遍历表示并存
-**位置**：CPU `Bvh`（`src/acceleration/bvh.h:21-29`）+ `SceneIntersector`（仅拾取用，`scene_document.h:72`）；CUDA 自己的 `intersect_triangle_geometry`（`cuda_pathtracer.cu:1078-1111`）+ **另一个**主机侧 `GpuBvh4Builder`（`494-723`），而 `Bvh::build_layout`（`bvh.h:25` 注明 "for GPU upload"）**未被 CUDA 使用**；GLSL 走硬件光栅化
+### 3.8 🟡 几何遍历的多个实现并存，且 `Bvh::build_layout` 未被 CUDA 使用
+**位置**：CPU `Bvh`（`src/acceleration/bvh.h:21-29`）+ `SceneIntersector`（仅拾取用，`scene_document.h:72`）；CUDA 自己的 `intersect_triangle_geometry`（`cuda_pathtracer.cu:1078-1111`）+ 主机侧 `GpuBvh4Builder`（`494-723`）；GLSL 走硬件光栅化
 
-两套 CPU BVH 构建器 + 一套设备遍历 + 硬件光栅化。
+`SceneIntersector` 是 CPU BVH 的使用层而非独立几何表示，硬件光栅化也不是显式软件遍历结构——原"四套表示"的计数混合了数据布局、构建器、遍历器与硬件管线。准确的问题是：存在两套 CPU BVH 构建器（binary `Bvh` 与 wide `GpuBvh4Builder`），且 `Bvh::build_layout`（`bvh.h:25` 注明 "for GPU upload"）未被 CUDA 路径使用。
 
 **建议**：CUDA 路径复用 `Bvh::build_layout` 输出，或把 BVH4 构建器移入 `acceleration/` 作为唯一 GPU 构建器，节点布局经公共头共享。
 
@@ -237,7 +237,7 @@ C++ 版：`a²/max(a²+b², 1e-20)`，无 NaN/0 处理；CUDA 版：非正/非�
 ### 3.10 🟡 SSAO/GTAO/PCSS 数学在 C++ 与 GLSL 镜像维护
 **位置**：`src/render/opengl/opengl_ao_math.h:11-143` vs `shaders/opengl/ambient_occlusion.frag:32-46,244-268`、`raster.frag:621-651`；`opengl_shadow_math.h:128-148` vs `raster.frag:477-487`
 
-C++ 副本用于 CPU 阴影拟合/诊断，但没有任何机制保证两语言一致；数值微调必须改两个语言。
+C++ 与 GLSL 存在对应的 AO/PCSS 数学实现，且缺少跨语言自动数值一致性验证。准确地说：C++ AO/PCSS helper 主要由 `opengl_contract_tests` 作为测试 oracle 使用，生产 OpenGL renderer 直接使用的是方向光阴影拟合 helper；报告把测试 oracle、生产 CPU 算法与 shader 镜像概括为同一种"CPU 诊断路径"不够准确。数值微调必须改两个语言这一点成立。
 
 **建议**：选一边为真值生成另一边，或加 shader/C++ 数值一致性测试。
 
@@ -248,12 +248,12 @@ C++ 副本用于 CPU 阴影拟合/诊断，但没有任何机制保证两语言�
 
 **建议**：让渲染器独占 `ProgressiveRenderKey` 决策，UI 只上报"为什么变了"；合并两个相同条件块。
 
-### 3.12 🟢 `ProgressiveRenderKey` 用浮点 `==` 比较相机向量
+### 3.12 🟢 评审意见：`ProgressiveRenderKey` 用浮点 `==` 比较相机向量
 **位置**：`cuda_pathtracer.cu:7306-7373`
 
-任何亚像素漂移（空转 orbit 的 epsilon）都重置累积；NaN/denormal 相机分量会永久不等导致每帧重置。与 UI 的 `camera_changed` 布尔冗余。
+相机发生任何变化时重置路径累积通常是**正确**行为，量化相机参数反而可能让已变化的相机复用旧样本产生鬼影。除非能证明控制器静止时持续产生数值抖动，否则不能仅凭 `==` 认定缺陷；与 UI 的 `camera_changed` 布尔存在冗余这一点仍可讨论。
 
-**建议**：键中量化视角参数，或相机从键中移除、依赖 `camera_changed`，并加 NaN 安全。
+**建议**：保留 `==`；评估相机字段是否可从键中移除、依赖 `camera_changed`（评审意见，非缺陷）。
 
 ### 3.13 🟡 交互状态机约 20 个标志/整数、ad hoc 分支与约 10 个魔法阈值
 **位置**：`cuda_pathtracer.cu:7376-7381`（`kIdleFramesBeforeNative=8` 等）、`7632-7669`（约 40 个成员）、`7151-7204, 7441-7630`（preview/native-quantum/full 三态 if/else 演进）
@@ -269,12 +269,12 @@ C++ 副本用于 CPU 阴影拟合/诊断，但没有任何机制保证两语言�
 
 **建议**：struct-of-arrays arena 类型（一处 `offsetof`/`alignas` 计算），错误码改枚举。
 
-### 3.15 🟡 同一管线三套编译期变体
-**位置**：`cuda_pathtracer.cu:36-53, 417-419, 3742-3756`（`RENDERER_BENCHMARK_DIAGNOSTICS` 门控的计数器/内核）；`6256-6262, 6404-6490`（`RENDERER_CUDA_SANITIZER_FALLBACK` 手写固定拓扑启动）vs `6599-6849`（生产 CUDA Graph 路径）
+### 3.15 🟡 两套执行拓扑 + 一套编译期插桩需要同步维护
+**位置**：`cuda_pathtracer.cu:6256-6262, 6404-6490`（`RENDERER_CUDA_SANITIZER_FALLBACK` 手写固定拓扑启动）vs `6599-6849`（生产 CUDA Graph 路径）；`36-53, 417-419, 3742-3756`（`RENDERER_BENCHMARK_DIAGNOSTICS` 门控的计数器/内核）
 
-CUDA Graph、sanitizer 手启、diagnostics 计数三套拓扑需要同步维护。
+生产 CUDA Graph 与 sanitizer 手工启动路径是两套需要同步的拓扑；diagnostics 宏主要是在现有执行路径上插桩计数器，把它称为"第三套完整拓扑"有所夸大。
 
-**建议**：sanitizer 回退并入 graph 路径（或反向），诊断计数器走单一机制。
+**建议**：sanitizer 回退并入 graph 路径（或反向），诊断计数器走单一插桩机制。
 
 ### 3.16 🔴 渲染全部在主线程；fallback 回读阻塞 UI
 **位置**：`viewer_main.cpp:1204-1224`；`viewer_render_backend.cpp:207-221`；`cuda_pathtracer.cu:6319-6362`（`cudaStreamSynchronize`）；GL 上传无 PBO/持久映射（`opengl_raster_renderer.cpp:2325-2406`）
@@ -293,12 +293,12 @@ CUDA Graph、sanitizer 手启、diagnostics 计数三套拓扑需要同步维护
 
 **建议**：`StatisticsRecorder`/作用域守卫 + 单一字节记账助手，核心代码不直接摸约 20 个计数器。
 
-### 3.19 🟡 两层会话抽象三重委托；场景 diff 每帧最多算三次
-**位置**：`interactive_render_session.h:116-128` + `path_interactive_session.h/.cpp`（旧层）；`viewer_render_backend.h:43-59`（新层）；`viewer_render_backend.cpp:241`（Path 后端包 `PathInteractiveSession` 再包 `CudaPathInteractiveRenderer`）；OpenGL 后端 `62-70`、Path 后端 `168-173` 各自再算 `scene_changes_for_snapshot`，而 `viewer_main.cpp:942-945,1067` 也算了并传入
+### 3.19 🟡 两层会话抽象三重委托；Path 模式的场景 diff 每帧计算两次
+**位置**：`interactive_render_session.h:116-128` + `path_interactive_session.h/.cpp`（旧层）；`viewer_render_backend.h:43-59`（新层）；`viewer_render_backend.cpp:241`（Path 后端包 `PathInteractiveSession` 再包 `CudaPathInteractiveRenderer`）；Path 后端 `168-173` 与 CUDA `Impl`（`cuda_pathtracer.cu:7093-7098`）各自算一次 `scene_changes_for_snapshot`
 
-三层路径栈 + 同一 diff 每帧最多算三次。
+三层路径栈 + Path 模式同一 diff 每帧计算两次（`viewer_main.cpp:942-945` 只合并 UI/gizmo 标志位作为 hint 传入，不是第三次 revision diff）。
 
-**建议**：选一层抽象，`PathInteractiveSession` 并入 `CudaPathInteractiveRenderer`（或反向）；diff 由后端算一次向下传。
+**建议**：选一层抽象，`PathInteractiveSession` 并入 `CudaPathInteractiveRenderer`（或反向）；diff 由渲染器算一次。
 
 ### 3.20 🟢 内嵌 shader 字符串 vs 磁盘热重载双轨
 **位置**：`opengl_raster_renderer.cpp:686-852`（sky/shadow/composite 内嵌 GLSL）vs `1349-1426`（仅 raster + 3 个 AO shader 可热重载）
@@ -346,26 +346,26 @@ Reinhard/ACES/exposure 在 C++ 与合成器 shader 各一份，人工同步；�
 
 **建议**：每个面板一个 `draw_*_panel()`（返回窄 `PanelActions`），`draw()` 只做编排；文档修改收敛到单一提交层。
 
-### 4.3 🔴 `ViewerUiActions` 22 个布尔的"穷人事件系统"，2 个标志无人读取
-**位置**：`src/interactive/viewer_ui.h:94-130`；`viewer_ui.cpp:814,820,831,836`（写 `display_changed`/`ui_style_changed`）——grep 全 `src/` 无任何读取点；`focus_object`/`look_through_camera` 作为带外 `ObjectId` 走私进标志袋；`resets_path_accumulation()` 把渲染策略塞进 DTO
+### 4.3 🔴 `ViewerUiActions` 19 个布尔的"穷人事件系统"，2 个标志无人读取
+**位置**：`src/interactive/viewer_ui.h:94-130`（19 个布尔数据字段 + `scene_changes` 标志集 + 2 个带外 `ObjectId`；`resets_path_accumulation()` 是成员函数不计入字段）；`viewer_ui.cpp:814,820,831,836`（写 `display_changed`/`ui_style_changed`）——grep 全 `src/` 无任何读取点
 
 布尔无法携带载荷；哪些变更需要标志、哪些直接读状态完全靠约定，新增 widget 时无法知道该不该置标志。
 
 **建议**：类型化、带载荷的事件/命令列表（`std::variant` 或 `ViewerCommand` 队列），删除死标志。
 
-### 4.4 🟡 `document_dirty` 三处冗余存储
-**位置**：权威 `SceneDocument::dirty()`（`scene_document.cpp:2337-2340`）；镜像 `ViewerSessionState::document_dirty`（`viewer_session.h:24`）；签名 `ViewerSessionSignature::document_dirty`（`viewer_main.cpp:439,484,720`）；加载时经 `restore_file_state` 重建（`scene_document.cpp:2526-2538`，把历史坍缩成单个 checkpoint）
+### 4.4 🟡 `document_dirty` 出现在三处、角色各不相同；会话恢复丢失撤销粒度
+**位置**：权威 `SceneDocument::dirty()`（`scene_document.cpp:2337-2340`）；`ViewerSessionState::document_dirty`（`viewer_session.h:24`，加载会话时使用的传输字段）；`ViewerSessionSignature::document_dirty`（`viewer_main.cpp:439,484,720`，自动保存变更检测的瞬时比较值）
 
-一个比特三个副本可漂移，且恢复时丢失原有撤销粒度。
+三处并非"可漂移的权威存储"——运行时权威只有 `SceneDocument::dirty()`。真正的问题是：会话不保存 undo 历史，加载经 `restore_file_state` 重建（`scene_document.cpp:2526-2538`）把历史坍缩为单个 checkpoint，恢复后丢失原有撤销粒度。
 
-**建议**：只持久化 `file_path`；dirty 保存时从 `SceneDocument::dirty()` 派生。
+**建议**：只持久化 `file_path`；dirty 保存时从 `SceneDocument::dirty()` 派生；撤销粒度问题按评审意见决定是否保存历史。
 
 ### 4.5 🟡 选择/激活/材质编辑对象状态三处 reconcile
-**位置**：会话加载 `viewer_session.cpp:195-212`；gizmo 内懒校验 `viewer_ui.cpp:2255-2270`；场景打开 `viewer_main.cpp:803-804`；瞬态 `gizmo_was_using`/`gizmo_hovered` 混进持久化的 `ViewerUiState`（`viewer_ui.h:47-48`）
+**位置**：会话加载 `viewer_session.cpp:195-212`；gizmo 内懒校验 `viewer_ui.cpp:2255-2270`；场景打开 `viewer_main.cpp:803-804`。`gizmo_was_using`/`gizmo_hovered`（`viewer_ui.h:47-48`）虽位于 `ViewerUiState`，但未被 `viewer_session.cpp` 序列化，不属于"混入持久化文件"
 
 没有单一"选择不变量"执行点；过期 `ObjectId` 存活到下一个碰巧运行它的路径。
 
-**建议**：`Selection` 值类型 + 单一 `reconcile(document)`；瞬态 gizmo 命中结果不放进持久化状态。
+**建议**：`Selection` 值类型 + 单一 `reconcile(document)`；瞬态 gizmo 命中结果从 `ViewerUiState` 移到 `draw_scene_gizmo` 的返回值。
 
 ### 4.6 🟡 键盘处理三处三种机制；Escape 无条件退出
 **位置**：SDL 扫描码 `sdl_display_backend.cpp:421-443,458-467`；ImGui 快捷键 `viewer_ui.cpp:507-550`；主循环解释 `viewer_main.cpp:950-982,1121-1131`；Escape → `quit_requested` 无捕获守卫（`sdl_display_backend.cpp:439-441`），而 `poll_input` 在 ImGui 帧之前运行（`viewer_main.cpp:775` vs `868`），上一帧的 `WantCaptureKeyboard` 也救不了
@@ -382,7 +382,7 @@ Reinhard/ACES/exposure 在 C++ 与合成器 shader 各一份，人工同步；�
 ### 4.8 🟡 模式切换销毁重建整个后端并全量重传场景
 **位置**：`viewer_main.cpp:989-1000`（`render_backend = make_viewer_render_backend(...)` + `reset(snapshot)`）；`viewer_render_backend.cpp:46-55, 140-160`
 
-两个后端不共享 flatten 结果，每次切换付完整 teardown + 完整上传；大场景切换是秒级卡顿 + GPU 分配抖动。
+两个后端不共享 flatten 结果，每次切换付完整 teardown + 完整上传。⚠️ 风险：大场景下的切换卡顿与 GPU 分配抖动是风险推测，当前没有基准或测量证据。
 
 **建议**：按文档 revision 缓存 flatten 快照并在后端实例间共享；模式切换只重建后端专属 GPU 资源。
 
@@ -406,9 +406,9 @@ Reinhard/ACES/exposure 在 C++ 与合成器 shader 各一份，人工同步；�
 ### 4.12 🟢 `output()` 是"上一帧结果"状态化成员，暂停时隐式依赖陈旧帧
 **位置**：`viewer_render_backend.cpp:86-88, 225-227`；`viewer_main.cpp:1200-1224`
 
-暂停时跳过 `render()` 仍呈现 `output_`——期望行为恰好成立但靠事故而非契约；`render()` 早退未写 `output_` 时会静默呈现更旧一帧。
+暂停时主循环显式跳过 `render()` 并继续呈现 `output_` 保存的最后一帧——该控制流明确写在主循环中，不能由代码证明它只是"事故"。更准确的问题是：接口与注释没有明确规定 last-frame presentation 的生命周期契约；若 `render()` 早退未写 `output_`，`present()` 会静默呈现更旧一帧。
 
-**建议**：显式 `present_last_frame()` 语义。
+**建议**：在 `ViewerRenderBackend::output()` 注释中明确 last-completed-frame 契约（或显式 `present_last_frame()` 语义）。
 
 ---
 
@@ -435,12 +435,12 @@ Reinhard/ACES/exposure 在 C++ 与合成器 shader 各一份，人工同步；�
 
 **建议**：共享引导/序列化/`render_one_frame` 助手库，基准尽可能驱动真实 viewer 帧路径。
 
-### 5.4 🟢 对话框 inbox 的 `open` 标志在回调线程复位；回调线程读线程全局 `SDL_GetError`
+### 5.4 🟢 对话框 inbox 的 `open` 标志在回调线程复位
 **位置**：`sdl_display_backend.cpp:23-27, 513-539, 549`
 
-结果在互斥锁下入队（正确），但 `open=false` 在锁外由回调线程置位、错误经线程全局 `SDL_GetError()` 读取——第一个结果未消费时第二个对话框即可打开；错误归属不保证对应本次对话框。
+结果在互斥锁下入队（正确），但 `open = false` 在锁外由回调线程置位，因此主线程可在前一结果尚未 drain 时打开下一个对话框；结果带 `kind` 且保存在互斥队列中，不构成数据竞争。原报告中"回调线程读线程全局 `SDL_GetError()`"的说法**错误**：SDL3 的错误字符串是线程局部的（`SDL_error.h:124-145`），且文件对话框回调契约明确要求在 `filelist == nullptr` 时调用 `SDL_GetError()`（`SDL_dialog.h:81-83`）；当前代码在回调中立即复制错误字符串，符合该契约。
 
-**建议**：`open` 只由主线程 drain 时复位（或同锁下）；错误在调用时捕获。
+**建议**：`open = false` 移入同一锁作用域（或改由主线程 drain 时复位）；`SDL_GetError` 用法保持现状。
 
 ---
 
@@ -470,7 +470,7 @@ CUDA 基准构建把最贵的翻译单元编译两遍；且诊断库是生产代
 ### 6.4 🟡 每目标手工枚举 warnings/native-arch 列表；网络强依赖 configure；SDL3 自引用 cache hack
 **位置**：`CMakeLists.txt:460-497, 507-544`（两个 foreach 列表 + 诊断目标第三处重复）；`:12-40,137-149`（5 个依赖无条件 FetchContent，仅 Eigen/SDL 有 `find_package` 回退）；`:114-117`（`FETCHCONTENT_SOURCE_DIR_SDL3` 指向下载器自己的输出目录，绕开重复解压；存在后 URL 被静默忽略）
 
-新目标会静默拿不到警告与原生指令调优；无网环境无法 configure；SDL3 hack 使依赖永不更新且难读。
+新目标会静默拿不到警告与原生指令调优；无网环境无法 configure（nlohmann_json/fastgltf/tinyexr 三个依赖无条件 FetchContent；imgui 与 ImGuizmo 位于 `RENDERER_BUILD_VIEWER` 条件内，默认 viewer 构建仍会下载）；SDL3 hack 使依赖永不更新且难读。
 
 **建议**：单一 `RENDERER_TARGETS` 变量驱动；每个依赖统一"find_package 回退或 vendor"策略并文档化；删 hack、用正常缓存 + `URL_HASH`。
 
@@ -504,12 +504,12 @@ CUDA 基准构建把最贵的翻译单元编译两遍；且诊断库是生产代
 
 **建议**：真实 CUDA 测试用 `#if RENDERER_HAS_CUDA` 编译门控，no-CUDA 二进制要么响亮失败要么经 CTest `SKIP_RETURN_CODE` 注册为 skipped，绿绝不能等于"没跑"。
 
-### 7.4 🟡 `opengl_contract_tests` 从未打开 GL 上下文——它是 grep 文本
+### 7.4 🟡 `opengl_contract_tests` 的 shader 契约部分靠源码子串检查
 **位置**：`tests/opengl_contract_tests.cpp:157-248`（把 shader 源和 `opengl_raster_renderer.cpp` 读进内存做子串断言，如 `layout(location = N) in`、`GL_R32F`、`AlphaMode::Blend`）；`CMakeLists.txt:345-350`（只链接 `renderer_scene`）
 
-格式改动/注释/重构就会弄坏它，且它证明不了 shader 能编译链接、绑定在运行期匹配——只证明某些子串共存。
+该测试文件前半部分（`45-154`）执行 PCSS、方向光阴影拟合、SSAO/GTAO helper 的数值单元测试；"shader 契约"部分才依赖源码子串检查。子串检查的局限：格式改动/注释/重构就会弄坏它，且证明不了 shader 能编译链接、绑定在运行期匹配。
 
-**建议**：文本检查降级为 lint；加真实上下文（SDL/EGL headless GL）的契约测试：编译链接 shader、查询 program 输入/uniform。
+**建议**：把子串检查拆为独立 lint target 并改由契约数组生成期望字符串；数值部分保留；另加真实 GL 上下文（SDL/EGL headless）契约测试作为后续增强。
 
 ### 7.5 🟡 CI 重复矩阵、无缓存/工件/性能门槛；Windows viewer 从不执行；CUDA 从未编译
 **位置**：`.github/workflows/ci.yml:8-50`（Windows/Linux 跑同一套 no-CUDA 构建+ctest，Linux 多一个 Xvfb smoke）；`40-50`（断言 grep 字面量 `"switched to OpenGL"`，措辞一改就挂）；无 ccache/`_deps` 缓存、无工件、无基准回归 job（阈值 `docs/benchmarking.md:82-88` 只靠手工执行）
@@ -520,8 +520,8 @@ CUDA 基准构建把最贵的翻译单元编译两遍；且诊断库是生产代
 
 ## 8. 基准与仓库卫生
 
-### 8.1 🔴 `learning/` GAMES202 课程作业 5,085 文件（约 390MB）入库，占跟踪文件 97%
-**位置**：`git ls-files` 共 5,255 个文件，`learning/` 占 5,085 个；内含 Eigen/OpenEXR/zlib/TBB/pugixml/nanogui/GLFW 完整 vendor；`.gitignore` 无 `learning/`
+### 8.1 🔴 `learning/` GAMES202 课程作业 5,085 文件（跟踪体积约 270 MiB）入库，占跟踪文件 96.8%
+**位置**：`git ls-files` 共 5,255 个文件，`learning/` 占 5,085 个（96.76%），跟踪字节合计 283,069,473（269.96 MiB）；`learning/` 整个工作区约 389 MiB，差额约 119 MiB 是被 Git 忽略的本地构建产物；内含 Eigen/OpenEXR/zlib/TBB/pugixml/nanogui/GLFW 完整 vendor；`.gitignore` 无 `learning/`
 
 与渲染器构建无关；膨胀每次 clone 与历史；污染全仓库 grep/glob。
 
@@ -539,8 +539,8 @@ CI 跑 Linux，但"规范基准"在 CI 平台不可运行；没有 CUDA 工具�
 
 **建议**：忽略 raw.json 与诊断负载，只留 summary/baseline；提供小自包含基准场景（入库或带哈希 URL）。
 
-### 8.4 🟢 `output/` 只忽略顶层图片后缀，10 个分析产物仍被跟踪；`tmp/` 未忽略
-**位置**：`.gitignore:5-9` vs `git ls-files output/*`（`output/cuda-bounce-analysis/*.{png,csv,json}` 等）
+### 8.4 🟢 `output/` 只忽略顶层图片后缀，9 个分析产物仍被跟踪；`tmp/` 未忽略
+**位置**：`.gitignore:5-9` vs `git ls-files output/*`（10 个跟踪文件中 1 个是 `.gitkeep`，其余 9 个为 `output/cuda-bounce-analysis/*.{png,csv,json,txt}` 等分析产物）
 
 **建议**：忽略 `output/**`（显式 allowlist），忽略 `tmp/`。
 
@@ -548,12 +548,12 @@ CI 跑 Linux，但"规范基准"在 CI 平台不可运行；没有 CUDA 工具�
 
 ## 9. 文档一致性
 
-### 9.1 🟡 文档与实际漂移；README 自相矛盾
-**位置**：`docs/scene-object-system.md:115` 写"Viewer 会话当前写入 v3"，代码实际写 `version = 4`（`viewer_session.cpp:388`）；README 第 200 行声明 `docs/output/` 是历史记录，第 198 行又把 `renderer-hardening-results.md` 作为当前"架构硬化报告"链接；README 第 180 行与 CI 注释声称 CUDA 测试不会静默跳过，实际 §7.3 恰恰相反
+### 9.1 🟡 文档与实际漂移；README 两处表述并存易引起误读
+**位置**：`docs/scene-object-system.md:115` 写"Viewer 会话当前写入 v3"，代码实际写 `version = 4`（`viewer_session.cpp:388`）；README 第 198 行把 `renderer-hardening-results.md` 列为"本次架构硬化报告"、第 200 行说明"旧 `docs/output/`"是历史记录——两句话可以同时成立，并非自相矛盾，但容易引起误读；README 第 180 行与 CI 注释声称 CUDA 测试不会以静默跳过的绿色出现，实际与 §7.3 的测试实现不完全一致。
 
 **影响**：文档不能作为设计依据，新贡献者会照着错文档实现。
 
-**建议**：把历史 plans/specs/output 移入 `archive/`；补一份与 6 库实际构建图一致的 `docs/architecture.md`；修正版本与测试声明。
+**建议**：把历史 plans/specs/output 移入 `archive/`；补一份与 6 库实际构建图一致的 `docs/architecture.md`；修正会话版本与 CUDA 测试声明。
 
 ---
 
