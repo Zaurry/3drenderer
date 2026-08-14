@@ -78,3 +78,64 @@ RENDER_TEST(test_document_import_reparent_save_load_roundtrip) {
 
     std::filesystem::remove_all(directory);
 }
+
+RENDER_TEST(test_transaction_rejects_undo_and_redo) {
+    renderer::SceneDocument document;
+    auto edit = document.begin_edit();
+    bool rejected = false;
+    try {
+        (void)document.undo();
+    } catch (const std::logic_error&) {
+        rejected = true;
+    }
+    RENDER_CHECK(rejected);
+    rejected = false;
+    try {
+        (void)document.redo();
+    } catch (const std::logic_error&) {
+        rejected = true;
+    }
+    RENDER_CHECK(rejected);
+    edit.cancel();
+    RENDER_CHECK(!document.can_undo());
+    RENDER_CHECK(!document.can_redo());
+}
+
+RENDER_TEST(test_undo_redo_import_manages_asset_lifetime) {
+    const std::filesystem::path directory = "document_import_lifetime_tests";
+    const std::filesystem::path obj_path = directory / "triangle.obj";
+    std::filesystem::remove_all(directory);
+    std::filesystem::create_directories(directory);
+    {
+        std::ofstream obj(obj_path);
+        obj << "v -1 -1 0\n";
+        obj << "v 1 -1 0\n";
+        obj << "v 0 1 0\n";
+        obj << "f 1 2 3\n";
+    }
+
+    renderer::SceneDocument document;
+    document.import_path(obj_path, 64, 64);
+    RENDER_CHECK(document.assets().size() == 1);
+    RENDER_CHECK(document.render_scene_snapshot().instances.size() == 1);
+
+    // Undoing the import detaches the orphaned asset from the live asset
+    // list but records it with the history slot so redo can resurrect it.
+    RENDER_CHECK(document.undo());
+    RENDER_CHECK(document.assets().size() == 0);
+    RENDER_CHECK(document.render_scene_snapshot().instances.empty());
+
+    RENDER_CHECK(document.redo());
+    RENDER_CHECK(document.assets().size() == 1);
+    RENDER_CHECK(document.render_scene_snapshot().instances.size() == 1);
+    RENDER_CHECK(
+        document.render_scene_snapshot().instances[0].asset_index >= 0);
+
+    // The snapshot geometry must be usable after the redo round-trip.
+    const renderer::Scene flattened =
+        renderer::flatten_render_scene_snapshot(
+            document.render_scene_snapshot());
+    RENDER_CHECK(flattened.triangles.size() == 1);
+
+    std::filesystem::remove_all(directory);
+}

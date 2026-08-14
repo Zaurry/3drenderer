@@ -23,6 +23,9 @@ bool matches_filter(const char* name, const std::vector<std::string>& filters) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    // Flush every line so crashes inside tests do not swallow diagnostics.
+    std::cout << std::unitbuf;
+    std::cerr << std::unitbuf;
     std::vector<std::string> filters;
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
@@ -53,6 +56,7 @@ int main(int argc, char** argv) {
         if (!matches_filter(test.name, filters)) {
             continue;
         }
+        std::cout << "[RUN] " << test.name << '\n';
         try {
             test.function();
             ++passed;

@@ -159,6 +159,13 @@ struct SceneLightProperties {
     bool two_sided = false;
 };
 
+// Single-threaded editing document.
+//
+// Threading contract: SceneDocument is not thread-safe. All mutation and all
+// reads (including render_scene_snapshot()) must happen on one thread. Several
+// accessors lazily rebuild mutable caches through const methods, and the
+// snapshot accessor returns a reference into the document's own storage;
+// introduce locking here only together with a snapshot ownership redesign.
 class SceneDocument {
 public:
     SceneDocument();
@@ -230,6 +237,7 @@ public:
     ObjectId duplicate_subtree(ObjectId id);
     bool erase_subtree(ObjectId id);
     bool reparent(ObjectId id, ObjectId new_parent_id);
+    std::size_t prune_unreferenced_assets();
     bool set_world_matrix(ObjectId id, const Mat4& world);
     std::optional<SceneTrs> local_trs(ObjectId id) const;
     bool set_local_trs(ObjectId id, const SceneTrs& trs);
@@ -295,16 +303,23 @@ private:
     mutable bool snapshot_dirty_ = true;
     mutable bool object_index_dirty_ = true;
     mutable bool spatial_cache_dirty_ = true;
+    mutable bool asset_index_dirty_ = true;
     mutable std::unordered_map<ObjectId, std::size_t> object_indices_;
     mutable std::unordered_map<ObjectId, std::vector<ObjectId>> children_by_parent_;
     mutable std::unordered_map<ObjectId, Mat4> world_matrices_;
     mutable std::unordered_map<ObjectId, Bounds3> world_bounds_;
+    mutable std::unordered_map<AssetId, std::size_t> asset_indices_;
     std::uint64_t render_source_id_ = 0;
     SceneRevisions revisions_;
     bool uncheckpointed_changes_ = false;
     ObjectId next_object_id_ = 1;
     AssetId next_asset_id_ = 1;
     std::vector<State> history_;
+    // Parallel to history_: assets detached when an undo/redo move ended at
+    // the corresponding slot (referenced by no object in that state). They
+    // are re-inserted when the slot is reached again, so redo can resurrect
+    // geometry that an undo pruned.
+    std::vector<std::vector<std::shared_ptr<SceneMeshAsset>>> history_pruned_assets_;
     std::size_t history_cursor_ = 0;
     std::optional<std::size_t> saved_cursor_ = 0;
     std::filesystem::path file_path_;
@@ -313,7 +328,9 @@ private:
     std::string last_checkpoint_merge_key_;
 
     std::shared_ptr<SceneMeshAsset> find_asset(AssetId id) const;
-    SceneObject* find_mutable(ObjectId id);
+    SceneObject* mutable_object_for_edit(ObjectId id);
+    std::vector<std::shared_ptr<SceneMeshAsset>> detach_unreferenced_assets();
+    void restore_pruned_assets_at(std::size_t history_index);
     void rebuild_object_index() const;
     void rebuild_spatial_cache() const;
     void mark_changed(

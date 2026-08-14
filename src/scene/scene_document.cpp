@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <unordered_map>
@@ -554,6 +555,7 @@ std::optional<SceneTrs> SceneTransform::trs() const {
 SceneDocument::SceneDocument() {
     render_source_id_ = allocate_render_scene_source_id();
     history_.push_back(state_);
+    history_pruned_assets_.emplace_back();
 }
 
 SceneDocument SceneDocument::from_scene(
@@ -609,6 +611,7 @@ SceneDocument SceneDocument::from_scene(
     }
     build_picking_acceleration(asset);
     document.assets_.push_back(asset);
+    document.asset_index_dirty_ = true;
     SceneObject object;
     object.id = document.next_object_id_++;
     object.name = std::move(name);
@@ -622,8 +625,8 @@ SceneDocument SceneDocument::from_scene(
             "Point Light " + std::to_string(index + 1),
             point_lights[index].position,
             point_lights[index].intensity);
-        document.find_mutable(light_id)->light_range = point_lights[index].range;
-        SceneObject* light_object = document.find_mutable(light_id);
+        document.mutable_object_for_edit(light_id)->light_range = point_lights[index].range;
+        SceneObject* light_object = document.mutable_object_for_edit(light_id);
         light_object->light_source_radius = point_lights[index].source_radius;
         light_object->light_casts_shadows = point_lights[index].casts_shadows;
         light_object->light_shadow_priority = point_lights[index].shadow_priority;
@@ -637,7 +640,7 @@ SceneDocument SceneDocument::from_scene(
             spot_lights[index].range,
             spot_lights[index].inner_cone_radians,
             spot_lights[index].outer_cone_radians);
-        SceneObject* light_object = document.find_mutable(light_id);
+        SceneObject* light_object = document.mutable_object_for_edit(light_id);
         light_object->light_source_radius = spot_lights[index].source_radius;
         light_object->light_casts_shadows = spot_lights[index].casts_shadows;
         light_object->light_shadow_priority = spot_lights[index].shadow_priority;
@@ -650,7 +653,7 @@ SceneDocument SceneDocument::from_scene(
                 std::to_string(index + 1),
             directional_lights[index].direction,
             directional_lights[index].radiance);
-        SceneObject* light_object = document.find_mutable(light_id);
+        SceneObject* light_object = document.mutable_object_for_edit(light_id);
         light_object->directional_angular_radius_radians =
             directional_lights[index].angular_radius_radians;
         light_object->light_casts_shadows =
@@ -674,7 +677,7 @@ SceneDocument SceneDocument::from_scene(
             2.0f * source.axis_u.norm(),
             2.0f * source.axis_v.norm(),
             source.two_sided);
-        SceneObject* light_object = document.find_mutable(light_id);
+        SceneObject* light_object = document.mutable_object_for_edit(light_id);
         light_object->light_casts_shadows = source.casts_shadows;
         light_object->light_shadow_priority = source.shadow_priority;
         if (usable_direction(source.axis_u) &&
@@ -693,6 +696,7 @@ SceneDocument SceneDocument::from_scene(
         }
     }
     document.history_.assign(1, document.state_);
+    document.history_pruned_assets_.assign(1, {});
     document.uncheckpointed_changes_ = false;
     document.object_index_dirty_ = true;
     document.spatial_cache_dirty_ = true;
@@ -735,9 +739,17 @@ const SceneObject* SceneDocument::find(ObjectId id) const {
         : &state_.objects[found->second];
 }
 
-SceneObject* SceneDocument::find_mutable(ObjectId id) {
-    return const_cast<SceneObject*>(
+SceneObject* SceneDocument::mutable_object_for_edit(ObjectId id) {
+    SceneObject* object = const_cast<SceneObject*>(
         static_cast<const SceneDocument&>(*this).find(id));
+    if (object) {
+        // Any direct mutation invalidates the derived snapshot and counts as
+        // an uncheckpointed change. Domain revisions are still advanced by
+        // the bulk call sites (from_scene, import_gltf) or the typed setters.
+        snapshot_dirty_ = true;
+        uncheckpointed_changes_ = true;
+    }
+    return object;
 }
 
 void SceneDocument::rebuild_object_index() const {
@@ -781,7 +793,7 @@ std::vector<ObjectId> SceneDocument::children(ObjectId parent_id) const {
 }
 
 bool SceneDocument::set_object_name(ObjectId id, std::string name) {
-    SceneObject* object = find_mutable(id);
+    SceneObject* object = mutable_object_for_edit(id);
     if (!object || object->name == name) {
         return false;
     }
@@ -791,7 +803,7 @@ bool SceneDocument::set_object_name(ObjectId id, std::string name) {
 }
 
 bool SceneDocument::set_object_visible(ObjectId id, bool visible) {
-    SceneObject* object = find_mutable(id);
+    SceneObject* object = mutable_object_for_edit(id);
     if (!object || object->visible == visible) {
         return false;
     }
@@ -801,7 +813,7 @@ bool SceneDocument::set_object_visible(ObjectId id, bool visible) {
 }
 
 bool SceneDocument::set_object_locked(ObjectId id, bool locked) {
-    SceneObject* object = find_mutable(id);
+    SceneObject* object = mutable_object_for_edit(id);
     if (!object || object->locked == locked) {
         return false;
     }
@@ -813,7 +825,7 @@ bool SceneDocument::set_object_locked(ObjectId id, bool locked) {
 bool SceneDocument::set_camera_properties(
     ObjectId id,
     const SceneCameraProperties& properties) {
-    SceneObject* object = find_mutable(id);
+    SceneObject* object = mutable_object_for_edit(id);
     if (!object || object->type != SceneObjectType::Camera || object->locked ||
         !std::isfinite(properties.vertical_fov_degrees) ||
         !std::isfinite(properties.aspect_ratio) ||
@@ -843,7 +855,7 @@ bool SceneDocument::set_camera_properties(
 bool SceneDocument::set_light_properties(
     ObjectId id,
     const SceneLightProperties& properties) {
-    SceneObject* object = find_mutable(id);
+    SceneObject* object = mutable_object_for_edit(id);
     if (!object || object->locked ||
         (object->type != SceneObjectType::PointLight &&
          object->type != SceneObjectType::DirectionalLight &&
@@ -924,7 +936,7 @@ ObjectId SceneDocument::create_point_light(
     const Color& intensity,
     ObjectId parent_id) {
     const ObjectId id = create_group(std::move(name), parent_id);
-    SceneObject* object = find_mutable(id);
+    SceneObject* object = mutable_object_for_edit(id);
     object->type = SceneObjectType::PointLight;
     SceneTrs transform;
     transform.translation = position;
@@ -939,7 +951,7 @@ ObjectId SceneDocument::create_directional_light(
     const Color& radiance,
     ObjectId parent_id) {
     const ObjectId id = create_group(std::move(name), parent_id);
-    SceneObject* object = find_mutable(id);
+    SceneObject* object = mutable_object_for_edit(id);
     object->type = SceneObjectType::DirectionalLight;
     object->light_color = radiance;
     const Vec3 normalized = usable_direction(direction)
@@ -969,7 +981,7 @@ ObjectId SceneDocument::create_spot_light(
         direction,
         intensity,
         parent_id);
-    SceneObject* object = find_mutable(id);
+    SceneObject* object = mutable_object_for_edit(id);
     object->type = SceneObjectType::SpotLight;
     SceneTrs transform = object->transform.trs().value_or(SceneTrs{});
     transform.translation = position;
@@ -997,7 +1009,7 @@ ObjectId SceneDocument::create_rect_area_light(
         direction,
         radiance,
         parent_id);
-    SceneObject* object = find_mutable(id);
+    SceneObject* object = mutable_object_for_edit(id);
     object->type = SceneObjectType::RectAreaLight;
     SceneTrs transform = object->transform.trs().value_or(SceneTrs{});
     transform.translation = position;
@@ -1013,18 +1025,23 @@ ObjectId SceneDocument::create_camera(
     SceneCameraProjection projection,
     ObjectId parent_id) {
     const ObjectId id = create_group(std::move(name), parent_id);
-    SceneObject* object = find_mutable(id);
+    SceneObject* object = mutable_object_for_edit(id);
     object->type = SceneObjectType::Camera;
     object->camera_projection = projection;
     return id;
 }
 
 std::shared_ptr<SceneMeshAsset> SceneDocument::find_asset(AssetId id) const {
-    const auto found = std::find_if(
-        assets_.begin(),
-        assets_.end(),
-        [id](const std::shared_ptr<SceneMeshAsset>& asset) { return asset->id == id; });
-    return found == assets_.end() ? nullptr : *found;
+    if (asset_index_dirty_ || asset_indices_.size() != assets_.size()) {
+        asset_indices_.clear();
+        asset_indices_.reserve(assets_.size());
+        for (std::size_t index = 0; index < assets_.size(); ++index) {
+            asset_indices_.emplace(assets_[index]->id, index);
+        }
+        asset_index_dirty_ = false;
+    }
+    const auto found = asset_indices_.find(id);
+    return found == asset_indices_.end() ? nullptr : assets_[found->second];
 }
 
 std::shared_ptr<SceneMeshAsset> SceneDocument::load_asset(
@@ -1087,6 +1104,7 @@ std::shared_ptr<SceneMeshAsset> SceneDocument::store_loaded_asset(
     asset->local_bounds = loaded.bounds;
     build_picking_acceleration(asset);
     assets_.push_back(asset);
+    asset_index_dirty_ = true;
     for (const std::string& warning : asset->warnings) {
         warnings_.push_back(normalized_path.string() + ": " + warning);
     }
@@ -1121,6 +1139,7 @@ ObjectId SceneDocument::import_gltf(
         }
         assets_.push_back(std::move(asset));
     }
+    asset_index_dirty_ = true;
 
     const ObjectId root = create_group(path.stem().string(), parent_id);
     std::vector<ObjectId> node_objects;
@@ -1131,7 +1150,7 @@ ObjectId SceneDocument::import_gltf(
             ? node_objects.at(static_cast<std::size_t>(source.parent_index))
             : root;
         const ObjectId node_id = create_group(source.name, node_parent);
-        SceneObject* node = find_mutable(node_id);
+        SceneObject* node = mutable_object_for_edit(node_id);
         node->transform.local_matrix = source.local_transform;
         if (!node->transform.valid()) {
             throw std::runtime_error(
@@ -1165,7 +1184,7 @@ ObjectId SceneDocument::import_gltf(
                     ? SceneCameraProjection::Orthographic
                     : SceneCameraProjection::Perspective,
                 node_id);
-            SceneObject* camera = find_mutable(camera_id);
+            SceneObject* camera = mutable_object_for_edit(camera_id);
             camera->camera_vertical_fov_degrees =
                 camera_source.vertical_fov_radians * (180.0f / kPi);
             camera->camera_aspect_ratio = camera_source.aspect_ratio;
@@ -1190,7 +1209,7 @@ ObjectId SceneDocument::import_gltf(
                     Vec3::Zero(),
                     source.light_color * source.light_intensity,
                     node_id);
-                find_mutable(light_id)->light_range = source.light_range;
+                mutable_object_for_edit(light_id)->light_range = source.light_range;
                 break;
             }
             case GltfNodeAsset::LightType::Spot:
@@ -1337,6 +1356,7 @@ std::vector<ObjectId> SceneDocument::import_path(
         next_asset_id_ = previous_next_asset_id;
         object_index_dirty_ = true;
         spatial_cache_dirty_ = true;
+        asset_index_dirty_ = true;
         uncheckpointed_changes_ = previous_uncheckpointed_changes;
         snapshot_dirty_ = true;
         throw;
@@ -1421,7 +1441,7 @@ bool SceneDocument::is_effectively_visible(ObjectId id) const {
 }
 
 bool SceneDocument::reparent(ObjectId id, ObjectId new_parent_id) {
-    SceneObject* object = find_mutable(id);
+    SceneObject* object = mutable_object_for_edit(id);
     if (!object || id == new_parent_id ||
         (new_parent_id != kInvalidObjectId && !find(new_parent_id)) ||
         is_descendant(new_parent_id, id)) {
@@ -1453,7 +1473,7 @@ bool SceneDocument::reparent(ObjectId id, ObjectId new_parent_id) {
 }
 
 bool SceneDocument::set_world_matrix(ObjectId id, const Mat4& world) {
-    SceneObject* object = find_mutable(id);
+    SceneObject* object = mutable_object_for_edit(id);
     if (!object || object->locked) {
         return false;
     }
@@ -1485,7 +1505,7 @@ std::optional<SceneTrs> SceneDocument::local_trs(ObjectId id) const {
 }
 
 bool SceneDocument::set_local_trs(ObjectId id, const SceneTrs& trs) {
-    SceneObject* object = find_mutable(id);
+    SceneObject* object = mutable_object_for_edit(id);
     if (!object || object->locked || !trs.valid()) {
         return false;
     }
@@ -1530,7 +1550,7 @@ std::optional<SceneMaterialOverride> SceneDocument::material_properties(
 bool SceneDocument::set_material_override(
     ObjectId id,
     const SceneMaterialOverride& material_override_value) {
-    SceneObject* object = find_mutable(id);
+    SceneObject* object = mutable_object_for_edit(id);
     const auto asset = object ? find_asset(object->asset_id) : nullptr;
     if (!object ||
         object->type != SceneObjectType::Mesh ||
@@ -1569,7 +1589,7 @@ bool SceneDocument::set_material_override(
 bool SceneDocument::clear_material_override(
     ObjectId id,
     std::size_t material_slot) {
-    SceneObject* object = find_mutable(id);
+    SceneObject* object = mutable_object_for_edit(id);
     if (!object ||
         object->type != SceneObjectType::Mesh ||
         object->locked) {
@@ -2137,9 +2157,10 @@ struct SceneEditTransaction::Backup {
     std::vector<std::shared_ptr<SceneMeshAsset>> assets;
     ObjectId next_object_id = 1;
     AssetId next_asset_id = 1;
-    std::vector<SceneDocument::State> history;
-    std::size_t history_cursor = 0;
-    std::optional<std::size_t> saved_cursor;
+    // Note: the undo history (history_/history_cursor_/saved_cursor_) is
+    // intentionally NOT backed up. It cannot change while a transaction is
+    // active: checkpoint() early-returns and undo()/redo() are guarded to
+    // throw. Backing it up used to deep-copy the entire history per edit.
     bool uncheckpointed_changes = false;
     std::filesystem::path file_path;
     std::vector<std::string> warnings;
@@ -2159,9 +2180,6 @@ SceneEditTransaction::SceneEditTransaction(
     backup_->assets = document.assets_;
     backup_->next_object_id = document.next_object_id_;
     backup_->next_asset_id = document.next_asset_id_;
-    backup_->history = document.history_;
-    backup_->history_cursor = document.history_cursor_;
-    backup_->saved_cursor = document.saved_cursor_;
     backup_->uncheckpointed_changes = document.uncheckpointed_changes_;
     backup_->file_path = document.file_path_;
     backup_->warnings = document.warnings_;
@@ -2235,9 +2253,6 @@ void SceneEditTransaction::cancel() {
     document.assets_ = std::move(backup_->assets);
     document.next_object_id_ = backup_->next_object_id;
     document.next_asset_id_ = backup_->next_asset_id;
-    document.history_ = std::move(backup_->history);
-    document.history_cursor_ = backup_->history_cursor;
-    document.saved_cursor_ = backup_->saved_cursor;
     document.uncheckpointed_changes_ =
         backup_->uncheckpointed_changes;
     document.file_path_ = std::move(backup_->file_path);
@@ -2247,6 +2262,7 @@ void SceneEditTransaction::cancel() {
     document.edit_transaction_active_ = false;
     document.object_index_dirty_ = true;
     document.spatial_cache_dirty_ = true;
+    document.asset_index_dirty_ = true;
     document.snapshot_dirty_ = true;
     advance_scene_revisions(
         document.revisions_,
@@ -2267,6 +2283,7 @@ void SceneDocument::checkpoint() {
     last_checkpoint_merge_key_.clear();
     if (history_.empty()) {
         history_.push_back(state_);
+        history_pruned_assets_.emplace_back();
         history_cursor_ = 0;
         uncheckpointed_changes_ = false;
         return;
@@ -2278,13 +2295,21 @@ void SceneDocument::checkpoint() {
         if (saved_cursor_ && *saved_cursor_ > history_cursor_) {
             saved_cursor_.reset();
         }
-        history_.erase(history_.begin() + static_cast<std::ptrdiff_t>(history_cursor_ + 1), history_.end());
+        const auto redo_begin = history_.begin() +
+            static_cast<std::ptrdiff_t>(history_cursor_ + 1);
+        history_.erase(redo_begin, history_.end());
+        history_pruned_assets_.erase(
+            history_pruned_assets_.begin() +
+                static_cast<std::ptrdiff_t>(history_cursor_ + 1),
+            history_pruned_assets_.end());
     }
     history_.push_back(state_);
+    history_pruned_assets_.emplace_back();
     history_cursor_ = history_.size() - 1;
     uncheckpointed_changes_ = false;
     if (history_.size() > kMaximumHistory) {
         history_.erase(history_.begin());
+        history_pruned_assets_.erase(history_pruned_assets_.begin());
         --history_cursor_;
         if (saved_cursor_) {
             if (*saved_cursor_ == 0) {
@@ -2296,30 +2321,104 @@ void SceneDocument::checkpoint() {
     }
 }
 
+void SceneDocument::restore_pruned_assets_at(std::size_t history_index) {
+    auto& recorded = history_pruned_assets_.at(history_index);
+    if (recorded.empty()) {
+        return;
+    }
+    for (const auto& asset : recorded) {
+        assets_.push_back(asset);
+    }
+    recorded.clear();
+    asset_index_dirty_ = true;
+}
+
 bool SceneDocument::undo() {
+    if (edit_transaction_active_) {
+        throw std::logic_error(
+            "undo is not supported during an active edit transaction");
+    }
     if (!can_undo()) {
         return false;
     }
-    state_ = history_[--history_cursor_];
+    const std::size_t left = history_cursor_ - 1;
+    restore_pruned_assets_at(left);
+    state_ = history_[left];
+    history_cursor_ = left;
     object_index_dirty_ = true;
     spatial_cache_dirty_ = true;
     uncheckpointed_changes_ = false;
     advance_scene_revisions(revisions_, SceneRevisionDomain::All);
     snapshot_dirty_ = true;
+    // Record assets pruned from the state we left (the old cursor slot), so
+    // a later redo into that state can re-insert them.
+    history_pruned_assets_[left + 1] = detach_unreferenced_assets();
     return true;
 }
 
 bool SceneDocument::redo() {
+    if (edit_transaction_active_) {
+        throw std::logic_error(
+            "redo is not supported during an active edit transaction");
+    }
     if (!can_redo()) {
         return false;
     }
-    state_ = history_[++history_cursor_];
+    const std::size_t right = history_cursor_ + 1;
+    restore_pruned_assets_at(right);
+    state_ = history_[right];
+    history_cursor_ = right;
     object_index_dirty_ = true;
     spatial_cache_dirty_ = true;
     uncheckpointed_changes_ = false;
     advance_scene_revisions(revisions_, SceneRevisionDomain::All);
     snapshot_dirty_ = true;
+    // Record assets pruned from the state we left (the old cursor slot), so
+    // a later undo into that state can re-insert them.
+    history_pruned_assets_[right - 1] = detach_unreferenced_assets();
     return true;
+}
+
+std::vector<std::shared_ptr<SceneMeshAsset>>
+SceneDocument::detach_unreferenced_assets() {
+    std::unordered_set<AssetId> referenced;
+    referenced.reserve(assets_.size());
+    for (const SceneObject& object : state_.objects) {
+        if (object.type == SceneObjectType::Mesh &&
+            object.asset_id != kInvalidAssetId) {
+            referenced.insert(object.asset_id);
+        }
+    }
+    std::vector<std::shared_ptr<SceneMeshAsset>> pruned;
+    pruned.reserve(assets_.size());
+    std::vector<std::shared_ptr<SceneMeshAsset>> kept;
+    kept.reserve(assets_.size());
+    for (auto& asset : assets_) {
+        if (asset && !referenced.contains(asset->id)) {
+            pruned.push_back(std::move(asset));
+        } else {
+            kept.push_back(std::move(asset));
+        }
+    }
+    // Always publish the partition: even with nothing pruned, `kept` holds
+    // the moved-from contents of assets_.
+    assets_ = std::move(kept);
+    if (!pruned.empty()) {
+        asset_index_dirty_ = true;
+    }
+    return pruned;
+}
+
+std::size_t SceneDocument::prune_unreferenced_assets() {
+    // Explicit maintenance: drops assets not referenced by the current state.
+    // Unlike undo/redo moves, this call forgets the dropped assets for good;
+    // a later redo of the operation that introduced them cannot resurrect
+    // their geometry. Prefer letting undo/redo manage assets automatically.
+    const std::size_t previous_size = assets_.size();
+    std::vector<std::shared_ptr<SceneMeshAsset>> pruned =
+        detach_unreferenced_assets();
+    (void)pruned;
+    return previous_size - assets_.size();
 }
 
 bool SceneDocument::can_undo() const {
@@ -2550,6 +2649,7 @@ SceneDocument SceneDocument::deserialize_document(
         : document_path;
     document.state_.objects.clear();
     document.assets_.clear();
+    document.asset_index_dirty_ = true;
     if (version >= 3) {
         const auto& environment = root.at("environment");
         document.state_.environment = parse_vec3(environment.at("color"), "environment.color");
@@ -2929,6 +3029,7 @@ SceneDocument SceneDocument::deserialize_document(
         }
     }
     document.history_.assign(1, document.state_);
+    document.history_pruned_assets_.assign(1, {});
     document.history_cursor_ = 0;
     document.saved_cursor_ = 0;
     document.uncheckpointed_changes_ = false;
