@@ -177,7 +177,7 @@ viewer --scene builtin|asset
 
 ## 测试与基准
 
-测试按领域拆分为 scene、sampling、document、OpenGL contract、CUDA contract、综合 renderer 和 benchmark targets。普通 GitHub Actions 运行 Windows/Linux no-CUDA Release、Linux Mesa/Xvfb smoke 和 Linux ASan/UBSan core；需要真实 GPU 的 CUDA、interop 和 Compute Sanitizer 测试只在本机或自托管 runner 上运行，不会在普通 CI 中静默跳过后显示绿色。
+测试按领域拆分为 scene、sampling、document、OpenGL contract、CUDA contract、综合 renderer 和 benchmark targets。所有测试二进制共享一个注册表式测试运行器（支持 `--filter` 与显式 skip）；在无 CUDA 的构建上，需要 GPU 的用例会打印 `[SKIP]` 并通过 CTest 的 `SKIP_RETURN_CODE=77` 显示为 skipped，不会以绿色静默通过。普通 GitHub Actions 运行 Windows/Linux no-CUDA Release、Linux Mesa/Xvfb smoke 和 Linux ASan/UBSan core；需要真实 GPU 的 CUDA、interop 和 Compute Sanitizer 测试只在本机或自托管 runner 上运行。
 
 San Miguel 规范化基准：
 

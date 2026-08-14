@@ -330,26 +330,31 @@ if(RENDERER_BUILD_VIEWER)
     )
 endif()
 
-add_executable(renderer_tests tests/renderer_tests.cpp)
+add_executable(renderer_tests tests/renderer_tests.cpp tests/test_main.cpp)
 target_link_libraries(renderer_tests PRIVATE renderer_core)
 
-add_executable(scene_tests tests/scene_tests.cpp)
+add_executable(scene_tests tests/scene_tests.cpp tests/test_main.cpp)
 target_link_libraries(scene_tests PRIVATE renderer_scene)
 
-add_executable(sampling_tests tests/sampling_tests.cpp)
+add_executable(sampling_tests tests/sampling_tests.cpp tests/test_main.cpp)
 target_link_libraries(sampling_tests PRIVATE renderer_scene)
 
-add_executable(document_tests tests/document_tests.cpp)
+add_executable(document_tests tests/document_tests.cpp tests/test_main.cpp)
 target_link_libraries(document_tests PRIVATE renderer_scene)
 
-add_executable(opengl_contract_tests tests/opengl_contract_tests.cpp)
+add_executable(opengl_contract_tests tests/opengl_contract_tests.cpp tests/test_main.cpp)
 target_include_directories(opengl_contract_tests PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(opengl_contract_tests PRIVATE renderer_scene)
-target_compile_definitions(opengl_contract_tests PRIVATE
+
+add_executable(opengl_shader_lint_tests tests/opengl_shader_lint_tests.cpp tests/test_main.cpp)
+target_include_directories(opengl_shader_lint_tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(opengl_shader_lint_tests PRIVATE renderer_scene)
+target_compile_definitions(opengl_shader_lint_tests PRIVATE
     RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
-add_executable(cuda_contract_tests tests/cuda_contract_tests.cpp)
+add_executable(cuda_contract_tests tests/cuda_contract_tests.cpp tests/test_main.cpp)
 target_link_libraries(cuda_contract_tests PRIVATE renderer_cuda)
 
 set(RENDERER_TEST_TARGETS
@@ -358,6 +363,7 @@ set(RENDERER_TEST_TARGETS
     sampling_tests
     document_tests
     opengl_contract_tests
+    opengl_shader_lint_tests
     cuda_contract_tests)
 
 if(RENDERER_BUILD_BENCHMARKS)
@@ -390,7 +396,7 @@ if(RENDERER_BUILD_BENCHMARKS)
         RENDERER_BUILD_TYPE="$<CONFIG>"
     )
 
-    add_executable(benchmark_tests tests/benchmark_tests.cpp)
+    add_executable(benchmark_tests tests/benchmark_tests.cpp tests/test_main.cpp)
     target_link_libraries(benchmark_tests PRIVATE
         renderer_benchmark_common
         renderer_core
@@ -399,6 +405,7 @@ if(RENDERER_BUILD_BENCHMARKS)
         RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     )
     add_test(NAME benchmark_tests COMMAND benchmark_tests)
+    set_tests_properties(benchmark_tests PROPERTIES SKIP_RETURN_CODE 77)
 
     if(RENDERER_HAS_CUDA)
         add_library(renderer_core_diagnostics STATIC ${RENDERER_CORE_SOURCES})
@@ -443,6 +450,7 @@ if(RENDERER_BUILD_BENCHMARKS)
 
         add_executable(benchmark_diagnostics_tests
             tests/benchmark_diagnostics_tests.cpp
+            tests/test_main.cpp
         )
         target_link_libraries(benchmark_diagnostics_tests PRIVATE
             renderer_core_diagnostics
@@ -454,6 +462,8 @@ if(RENDERER_BUILD_BENCHMARKS)
         add_test(
             NAME benchmark_diagnostics_tests
             COMMAND benchmark_diagnostics_tests)
+        set_tests_properties(benchmark_diagnostics_tests PROPERTIES
+            SKIP_RETURN_CODE 77)
     endif()
 endif()
 
@@ -502,7 +512,15 @@ add_test(NAME scene_tests COMMAND scene_tests)
 add_test(NAME sampling_tests COMMAND sampling_tests)
 add_test(NAME document_tests COMMAND document_tests)
 add_test(NAME opengl_contract_tests COMMAND opengl_contract_tests)
+add_test(NAME opengl_shader_lint_tests COMMAND opengl_shader_lint_tests)
 add_test(NAME cuda_contract_tests COMMAND cuda_contract_tests)
+
+# The shared runner exits 77 when every executed test was skipped (e.g. all
+# CUDA tests on a no-CUDA build), so CTest can report "Skipped" instead of a
+# misleading green pass.
+foreach(test_target IN LISTS RENDERER_TEST_TARGETS)
+    set_tests_properties(${test_target} PROPERTIES SKIP_RETURN_CODE 77)
+endforeach()
 
 function(target_enable_warnings target_name)
     if(MSVC)

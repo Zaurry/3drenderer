@@ -47,7 +47,7 @@ jobs:
           set -e
           printf '%s\n' "$output"
           test "$status" -eq 0
-          grep -q "switched to OpenGL" <<<"$output"
+          grep -q "path-mode-unavailable: switched to OpenGL" <<<"$output"
 
   core-sanitizers-linux:
     runs-on: ubuntu-latest

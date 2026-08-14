@@ -9,11 +9,9 @@
 #include <iterator>
 #include <string>
 
-int main() {
+RENDER_TEST(test_atomic_write_failure_preserves_original_bytes) {
     const std::filesystem::path directory = "document_contract_tests";
     const std::filesystem::path atomic_path = directory / "atomic.rscene";
-    const std::filesystem::path obj_path = directory / "triangle.obj";
-    const std::filesystem::path scene_path = directory / "matrix.rscene";
     std::filesystem::remove_all(directory);
     std::filesystem::create_directories(directory);
 
@@ -34,6 +32,15 @@ int main() {
         std::istreambuf_iterator<char>()};
     atomic_input.close();
     RENDER_CHECK(actual == original);
+    std::filesystem::remove_all(directory);
+}
+
+RENDER_TEST(test_document_import_reparent_save_load_roundtrip) {
+    const std::filesystem::path directory = "document_contract_tests";
+    const std::filesystem::path obj_path = directory / "triangle.obj";
+    const std::filesystem::path scene_path = directory / "matrix.rscene";
+    std::filesystem::remove_all(directory);
+    std::filesystem::create_directories(directory);
 
     {
         std::ofstream obj(obj_path);
@@ -70,5 +77,4 @@ int main() {
     RENDER_CHECK(!restored.local_trs(mesh_id).has_value());
 
     std::filesystem::remove_all(directory);
-    std::cout << "document_tests: all tests passed\n";
 }

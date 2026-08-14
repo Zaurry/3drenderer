@@ -620,6 +620,10 @@ int main(int argc, char** argv) {
                 ui_state.scene_status =
                     "CUDA Path unavailable; switched to OpenGL: " + reason;
                 std::cerr << "warning: " << ui_state.scene_status << '\n';
+                // Stable machine-readable marker; CI smoke tests match this
+                // line instead of the localized status text.
+                std::cout << "path-mode-unavailable: switched to OpenGL ("
+                          << reason << ")\n";
             }
         }
 

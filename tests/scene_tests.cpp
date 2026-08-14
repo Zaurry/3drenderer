@@ -8,7 +8,7 @@
 #include <iostream>
 #include <stdexcept>
 
-int main() {
+RENDER_TEST(test_scene_document_missing_material_and_mergeable_drag_undo) {
     renderer::Scene scene;
     scene.materials.push_back(renderer::Material{});
     scene.triangles.emplace_back(
@@ -65,7 +65,9 @@ int main() {
     RENDER_CHECK(document.set_world_matrix(
         object_id,
         millimeter_transform.local_matrix));
+}
 
+RENDER_TEST(test_procedural_sphere_snapshot_instancing) {
     renderer::Scene sphere_scene;
     sphere_scene.materials.push_back(renderer::Material{});
     sphere_scene.spheres.emplace_back(
@@ -92,7 +94,9 @@ int main() {
     RENDER_CHECK(nearly_equal(
         sphere_snapshot.instances[1].object_to_world(0, 0),
         2.0f));
+}
 
+RENDER_TEST(test_rect_area_light_document_contracts) {
     renderer::SceneDocument rectangle_document;
     const renderer::ObjectId rectangle_id =
         rectangle_document.create_rect_area_light(
@@ -190,70 +194,6 @@ int main() {
         one_sided_rectangle,
         one_sided_rectangle.position - rectangle_emission_direction));
 
-    renderer::SceneDocument transformed_rectangle_document;
-    const renderer::ObjectId transformed_rectangle_id =
-        transformed_rectangle_document.create_rect_area_light(
-            "Transform Rectangle",
-            renderer::Vec3::Zero(),
-            -renderer::Vec3::UnitZ(),
-            renderer::Color::Ones(),
-            2.0f,
-            4.0f,
-            false);
-    renderer::SceneTrs transformed_rectangle_trs;
-    transformed_rectangle_trs.translation = renderer::Vec3(3.0f, -2.0f, 5.0f);
-    transformed_rectangle_trs.rotation_degrees = renderer::Vec3(25.0f, 40.0f, -15.0f);
-    transformed_rectangle_trs.scale = renderer::Vec3(1.5f, 0.75f, 2.0f);
-    RENDER_CHECK(transformed_rectangle_document.set_local_trs(
-        transformed_rectangle_id,
-        transformed_rectangle_trs));
-    const renderer::Mat4 transformed_rectangle_world =
-        transformed_rectangle_trs.matrix();
-    const renderer::RectAreaLight& transformed_rectangle =
-        transformed_rectangle_document.render_scene_snapshot()
-            .rect_area_lights.at(0);
-    RENDER_CHECK(transformed_rectangle.position.isApprox(
-        transformed_rectangle_trs.translation));
-    RENDER_CHECK(transformed_rectangle.axis_u.isApprox(
-        transformed_rectangle_world.topLeftCorner<3, 3>() *
-        renderer::Vec3(1.0f, 0.0f, 0.0f)));
-    RENDER_CHECK(transformed_rectangle.axis_v.isApprox(
-        transformed_rectangle_world.topLeftCorner<3, 3>() *
-        renderer::Vec3(0.0f, 2.0f, 0.0f)));
-    const renderer::Scene transformed_rectangle_flat =
-        renderer::flatten_render_scene_snapshot(
-            transformed_rectangle_document.render_scene_snapshot());
-    RENDER_CHECK(
-        transformed_rectangle_flat.triangles.at(0).geometric_normal().isApprox(
-            renderer::rect_area_light_emission_direction(transformed_rectangle),
-            1.0e-5f));
-    renderer::SceneTrs gizmo_rectangle_trs = transformed_rectangle_trs;
-    gizmo_rectangle_trs.translation += renderer::Vec3(-1.0f, 4.0f, 2.0f);
-    gizmo_rectangle_trs.rotation_degrees += renderer::Vec3(10.0f, -20.0f, 35.0f);
-    gizmo_rectangle_trs.scale = renderer::Vec3(0.5f, 2.0f, 1.25f);
-    renderer::Mat4 gizmo_rectangle_world = gizmo_rectangle_trs.matrix();
-    gizmo_rectangle_world(3, 0) = 2.0e-7f;
-    gizmo_rectangle_world(3, 2) = -3.0e-7f;
-    gizmo_rectangle_world(3, 3) = 0.9999991f;
-    RENDER_CHECK(transformed_rectangle_document.set_world_matrix(
-        transformed_rectangle_id,
-        gizmo_rectangle_world));
-    RENDER_CHECK(
-        transformed_rectangle_document.find(transformed_rectangle_id)
-            ->transform.local_matrix.row(3).transpose().isApprox(
-                renderer::Vec4(0.0f, 0.0f, 0.0f, 1.0f),
-                0.0f));
-    const renderer::RectAreaLight& gizmo_rectangle =
-        transformed_rectangle_document.render_scene_snapshot()
-            .rect_area_lights.at(0);
-    RENDER_CHECK(gizmo_rectangle.position.isApprox(
-        gizmo_rectangle_trs.translation));
-    RENDER_CHECK(renderer::rect_area_light_emission_direction(gizmo_rectangle)
-        .isApprox(
-            (gizmo_rectangle_trs.matrix().topLeftCorner<3, 3>() *
-             -renderer::Vec3::UnitZ()).normalized(),
-            1.0e-5f));
-
     const renderer::ObjectId rectangle_copy =
         rectangle_document.duplicate_subtree(rectangle_id);
     RENDER_CHECK(rectangle_copy != renderer::kInvalidObjectId);
@@ -323,7 +263,75 @@ int main() {
         RENDER_CHECK(nearly_equal(migrated_rectangle->area_height, 1.0f));
         RENDER_CHECK(!migrated_rectangle->light_two_sided);
     }
+}
 
+RENDER_TEST(test_rect_area_light_trs_transform_roundtrip) {
+    renderer::SceneDocument transformed_rectangle_document;
+    const renderer::ObjectId transformed_rectangle_id =
+        transformed_rectangle_document.create_rect_area_light(
+            "Transform Rectangle",
+            renderer::Vec3::Zero(),
+            -renderer::Vec3::UnitZ(),
+            renderer::Color::Ones(),
+            2.0f,
+            4.0f,
+            false);
+    renderer::SceneTrs transformed_rectangle_trs;
+    transformed_rectangle_trs.translation = renderer::Vec3(3.0f, -2.0f, 5.0f);
+    transformed_rectangle_trs.rotation_degrees = renderer::Vec3(25.0f, 40.0f, -15.0f);
+    transformed_rectangle_trs.scale = renderer::Vec3(1.5f, 0.75f, 2.0f);
+    RENDER_CHECK(transformed_rectangle_document.set_local_trs(
+        transformed_rectangle_id,
+        transformed_rectangle_trs));
+    const renderer::Mat4 transformed_rectangle_world =
+        transformed_rectangle_trs.matrix();
+    const renderer::RectAreaLight& transformed_rectangle =
+        transformed_rectangle_document.render_scene_snapshot()
+            .rect_area_lights.at(0);
+    RENDER_CHECK(transformed_rectangle.position.isApprox(
+        transformed_rectangle_trs.translation));
+    RENDER_CHECK(transformed_rectangle.axis_u.isApprox(
+        transformed_rectangle_world.topLeftCorner<3, 3>() *
+        renderer::Vec3(1.0f, 0.0f, 0.0f)));
+    RENDER_CHECK(transformed_rectangle.axis_v.isApprox(
+        transformed_rectangle_world.topLeftCorner<3, 3>() *
+        renderer::Vec3(0.0f, 2.0f, 0.0f)));
+    const renderer::Scene transformed_rectangle_flat =
+        renderer::flatten_render_scene_snapshot(
+            transformed_rectangle_document.render_scene_snapshot());
+    RENDER_CHECK(
+        transformed_rectangle_flat.triangles.at(0).geometric_normal().isApprox(
+            renderer::rect_area_light_emission_direction(transformed_rectangle),
+            1.0e-5f));
+    renderer::SceneTrs gizmo_rectangle_trs = transformed_rectangle_trs;
+    gizmo_rectangle_trs.translation += renderer::Vec3(-1.0f, 4.0f, 2.0f);
+    gizmo_rectangle_trs.rotation_degrees += renderer::Vec3(10.0f, -20.0f, 35.0f);
+    gizmo_rectangle_trs.scale = renderer::Vec3(0.5f, 2.0f, 1.25f);
+    renderer::Mat4 gizmo_rectangle_world = gizmo_rectangle_trs.matrix();
+    gizmo_rectangle_world(3, 0) = 2.0e-7f;
+    gizmo_rectangle_world(3, 2) = -3.0e-7f;
+    gizmo_rectangle_world(3, 3) = 0.9999991f;
+    RENDER_CHECK(transformed_rectangle_document.set_world_matrix(
+        transformed_rectangle_id,
+        gizmo_rectangle_world));
+    RENDER_CHECK(
+        transformed_rectangle_document.find(transformed_rectangle_id)
+            ->transform.local_matrix.row(3).transpose().isApprox(
+                renderer::Vec4(0.0f, 0.0f, 0.0f, 1.0f),
+                0.0f));
+    const renderer::RectAreaLight& gizmo_rectangle =
+        transformed_rectangle_document.render_scene_snapshot()
+            .rect_area_lights.at(0);
+    RENDER_CHECK(gizmo_rectangle.position.isApprox(
+        gizmo_rectangle_trs.translation));
+    RENDER_CHECK(renderer::rect_area_light_emission_direction(gizmo_rectangle)
+        .isApprox(
+            (gizmo_rectangle_trs.matrix().topLeftCorner<3, 3>() *
+             -renderer::Vec3::UnitZ()).normalized(),
+            1.0e-5f));
+}
+
+RENDER_TEST(test_rect_area_light_from_oriented_scene) {
     renderer::Scene oriented_rectangle_scene;
     renderer::RectAreaLight oriented_rectangle;
     oriented_rectangle.position = renderer::Vec3(-1.0f, 3.0f, 2.0f);
@@ -343,7 +351,9 @@ int main() {
         oriented_rectangle.axis_u));
     RENDER_CHECK(restored_orientation.axis_v.isApprox(
         oriented_rectangle.axis_v));
+}
 
+RENDER_TEST(test_typed_lights_snapshot_properties) {
     renderer::Scene typed_light_scene;
     renderer::PointLight source_point;
     source_point.position = renderer::Vec3(1.0f, 2.0f, 3.0f);
@@ -395,7 +405,21 @@ int main() {
         source_spot.source_radius));
     RENDER_CHECK(!typed_light_snapshot.spot_lights[0].casts_shadows);
     RENDER_CHECK(typed_light_snapshot.spot_lights[0].shadow_priority == 4);
+}
 
+RENDER_TEST(test_snapshot_source_id_and_change_contract) {
+    renderer::Scene seed_scene;
+    seed_scene.materials.push_back(renderer::Material{});
+    seed_scene.triangles.emplace_back(
+        renderer::Vec3(-1.0f, -1.0f, 0.0f),
+        renderer::Vec3(1.0f, -1.0f, 0.0f),
+        renderer::Vec3(0.0f, 1.0f, 0.0f),
+        0);
+    const renderer::SceneDocument document = renderer::SceneDocument::from_scene(
+        std::move(seed_scene),
+        "Seed");
+    const renderer::RenderSceneSnapshot& snapshot =
+        document.render_scene_snapshot();
     renderer::SceneDocument another_document;
     const renderer::RenderSceneSnapshot& another_snapshot =
         another_document.render_scene_snapshot();
@@ -432,7 +456,9 @@ int main() {
             legacy_snapshot,
             renderer::SceneChange::Materials),
         renderer::SceneChange::Materials));
+}
 
+RENDER_TEST(test_snapshot_rejects_out_of_range_material_slot) {
     renderer::Scene invalid;
     invalid.materials.push_back(renderer::Material{});
     invalid.triangles.emplace_back(
@@ -449,5 +475,4 @@ int main() {
         rejected = true;
     }
     RENDER_CHECK(rejected);
-    std::cout << "scene_tests: all tests passed\n";
 }

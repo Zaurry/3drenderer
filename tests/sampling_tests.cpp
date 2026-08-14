@@ -29,7 +29,7 @@ renderer::Color integrate_environment(const renderer::EnvironmentMap& environmen
     return integral;
 }
 
-void test_dominant_environment_light_extraction() {
+RENDER_TEST(test_dominant_environment_light_extraction) {
     constexpr int width = 16;
     constexpr int height = 8;
     std::vector<renderer::Color> pixels(
@@ -115,7 +115,7 @@ void test_dominant_environment_light_extraction() {
 
 }  // namespace
 
-int main() {
+RENDER_TEST(test_environment_importance_pdf_and_sampling) {
     constexpr int width = 8;
     constexpr int height = 4;
     constexpr float pi = 3.14159265358979323846f;
@@ -167,6 +167,4 @@ int main() {
         const float measured = static_cast<float>(counts[index]) / sample_count;
         RENDER_CHECK(std::abs(measured - pmf[index]) < 1.0e-4f);
     }
-    test_dominant_environment_light_extraction();
-    std::cout << "sampling_tests: all tests passed\n";
 }

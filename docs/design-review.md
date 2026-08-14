@@ -498,7 +498,7 @@ CUDA 基准构建把最贵的翻译单元编译两遍；且诊断库是生产代
 **建议**：按领域拆文件并删重复，`renderer_tests` 只留集成测试。
 
 ### 7.3 🔴 CUDA 测试在无 GPU 时静默跳过仍报绿——与项目自己的声明矛盾
-**位置**：`tests/cuda_contract_tests.cpp:14-31`（stub 下只测 5 个头文件纯函数断言）、`:32-235`（真实 CUDA 全部在 `if (available)` 内）、`:236` 打印 "all tests passed"；`tests/renderer_tests.cpp` 中 19 处可用性探测有 17 处是 `if (!available) return;` 静默跳过（如 `1607, 1699, 1715, 1733, 1800, 2085, 2507`）；`tests/benchmark_diagnostics_tests.cpp:30-34` 打印 skipped 后 `return 0`；声明见 `README.md:180` 与 `.github/workflows/ci.yml:77-79`
+**位置**：`tests/cuda_contract_tests.cpp:14-31`（stub 下只测 5 个头文件纯函数断言）、`:32-235`（真实 CUDA 全部在 `if (available)` 内）、`:236` 打印 "all tests passed"；`tests/renderer_tests.cpp` 中 19 处可用性探测有 15 处是 `if (!available) return;` 静默跳过（如 `1607, 1699, 1715, 1733, 1800, 2085, 2507`）；`tests/benchmark_diagnostics_tests.cpp:30-34` 打印 skipped 后 `return 0`；声明见 `README.md:180` 与 `.github/workflows/ci.yml:77-79`
 
 `renderer_tests` 二进制在普通 CI 上运行，其中全部 CUDA 依赖测试静默通过；CUDA 路径的回归在 CI 上永远不会被发现——README 声称"不会在普通 CI 中静默跳过后显示绿色"与实际不符。
 

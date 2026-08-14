@@ -112,7 +112,7 @@ renderer::RenderResult render_cuda_scene(
         settings);
 }
 
-void test_vec3_arithmetic() {
+RENDER_TEST(test_vec3_arithmetic) {
     renderer::Vec3 a(1.0f, 2.0f, 3.0f);
     renderer::Vec3 b(4.0f, -2.0f, 0.5f);
 
@@ -169,7 +169,7 @@ void test_vec3_arithmetic() {
     RENDER_CHECK(nearly_equal(n.z(), 0.8f, 1e-6f));
 }
 
-void test_mat4_composition_order() {
+RENDER_TEST(test_mat4_composition_order) {
     const renderer::Mat4 transform =
         (Eigen::Translation3f(renderer::Vec3(1.0f, 2.0f, 3.0f)) *
          Eigen::Scaling(2.0f, 3.0f, 4.0f))
@@ -181,7 +181,7 @@ void test_mat4_composition_order() {
     RENDER_CHECK(nearly_equal(p.w(), 1.0f));
 }
 
-void test_mat4_perspective_uses_degrees_and_ndc_depth() {
+RENDER_TEST(test_mat4_perspective_uses_degrees_and_ndc_depth) {
     const renderer::Mat4 p = renderer::make_perspective_matrix(90.0f, 1.0f, 1.0f, 10.0f);
     RENDER_CHECK(nearly_equal(p(0, 0), 1.0f));
     RENDER_CHECK(nearly_equal(p(1, 1), 1.0f));
@@ -210,7 +210,7 @@ void check_perspective_invalid_input_throws(
     RENDER_CHECK(threw);
 }
 
-void test_mat4_perspective_invalid_inputs_throw() {
+RENDER_TEST(test_mat4_perspective_invalid_inputs_throw) {
     check_perspective_invalid_input_throws(0.0f, 1.0f, 1.0f, 10.0f);
     check_perspective_invalid_input_throws(-1.0f, 1.0f, 1.0f, 10.0f);
     check_perspective_invalid_input_throws(180.0f, 1.0f, 1.0f, 10.0f);
@@ -231,7 +231,7 @@ void test_mat4_perspective_invalid_inputs_throw() {
         90.0f, 1.0f, 1.0f, -std::numeric_limits<float>::infinity());
 }
 
-void test_mat4_look_at() {
+RENDER_TEST(test_mat4_look_at) {
     const renderer::Mat4 view = renderer::make_look_at_matrix(
         renderer::Vec3(0.0f, 0.0f, 0.0f),
         renderer::Vec3(0.0f, 0.0f, -1.0f),
@@ -244,7 +244,7 @@ void test_mat4_look_at() {
     RENDER_CHECK(nearly_equal(p.z(), -1.0f));
 }
 
-void test_mat4_look_at_invalid_inputs_throw() {
+RENDER_TEST(test_mat4_look_at_invalid_inputs_throw) {
     bool threw_eye_equals_target = false;
     try {
         renderer::make_look_at_matrix(
@@ -312,7 +312,7 @@ void test_mat4_look_at_invalid_inputs_throw() {
     RENDER_CHECK(threw_non_finite_up);
 }
 
-void test_camera_center_ray_points_forward() {
+RENDER_TEST(test_camera_center_ray_points_forward) {
     renderer::Camera camera(
         renderer::Vec3(0, 0, 0),
         renderer::Vec3(0, 0, -1),
@@ -326,7 +326,7 @@ void test_camera_center_ray_points_forward() {
     RENDER_CHECK(ray.direction.z() < -0.999f);
 }
 
-void test_camera_rejects_non_finite_screen_coordinates() {
+RENDER_TEST(test_camera_rejects_non_finite_screen_coordinates) {
     renderer::Camera camera(
         renderer::Vec3(0, 0, 0),
         renderer::Vec3(0, 0, -1),
@@ -351,7 +351,7 @@ void test_camera_rejects_non_finite_screen_coordinates() {
     RENDER_CHECK(threw_infinite_v);
 }
 
-void test_ray_and_bounds_intersection() {
+RENDER_TEST(test_ray_and_bounds_intersection) {
     renderer::Ray ray(renderer::Vec3(0, 0, -5), renderer::Vec3(0, 0, 1));
     renderer::Bounds3 box(renderer::Vec3(-1, -1, -1), renderer::Vec3(1, 1, 1));
     RENDER_CHECK(box.intersect(ray, 0.001f, 1000.0f));
@@ -360,13 +360,13 @@ void test_ray_and_bounds_intersection() {
     RENDER_CHECK(!box.intersect(miss, 0.001f, 1000.0f));
 }
 
-void test_bounds_intersection_counts_corner_touch_as_hit() {
+RENDER_TEST(test_bounds_intersection_counts_corner_touch_as_hit) {
     renderer::Bounds3 box(renderer::Vec3(-1, -1, -1), renderer::Vec3(1, 1, 1));
     renderer::Ray corner_touch(renderer::Vec3(-2, -2, 1), renderer::Vec3(1, 1, 0));
     RENDER_CHECK(box.intersect(corner_touch, 0.001f, 1000.0f));
 }
 
-void test_image_invalid_dimensions_throw_invalid_argument() {
+RENDER_TEST(test_image_invalid_dimensions_throw_invalid_argument) {
     bool threw_zero_width = false;
     try {
         renderer::Image image(0, 1);
@@ -392,7 +392,7 @@ void test_image_invalid_dimensions_throw_invalid_argument() {
     RENDER_CHECK(threw_negative_width);
 }
 
-void test_image_stores_gamma_corrected_pixels() {
+RENDER_TEST(test_image_stores_gamma_corrected_pixels) {
     renderer::Image image(2, 1);
     image.set_pixel(0, 0, renderer::Color(1.0f, 0.25f, 0.0f));
     renderer::Rgb8 pixel = image.pixel_rgb8(0, 0);
@@ -401,7 +401,7 @@ void test_image_stores_gamma_corrected_pixels() {
     RENDER_CHECK(pixel.b == 0);
 }
 
-void test_image_and_framebuffer_bulk_pixel_assignment_validates_size() {
+RENDER_TEST(test_image_and_framebuffer_bulk_pixel_assignment_validates_size) {
     const std::vector<renderer::Color> pixels{
         renderer::Color(1.0f, 0.0f, 0.0f),
         renderer::Color(0.0f, 1.0f, 0.0f)};
@@ -433,12 +433,12 @@ void test_image_and_framebuffer_bulk_pixel_assignment_validates_size() {
     RENDER_CHECK(framebuffer_threw);
 }
 
-void test_to_rgb8_uses_standard_srgb_transfer_curve() {
+RENDER_TEST(test_to_rgb8_uses_standard_srgb_transfer_curve) {
     RENDER_CHECK(renderer::channel_to_rgb8(0.0031308f) == 10);
     RENDER_CHECK(renderer::channel_to_rgb8(0.5f) == 188);
 }
 
-void test_to_rgb8_sanitizes_non_finite_channels() {
+RENDER_TEST(test_to_rgb8_sanitizes_non_finite_channels) {
     const renderer::Rgb8 nan_pixel = renderer::to_rgb8(
         renderer::Color(std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f));
     RENDER_CHECK(nan_pixel.r == 0);
@@ -448,7 +448,7 @@ void test_to_rgb8_sanitizes_non_finite_channels() {
     RENDER_CHECK(infinity_pixel.r == 255);
 }
 
-void test_display_settings_apply_exposure_and_tone_mapping() {
+RENDER_TEST(test_display_settings_apply_exposure_and_tone_mapping) {
     const renderer::Color source(0.25f, 0.5f, 2.0f);
     const renderer::DisplaySettings defaults;
     const renderer::Rgb8 default_pixel = renderer::to_display_rgb8(source, defaults);
@@ -489,7 +489,7 @@ void test_display_settings_apply_exposure_and_tone_mapping() {
     RENDER_CHECK(brighter[3] == 255);
 }
 
-void test_viewer_ui_actions_classify_path_resets() {
+RENDER_TEST(test_viewer_ui_actions_classify_path_resets) {
     const renderer::CudaOpenGlInteropUiState interop_state;
     RENDER_CHECK(interop_state.status == "unavailable");
     RENDER_CHECK(interop_state.detail.empty());
@@ -523,7 +523,7 @@ void test_viewer_ui_actions_classify_path_resets() {
     RENDER_CHECK(actions.resets_path_accumulation());
 }
 
-void test_orbit_camera_controller_zoom_and_orbit_change_camera() {
+RENDER_TEST(test_orbit_camera_controller_zoom_and_orbit_change_camera) {
     renderer::Bounds3 bounds(renderer::Vec3(-1, 0, -1), renderer::Vec3(1, 2, 1));
     renderer::OrbitCameraController controller(bounds, 1.0f);
     renderer::Camera before = controller.camera();
@@ -540,7 +540,7 @@ void test_orbit_camera_controller_zoom_and_orbit_change_camera() {
     RENDER_CHECK(nearly_equal(controller.distance(), 3.0f));
 }
 
-void test_orbit_camera_controller_horizontal_drag_tracks_scene_direction() {
+RENDER_TEST(test_orbit_camera_controller_horizontal_drag_tracks_scene_direction) {
     renderer::Bounds3 bounds(renderer::Vec3(-1, 0, -1), renderer::Vec3(1, 2, 1));
     renderer::OrbitCameraController controller(bounds, 1.0f);
     const float before_x = controller.camera().eye().x();
@@ -551,7 +551,7 @@ void test_orbit_camera_controller_horizontal_drag_tracks_scene_direction() {
     RENDER_CHECK(after_x < before_x);
 }
 
-void test_orbit_camera_controller_pan_moves_in_camera_plane() {
+RENDER_TEST(test_orbit_camera_controller_pan_moves_in_camera_plane) {
     renderer::Bounds3 bounds(renderer::Vec3(-1, 0, -1), renderer::Vec3(1, 2, 1));
     renderer::OrbitCameraController controller(bounds, 1.5f);
     controller.set_vertical_fov_degrees(60.0f);
@@ -573,7 +573,7 @@ void test_orbit_camera_controller_pan_moves_in_camera_plane() {
     RENDER_CHECK(nearly_equal(controller.distance(), 4.0f));
 }
 
-void test_free_camera_controller_looks_and_clamps_pitch() {
+RENDER_TEST(test_free_camera_controller_looks_and_clamps_pitch) {
     const renderer::Camera initial(
         renderer::Vec3::Zero(),
         -renderer::Vec3::UnitZ(),
@@ -603,7 +603,7 @@ void test_free_camera_controller_looks_and_clamps_pitch() {
         1e-5f));
 }
 
-void test_free_camera_controller_moves_in_camera_and_world_directions() {
+RENDER_TEST(test_free_camera_controller_moves_in_camera_and_world_directions) {
     const renderer::Camera initial(
         renderer::Vec3::Zero(),
         -renderer::Vec3::UnitZ(),
@@ -627,7 +627,7 @@ void test_free_camera_controller_moves_in_camera_and_world_directions() {
     RENDER_CHECK(nearly_equal(diagonal.camera().eye().norm(), 1.0f, 1e-5f));
 }
 
-void test_camera_mode_switch_preserves_pose() {
+RENDER_TEST(test_camera_mode_switch_preserves_pose) {
     const renderer::Bounds3 bounds(
         renderer::Vec3(-1.0f, 0.0f, -1.0f),
         renderer::Vec3(1.0f, 2.0f, 1.0f));
@@ -650,7 +650,7 @@ void test_camera_mode_switch_preserves_pose() {
     RENDER_CHECK((restored_orbit_pose.forward() - moved_free_pose.forward()).norm() < 1e-5f);
 }
 
-void test_frame_rate_counter_reports_window_average() {
+RENDER_TEST(test_frame_rate_counter_reports_window_average) {
     renderer::FrameRateCounter counter(0.25f);
     RENDER_CHECK(!counter.snapshot().valid);
     RENDER_CHECK(!counter.tick(0.10f));
@@ -666,7 +666,7 @@ void test_frame_rate_counter_reports_window_average() {
     RENDER_CHECK(!counter.snapshot().valid);
 }
 
-void test_viewer_title_format_includes_fps_and_path_samples() {
+RENDER_TEST(test_viewer_title_format_includes_fps_and_path_samples) {
     renderer::FrameRateSnapshot warming_up;
     const std::string opengl_warming_title = renderer::format_viewer_title(
         renderer::InteractiveRenderMode::OpenGl,
@@ -699,7 +699,7 @@ void test_viewer_title_format_includes_fps_and_path_samples() {
     RENDER_CHECK(opengl_title.find("spp") == std::string::npos);
 }
 
-void test_interactive_mode_catalog_contains_only_opengl_and_path() {
+RENDER_TEST(test_interactive_mode_catalog_contains_only_opengl_and_path) {
     const auto& modes = renderer::interactive_render_modes();
     RENDER_CHECK(modes.size() == 2);
     RENDER_CHECK(modes[0].mode == renderer::InteractiveRenderMode::OpenGl);
@@ -726,7 +726,7 @@ void test_interactive_mode_catalog_contains_only_opengl_and_path() {
     }
 }
 
-void test_viewer_selection_keeps_active_object_selected() {
+RENDER_TEST(test_viewer_selection_keeps_active_object_selected) {
     renderer::ViewerUiState state;
     renderer::select_viewer_object(state, 10, false);
     RENDER_CHECK(state.selected_objects == std::vector<renderer::ObjectId>{10});
@@ -750,7 +750,7 @@ void test_viewer_selection_keeps_active_object_selected() {
     RENDER_CHECK(state.active_object == renderer::kInvalidObjectId);
 }
 
-void test_framebuffer_clear_set_and_rgba8_conversion() {
+RENDER_TEST(test_framebuffer_clear_set_and_rgba8_conversion) {
     renderer::Framebuffer framebuffer(2, 1);
     framebuffer.clear(renderer::Color(0.25f, 0.0f, 1.0f));
     framebuffer.set_pixel(1, 0, renderer::Color(1.0f, 0.25f, 0.0f));
@@ -775,7 +775,7 @@ void test_framebuffer_clear_set_and_rgba8_conversion() {
     RENDER_CHECK(nearly_equal(rgba32f[7], 1.0f));
 }
 
-void test_sphere_intersection() {
+RENDER_TEST(test_sphere_intersection) {
     renderer::Material material;
     material.base_color = renderer::Color(1, 0, 0);
     renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0f, 0);
@@ -793,14 +793,14 @@ void test_sphere_intersection() {
     RENDER_CHECK(hit.material_id == 0);
 }
 
-void test_sphere_rejects_zero_direction_ray() {
+RENDER_TEST(test_sphere_rejects_zero_direction_ray) {
     renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0f, 0);
     renderer::Ray ray(renderer::Vec3(0, 0, -5), renderer::Vec3(0, 0, 0));
     renderer::HitRecord hit;
     RENDER_CHECK(!sphere.intersect(ray, 0.001f, 1000.0f, hit));
 }
 
-void test_sphere_invalid_radius_throws() {
+RENDER_TEST(test_sphere_invalid_radius_throws) {
     bool threw_zero_radius = false;
     try {
         renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 0.0f, 0);
@@ -834,7 +834,7 @@ void test_sphere_invalid_radius_throws() {
     RENDER_CHECK(threw_infinite_radius);
 }
 
-void test_sphere_invalid_center_throws() {
+RENDER_TEST(test_sphere_invalid_center_throws) {
     bool threw_nan_center = false;
     try {
         renderer::Sphere sphere(
@@ -858,7 +858,7 @@ void test_sphere_invalid_center_throws() {
     RENDER_CHECK(threw_infinite_center);
 }
 
-void test_sphere_rejects_non_finite_direction_rays() {
+RENDER_TEST(test_sphere_rejects_non_finite_direction_rays) {
     renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0f, 0);
 
     renderer::HitRecord nan_hit;
@@ -874,7 +874,7 @@ void test_sphere_rejects_non_finite_direction_rays() {
     RENDER_CHECK(!sphere.intersect(infinite_ray, 0.001f, 1000.0f, infinite_hit));
 }
 
-void test_sphere_rejects_non_finite_origin_rays() {
+RENDER_TEST(test_sphere_rejects_non_finite_origin_rays) {
     renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0f, 0);
 
     renderer::HitRecord nan_hit;
@@ -890,7 +890,7 @@ void test_sphere_rejects_non_finite_origin_rays() {
     RENDER_CHECK(!sphere.intersect(infinite_ray, 0.001f, 1000.0f, infinite_hit));
 }
 
-void test_sphere_inside_ray_reports_back_face() {
+RENDER_TEST(test_sphere_inside_ray_reports_back_face) {
     renderer::Sphere sphere(renderer::Vec3(0, 0, 0), 1.0f, 1);
     renderer::Ray ray(renderer::Vec3(0, 0, 0), renderer::Vec3(0, 0, 1));
     renderer::HitRecord hit;
@@ -900,7 +900,7 @@ void test_sphere_inside_ray_reports_back_face() {
     RENDER_CHECK(nearly_equal(hit.shading_normal.z(), -1.0f));
 }
 
-void test_sphere_bounds_include_center_and_radius() {
+RENDER_TEST(test_sphere_bounds_include_center_and_radius) {
     renderer::Sphere sphere(renderer::Vec3(1, 2, 3), 2.0f, 0);
     const renderer::Bounds3 bounds = sphere.bounds();
     RENDER_CHECK(nearly_equal(bounds.min.x(), -1.0f));
@@ -911,7 +911,7 @@ void test_sphere_bounds_include_center_and_radius() {
     RENDER_CHECK(nearly_equal(bounds.max.z(), 5.0f));
 }
 
-void test_triangle_intersection() {
+RENDER_TEST(test_triangle_intersection) {
     renderer::Triangle tri(
         renderer::Vec3(-1, 0, 0),
         renderer::Vec3(1, 0, 0),
@@ -926,7 +926,7 @@ void test_triangle_intersection() {
     RENDER_CHECK(hit.material_id == 2);
 }
 
-void test_triangle_interpolates_shading_normal_separately_from_geometry() {
+RENDER_TEST(test_triangle_interpolates_shading_normal_separately_from_geometry) {
     const renderer::Triangle triangle(
         renderer::TriangleVertex{
             renderer::Vec3(-1.0f, -1.0f, -1.0f),
@@ -955,7 +955,7 @@ void test_triangle_interpolates_shading_normal_separately_from_geometry() {
     RENDER_CHECK((hit.shading_normal - hit.geometric_normal).norm() > 0.01f);
 }
 
-void test_triangle_invalid_vertices_throw() {
+RENDER_TEST(test_triangle_invalid_vertices_throw) {
     bool threw_nan_vertex = false;
     try {
         renderer::Triangle tri(
@@ -981,7 +981,7 @@ void test_triangle_invalid_vertices_throw() {
     RENDER_CHECK(threw_infinite_vertex);
 }
 
-void test_triangle_rejects_non_finite_rays() {
+RENDER_TEST(test_triangle_rejects_non_finite_rays) {
     renderer::Triangle tri(
         renderer::Vec3(-1, 0, 0),
         renderer::Vec3(1, 0, 0),
@@ -1001,7 +1001,7 @@ void test_triangle_rejects_non_finite_rays() {
     RENDER_CHECK(!tri.intersect(infinite_direction_ray, 0.001f, 1000.0f, infinite_direction_hit));
 }
 
-void test_triangle_back_side_hit_reports_back_face() {
+RENDER_TEST(test_triangle_back_side_hit_reports_back_face) {
     renderer::Triangle tri(
         renderer::Vec3(-1, 0, 0),
         renderer::Vec3(1, 0, 0),
@@ -1015,7 +1015,7 @@ void test_triangle_back_side_hit_reports_back_face() {
     RENDER_CHECK(hit.shading_normal.dot(ray.direction) < 0.0f);
 }
 
-void test_triangle_boundary_hits_succeed() {
+RENDER_TEST(test_triangle_boundary_hits_succeed) {
     renderer::Triangle tri(
         renderer::Vec3(-1, 0, 0),
         renderer::Vec3(1, 0, 0),
@@ -1035,7 +1035,7 @@ void test_triangle_boundary_hits_succeed() {
     RENDER_CHECK(nearly_equal(edge_hit.position.y(), 0.0f));
 }
 
-void test_degenerate_triangle_misses() {
+RENDER_TEST(test_degenerate_triangle_misses) {
     renderer::Triangle tri(
         renderer::Vec3(0, 0, 0),
         renderer::Vec3(1, 1, 1),
@@ -1047,7 +1047,7 @@ void test_degenerate_triangle_misses() {
     RENDER_CHECK(!tri.intersect(ray, 0.001f, 1000.0f, hit));
 }
 
-void test_triangle_degenerate_normals_and_uvs_use_finite_fallbacks() {
+RENDER_TEST(test_triangle_degenerate_normals_and_uvs_use_finite_fallbacks) {
     const renderer::Triangle triangle(
         renderer::TriangleVertex{
             renderer::Vec3(-1.0f, -1.0f, -1.0f),
@@ -1080,7 +1080,7 @@ void test_triangle_degenerate_normals_and_uvs_use_finite_fallbacks() {
     RENDER_CHECK(hit.uv.allFinite());
 }
 
-void test_small_triangle_intersection_remains_valid() {
+RENDER_TEST(test_small_triangle_intersection_remains_valid) {
     const renderer::Triangle triangle(
         renderer::Vec3(-5e-6f, -5e-6f, -1.0f),
         renderer::Vec3(5e-6f, -5e-6f, -1.0f),
@@ -1094,7 +1094,7 @@ void test_small_triangle_intersection_remains_valid() {
     RENDER_CHECK(hit.shading_normal.allFinite());
 }
 
-void test_small_nonzero_uv_basis_remains_valid() {
+RENDER_TEST(test_small_nonzero_uv_basis_remains_valid) {
     const renderer::Triangle triangle(
         renderer::Vec3(-1.0f, -1.0f, -1.0f),
         renderer::Vec3(1.0f, -1.0f, -1.0f),
@@ -1153,7 +1153,7 @@ void check_bvh_matches_bruteforce(
     RENDER_CHECK(bvh_hit.shading_normal.dot(brute_force_hit.shading_normal) > 0.999f);
 }
 
-void test_empty_bvh_has_no_nodes_or_hits() {
+RENDER_TEST(test_empty_bvh_has_no_nodes_or_hits) {
     std::vector<renderer::Triangle> tris;
 
     renderer::Bvh bvh;
@@ -1170,7 +1170,7 @@ void test_empty_bvh_has_no_nodes_or_hits() {
         hit));
 }
 
-void test_bvh_matches_bruteforce_triangle_hit() {
+RENDER_TEST(test_bvh_matches_bruteforce_triangle_hit) {
     std::vector<renderer::Triangle> tris;
     tris.emplace_back(renderer::Vec3(-1, 0, 0), renderer::Vec3(1, 0, 0), renderer::Vec3(0, 1, 0), 0);
     tris.emplace_back(renderer::Vec3(-1, 0, 5), renderer::Vec3(1, 0, 5), renderer::Vec3(0, 1, 5), 0);
@@ -1182,7 +1182,7 @@ void test_bvh_matches_bruteforce_triangle_hit() {
     check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(3, 3, -2), renderer::Vec3(0, 0, 1)));
 }
 
-void test_bvh_splits_and_traverses_interior_nodes() {
+RENDER_TEST(test_bvh_splits_and_traverses_interior_nodes) {
     std::vector<renderer::Triangle> tris;
     for (int i = 0; i < 6; ++i) {
         const float x = static_cast<float>(i) * 3.0f;
@@ -1217,7 +1217,7 @@ void test_bvh_splits_and_traverses_interior_nodes() {
     check_bvh_matches_bruteforce(bvh, tris, renderer::Ray(renderer::Vec3(1.5f, 0.25f, -2), renderer::Vec3(0, 0, 1)));
 }
 
-void test_float_bvh_matches_bruteforce_at_large_coordinates() {
+RENDER_TEST(test_float_bvh_matches_bruteforce_at_large_coordinates) {
     constexpr float center = 100000.0f;
     std::vector<renderer::Triangle> tris;
     for (int i = 0; i < 6; ++i) {
@@ -1254,7 +1254,7 @@ void test_float_bvh_matches_bruteforce_at_large_coordinates() {
         renderer::Vec3::UnitZ()));
 }
 
-void test_checker_texture_is_deterministic_for_positive_and_negative_coordinates() {
+RENDER_TEST(test_checker_texture_is_deterministic_for_positive_and_negative_coordinates) {
     renderer::CheckerTexture texture;
     texture.even = renderer::Color(1, 0, 0);
     texture.odd = renderer::Color(0, 1, 0);
@@ -1273,7 +1273,7 @@ void test_checker_texture_is_deterministic_for_positive_and_negative_coordinates
     RENDER_CHECK(nearly_equal(negative.z(), 0.0f));
 }
 
-void test_builtin_scene_contains_renderable_geometry() {
+RENDER_TEST(test_builtin_scene_contains_renderable_geometry) {
     renderer::Scene scene = renderer::make_gradient_sphere_scene();
     RENDER_CHECK(!scene.materials.empty());
     RENDER_CHECK(!scene.spheres.empty());
@@ -1375,21 +1375,21 @@ void check_triangle_hit_material_in_range(const renderer::Scene& scene, const re
     RENDER_CHECK(material_id_in_range(scene, hit.material_id));
 }
 
-void test_triangle_scene_contains_triangle_and_light() {
+RENDER_TEST(test_triangle_scene_contains_triangle_and_light) {
     renderer::Scene scene = renderer::make_triangle_scene();
     RENDER_CHECK(!scene.materials.empty());
     RENDER_CHECK(!scene.triangles.empty());
     RENDER_CHECK(!scene.point_lights.empty() || !scene.directional_lights.empty());
 }
 
-void test_mirror_spheres_scene_contains_metal_sphere_and_point_light() {
+RENDER_TEST(test_mirror_spheres_scene_contains_metal_sphere_and_point_light) {
     renderer::Scene scene = renderer::make_mirror_spheres_scene();
     RENDER_CHECK(scene.spheres.size() >= 2);
     RENDER_CHECK(has_material_type(scene, renderer::MaterialType::Metal));
     RENDER_CHECK(!scene.point_lights.empty());
 }
 
-void test_cornell_box_scene_contains_walls_and_expected_materials() {
+RENDER_TEST(test_cornell_box_scene_contains_walls_and_expected_materials) {
     renderer::Scene scene = renderer::make_cornell_box_scene();
     RENDER_CHECK(scene.triangles.size() >= 12);
     RENDER_CHECK(has_red_like_material(scene));
@@ -1398,7 +1398,7 @@ void test_cornell_box_scene_contains_walls_and_expected_materials() {
     RENDER_CHECK(has_nonzero_emissive_material(scene));
 }
 
-void test_builtin_scene_probe_material_ids_are_in_range() {
+RENDER_TEST(test_builtin_scene_probe_material_ids_are_in_range) {
     renderer::Scene gradient_scene = renderer::make_gradient_sphere_scene();
     check_sphere_hit_material_in_range(
         gradient_scene,
@@ -1466,7 +1466,7 @@ bool is_white_diffuse_material(const renderer::Material& material) {
            material.base_color.z() > 0.5f;
 }
 
-void test_cornell_box_wall_normals_face_inward() {
+RENDER_TEST(test_cornell_box_wall_normals_face_inward) {
     renderer::Scene scene = renderer::make_cornell_box_scene();
     check_cornell_wall_hit(
         scene,
@@ -1490,7 +1490,7 @@ void test_cornell_box_wall_normals_face_inward() {
         is_white_diffuse_material);
 }
 
-void test_cornell_box_light_uses_emissive_material_and_faces_downward() {
+RENDER_TEST(test_cornell_box_light_uses_emissive_material_and_faces_downward) {
     renderer::Scene scene = renderer::make_cornell_box_scene();
     renderer::HitRecord hit;
     RENDER_CHECK(intersect_closest_triangle(
@@ -1504,7 +1504,7 @@ void test_cornell_box_light_uses_emissive_material_and_faces_downward() {
     RENDER_CHECK(hit.shading_normal.y() < -0.999f);
 }
 
-void test_cosine_sample_is_in_upper_hemisphere() {
+RENDER_TEST(test_cosine_sample_is_in_upper_hemisphere) {
     renderer::PcgRandom rng(42);
     for (int i = 0; i < 100; ++i) {
         renderer::Vec3 d = renderer::cosine_weighted_hemisphere(rng);
@@ -1513,7 +1513,7 @@ void test_cosine_sample_is_in_upper_hemisphere() {
     }
 }
 
-void test_reflect_preserves_unit_length() {
+RENDER_TEST(test_reflect_preserves_unit_length) {
     const renderer::Vec3 incident = renderer::Vec3(1.0f, -1.0f, 0.0f).normalized();
     const renderer::Vec3 reflected = renderer::reflect(incident, renderer::Vec3::UnitY());
 
@@ -1521,7 +1521,7 @@ void test_reflect_preserves_unit_length() {
     RENDER_CHECK(reflected.y() > 0.0f);
 }
 
-void test_refract_returns_unit_direction() {
+RENDER_TEST(test_refract_returns_unit_direction) {
     const renderer::Vec3 incident(0.6f, -0.8f, 0.0f);
     renderer::Vec3 refracted = renderer::Vec3::Zero();
 
@@ -1534,7 +1534,7 @@ void test_refract_returns_unit_direction() {
     RENDER_CHECK(refracted.y() < 0.0f);
 }
 
-void test_refract_rejects_total_internal_reflection() {
+RENDER_TEST(test_refract_rejects_total_internal_reflection) {
     const renderer::Vec3 incident(0.8f, 0.6f, 0.0f);
     renderer::Vec3 refracted = renderer::Vec3::Zero();
 
@@ -1545,7 +1545,7 @@ void test_refract_rejects_total_internal_reflection() {
         refracted));
 }
 
-void test_render_settings_defaults_are_useful() {
+RENDER_TEST(test_render_settings_defaults_are_useful) {
     renderer::RenderSettings settings;
     RENDER_CHECK(settings.width == 512);
     RENDER_CHECK(settings.height == 512);
@@ -1603,9 +1603,9 @@ renderer::Triangle make_test_triangle_at_z(float depth, int material_id) {
         material_id);
 }
 
-void test_pathtracer_renders_emissive_scene() {
+RENDER_TEST(test_pathtracer_renders_emissive_scene) {
     if (!renderer::cuda_path_backend_available()) {
-        return;
+        RENDER_SKIP("CUDA path backend unavailable");
     }
     renderer::Scene scene = renderer::make_cornell_box_scene();
     renderer::Camera camera(
@@ -1663,7 +1663,7 @@ renderer::Color render_one_path_pixel(
     return render_cuda_scene(scene, camera, settings).image.pixel(0, 0);
 }
 
-void test_atomic_write_failure_preserves_original_bytes() {
+RENDER_TEST(test_atomic_write_failure_preserves_original_bytes) {
     const std::filesystem::path directory = "test_atomic_write";
     const std::filesystem::path path = directory / "scene.rscene";
     std::filesystem::remove_all(directory);
@@ -1695,9 +1695,9 @@ void test_atomic_write_failure_preserves_original_bytes() {
     std::filesystem::remove_all(directory);
 }
 
-void test_pathtracer_receives_directional_light() {
+RENDER_TEST(test_pathtracer_receives_directional_light) {
     if (!renderer::cuda_path_backend_available()) {
-        return;
+        RENDER_SKIP("CUDA path backend unavailable");
     }
     renderer::Scene dark = make_path_direct_light_scene();
     const renderer::Color unlit = render_one_path_pixel(dark);
@@ -1711,9 +1711,9 @@ void test_pathtracer_receives_directional_light() {
     RENDER_CHECK(illuminated.x() > unlit.x() + 0.5f);
 }
 
-void test_pathtracer_point_light_uses_inverse_square_falloff() {
+RENDER_TEST(test_pathtracer_point_light_uses_inverse_square_falloff) {
     if (!renderer::cuda_path_backend_available()) {
-        return;
+        RENDER_SKIP("CUDA path backend unavailable");
     }
     renderer::Scene near_scene = make_path_direct_light_scene();
     near_scene.point_lights.push_back(renderer::PointLight{
@@ -1729,9 +1729,9 @@ void test_pathtracer_point_light_uses_inverse_square_falloff() {
     RENDER_CHECK(near_value.x() > far_value.x() * 3.5f);
 }
 
-void test_pathtracer_direct_light_respects_shadow_blockers() {
+RENDER_TEST(test_pathtracer_direct_light_respects_shadow_blockers) {
     if (!renderer::cuda_path_backend_available()) {
-        return;
+        RENDER_SKIP("CUDA path backend unavailable");
     }
     renderer::Scene visible = make_path_direct_light_scene();
     visible.point_lights.push_back(renderer::PointLight{
@@ -1796,9 +1796,9 @@ renderer::Color render_roulette_layer_sample(
     return render_cuda_scene(scene, camera, settings).image.pixel(0, 0);
 }
 
-void test_pathtracer_russian_roulette_terminates_and_preserves_energy() {
+RENDER_TEST(test_pathtracer_russian_roulette_terminates_and_preserves_energy) {
     if (!renderer::cuda_path_backend_available()) {
-        return;
+        RENDER_SKIP("CUDA path backend unavailable");
     }
     const renderer::Scene scene = make_path_roulette_layer_scene();
     constexpr int sample_count = 1024;
@@ -1930,7 +1930,7 @@ bool framebuffer_matches_average(
     return true;
 }
 
-void test_scene_intersector_skips_alpha_cutout_hits() {
+RENDER_TEST(test_scene_intersector_skips_alpha_cutout_hits) {
     renderer::Scene scene;
     renderer::Material transparent;
     transparent.opacity = 0.0f;
@@ -1948,7 +1948,7 @@ void test_scene_intersector_skips_alpha_cutout_hits() {
     RENDER_CHECK(hit.position.z() < -1.5f);
 }
 
-void test_scene_intersector_continues_through_thin_alpha_layer() {
+RENDER_TEST(test_scene_intersector_continues_through_thin_alpha_layer) {
     renderer::Scene scene;
     renderer::Material transparent;
     transparent.opacity = 0.0f;
@@ -1967,7 +1967,7 @@ void test_scene_intersector_continues_through_thin_alpha_layer() {
     RENDER_CHECK(hit.t < 1.001f);
 }
 
-void test_scene_intersector_respects_single_and_two_sided_materials() {
+RENDER_TEST(test_scene_intersector_respects_single_and_two_sided_materials) {
     renderer::Scene scene;
     renderer::Material material;
     material.two_sided = false;
@@ -1986,7 +1986,7 @@ void test_scene_intersector_respects_single_and_two_sided_materials() {
     RENDER_CHECK(hit.shading_normal.dot(hit.geometric_normal) > 0.0f);
 }
 
-void test_offset_ray_origin_is_finite_and_monotonic_across_scales() {
+RENDER_TEST(test_offset_ray_origin_is_finite_and_monotonic_across_scales) {
     for (const float coordinate : {1.0f, 100000.0f}) {
         const renderer::Vec3 position(coordinate, -coordinate, 0.5f * coordinate);
         const std::array<renderer::Vec3, 2> normals{
@@ -2007,7 +2007,7 @@ void test_offset_ray_origin_is_finite_and_monotonic_across_scales() {
     }
 }
 
-void test_offset_ray_origin_uses_float_roundoff_budget_across_scales() {
+RENDER_TEST(test_offset_ray_origin_uses_float_roundoff_budget_across_scales) {
     constexpr float offset_scale = 32.0f * std::numeric_limits<float>::epsilon();
     const float infinity = std::numeric_limits<float>::infinity();
     const renderer::Vec3 normal = renderer::Vec3::Ones().normalized();
@@ -2081,9 +2081,9 @@ renderer::Image render_direct_path_sample(
     return render_cuda_scene(scene, camera, direct_settings).image;
 }
 
-void test_path_interactive_session_matches_direct_samples_and_resets() {
+RENDER_TEST(test_path_interactive_session_matches_direct_samples_and_resets) {
     if (!renderer::cuda_path_backend_available()) {
-        return;
+        RENDER_SKIP("CUDA path backend unavailable");
     }
     const renderer::Scene scene = make_emissive_silhouette_scene();
     renderer::RenderSceneSnapshot snapshot =
@@ -2146,7 +2146,7 @@ void test_path_interactive_session_matches_direct_samples_and_resets() {
     RENDER_CHECK(path.accumulated_samples() == 1);
 }
 
-void test_obj_loader_reads_single_triangle() {
+RENDER_TEST(test_obj_loader_reads_single_triangle) {
     const std::string path = "test_single_triangle.obj";
     {
         std::ofstream out(path);
@@ -2161,7 +2161,7 @@ void test_obj_loader_reads_single_triangle() {
     std::remove(path.c_str());
 }
 
-void test_scene_asset_loader_preserves_obj_vertex_normals() {
+RENDER_TEST(test_scene_asset_loader_preserves_obj_vertex_normals) {
     const std::string obj_path = "test_smooth_normals.obj";
     {
         std::ofstream obj(obj_path);
@@ -2186,7 +2186,7 @@ void test_scene_asset_loader_preserves_obj_vertex_normals() {
     std::remove(obj_path.c_str());
 }
 
-void test_image_texture_samples_obj_uv_space() {
+RENDER_TEST(test_image_texture_samples_obj_uv_space) {
     const std::string texture_path = "test_map_kd.ppm";
     write_test_ppm_texture(texture_path);
 
@@ -2205,7 +2205,7 @@ void test_image_texture_samples_obj_uv_space() {
     std::remove(texture_path.c_str());
 }
 
-void test_texture_encoding_distinguishes_srgb_from_linear() {
+RENDER_TEST(test_texture_encoding_distinguishes_srgb_from_linear) {
     const std::string texture_path = "test_texture_encoding.ppm";
     write_single_pixel_ppm(texture_path, 128);
 
@@ -2225,7 +2225,7 @@ void test_texture_encoding_distinguishes_srgb_from_linear() {
     std::remove(texture_path.c_str());
 }
 
-void test_material_evaluator_combines_opacity_and_perturbs_bump_normal() {
+RENDER_TEST(test_material_evaluator_combines_opacity_and_perturbs_bump_normal) {
     renderer::Scene scene;
     scene.textures.emplace_back(
         4,
@@ -2270,7 +2270,7 @@ void test_material_evaluator_combines_opacity_and_perturbs_bump_normal() {
     RENDER_CHECK((fallback.shading_normal - hit.shading_normal).norm() < 1e-12f);
 }
 
-void test_scene_asset_loader_loads_map_kd_and_triangle_uvs() {
+RENDER_TEST(test_scene_asset_loader_loads_map_kd_and_triangle_uvs) {
     const std::string obj_path = "test_textured_asset.obj";
     const std::string mtl_path = "test_textured_asset.mtl";
     const std::string texture_path = "test_textured_asset.ppm";
@@ -2320,7 +2320,7 @@ void test_scene_asset_loader_loads_map_kd_and_triangle_uvs() {
     std::remove(texture_path.c_str());
 }
 
-void test_scene_asset_loader_imports_alpha_and_bump_maps() {
+RENDER_TEST(test_scene_asset_loader_imports_alpha_and_bump_maps) {
     const std::string obj_path = "test_surface_maps.obj";
     const std::string mtl_path = "test_surface_maps.mtl";
     const std::string texture_path = "test_surface_maps.ppm";
@@ -2365,7 +2365,7 @@ void test_scene_asset_loader_imports_alpha_and_bump_maps() {
     std::remove(texture_path.c_str());
 }
 
-void test_scene_asset_loader_warns_for_missing_optional_maps() {
+RENDER_TEST(test_scene_asset_loader_warns_for_missing_optional_maps) {
     const std::string obj_path = "test_missing_maps.obj";
     const std::string mtl_path = "test_missing_maps.mtl";
     {
@@ -2398,7 +2398,7 @@ void test_scene_asset_loader_warns_for_missing_optional_maps() {
     std::remove(mtl_path.c_str());
 }
 
-void test_scene_asset_loader_preserves_obj_mtl_materials() {
+RENDER_TEST(test_scene_asset_loader_preserves_obj_mtl_materials) {
     const std::string obj_path = "test_asset_loader.obj";
     const std::string mtl_path = "test_asset_loader.mtl";
     {
@@ -2441,7 +2441,7 @@ void test_scene_asset_loader_preserves_obj_mtl_materials() {
     std::remove(mtl_path.c_str());
 }
 
-void test_scene_asset_loader_does_not_treat_default_tf_as_transmission() {
+RENDER_TEST(test_scene_asset_loader_does_not_treat_default_tf_as_transmission) {
     const std::string obj_path = "test_tf_materials.obj";
     const std::string mtl_path = "test_tf_materials.mtl";
     {
@@ -2483,7 +2483,7 @@ void test_scene_asset_loader_does_not_treat_default_tf_as_transmission() {
     std::remove(mtl_path.c_str());
 }
 
-void test_cuda_path_backend_availability_contract() {
+RENDER_TEST(test_cuda_path_backend_availability_contract) {
     std::string reason;
     if (renderer::cuda_path_backend_available(&reason)) {
         RENDER_CHECK(renderer::cuda_path_backend_compiled());
@@ -2503,9 +2503,9 @@ renderer::Color image_mean(const renderer::Image& image) {
     return sum / static_cast<float>(image.width() * image.height());
 }
 
-void test_cuda_pathtracer_is_deterministic_when_available() {
+RENDER_TEST(test_cuda_pathtracer_is_deterministic_when_available) {
     if (!renderer::cuda_path_backend_available()) {
-        return;
+        RENDER_SKIP("CUDA path backend unavailable");
     }
 
     const renderer::Scene scene = renderer::make_cornell_box_scene();
@@ -2533,9 +2533,9 @@ void test_cuda_pathtracer_is_deterministic_when_available() {
     }
 }
 
-void test_cuda_pathtracer_alpha_texture_and_interactive_reset_when_available() {
+RENDER_TEST(test_cuda_pathtracer_alpha_texture_and_interactive_reset_when_available) {
     if (!renderer::cuda_path_backend_available()) {
-        return;
+        RENDER_SKIP("CUDA path backend unavailable");
     }
 
     renderer::Scene scene;
@@ -2675,9 +2675,9 @@ void test_cuda_pathtracer_alpha_texture_and_interactive_reset_when_available() {
 
 }
 
-void test_cuda_pathtracer_auto_interaction_preview_and_native_tiles_when_available() {
+RENDER_TEST(test_cuda_pathtracer_auto_interaction_preview_and_native_tiles_when_available) {
     if (!renderer::cuda_path_backend_available()) {
-        return;
+        RENDER_SKIP("CUDA path backend unavailable");
     }
 
     renderer::Scene scene = renderer::make_triangle_scene();
@@ -2878,8 +2878,7 @@ void check_framebuffers_near(
     }
 }
 
-void test_render_scene_snapshot_view_and_cuda_transform_refit_when_available(
-    int drag_frame_count = 100) {
+RENDER_TEST(test_render_scene_snapshot_view_and_cuda_transform_refit_when_available) {
     renderer::Scene local_scene;
     local_scene.environment = renderer::Color(0.01f, 0.02f, 0.03f);
     renderer::Material emissive;
@@ -2950,7 +2949,7 @@ void test_render_scene_snapshot_view_and_cuda_transform_refit_when_available(
             1.0e-5f));
 
     if (!renderer::cuda_path_backend_available()) {
-        return;
+        RENDER_SKIP("CUDA path backend unavailable");
     }
 
     renderer::RenderSceneSnapshot invalid_instances =
@@ -3157,7 +3156,7 @@ void test_render_scene_snapshot_view_and_cuda_transform_refit_when_available(
     const renderer::CudaPathStatistics before_drag =
         *instanced_session.cuda_statistics();
     for (int frame = 0;
-         frame < drag_frame_count;
+         frame < 100;
          ++frame) {
         RENDER_CHECK(document.set_world_matrix(
             first,
@@ -3181,7 +3180,7 @@ void test_render_scene_snapshot_view_and_cuda_transform_refit_when_available(
         after_drag.tlas_refit_count ==
         before_drag.tlas_refit_count +
             static_cast<std::uint64_t>(
-                drag_frame_count));
+                100));
     RENDER_CHECK(
         after_drag.blas_build_count ==
         before_drag.blas_build_count);
@@ -3407,9 +3406,9 @@ renderer::Scene make_cuda_rect_area_light_scene(
     return scene;
 }
 
-void test_cuda_pathtracer_emissive_nee_and_mis_when_available() {
+RENDER_TEST(test_cuda_pathtracer_emissive_nee_and_mis_when_available) {
     if (!renderer::cuda_path_backend_available()) {
-        return;
+        RENDER_SKIP("CUDA path backend unavailable");
     }
 
     const renderer::Scene triangle_scene =
@@ -3539,9 +3538,9 @@ renderer::Scene make_cuda_emissive_surface_contract_scene(
     return scene;
 }
 
-void test_cuda_emissive_nee_surface_contract_when_available() {
+RENDER_TEST(test_cuda_emissive_nee_surface_contract_when_available) {
     if (!renderer::cuda_path_backend_available()) {
-        return;
+        RENDER_SKIP("CUDA path backend unavailable");
     }
 
     const renderer::Color opaque = render_cuda_nee_test_scene(
@@ -3622,14 +3621,13 @@ renderer::Color render_instanced_document_pixel(
     }
     RENDER_CHECK(
         session.accumulated_samples() ==
-        samples_per_pixel);
+        1024);
     return framebuffer.pixel(0, 0);
 }
 
-void test_cuda_instanced_nee_mis_transforms_when_available(
-    int samples_per_pixel = 1024) {
+RENDER_TEST(test_cuda_instanced_nee_mis_transforms_when_available) {
     if (!renderer::cuda_path_backend_available()) {
-        return;
+        RENDER_SKIP("CUDA path backend unavailable");
     }
 
     const renderer::Camera camera(
@@ -3658,13 +3656,13 @@ void test_cuda_instanced_nee_mis_transforms_when_available(
     const renderer::Color flat_value =
         render_cuda_nee_test_scene(
             transformed_flat,
-            samples_per_pixel,
+            1024,
             719);
     const renderer::Color instanced_value =
         render_instanced_document_pixel(
             triangle_document,
             camera,
-            samples_per_pixel,
+            1024,
             719);
     RENDER_CHECK(flat_value.allFinite());
     RENDER_CHECK(instanced_value.allFinite());
@@ -3699,7 +3697,7 @@ void test_cuda_instanced_nee_mis_transforms_when_available(
         render_instanced_document_pixel(
             sphere_document,
             camera,
-            samples_per_pixel,
+            1024,
             811);
     RENDER_CHECK(sphere_value.allFinite());
     RENDER_CHECK(sphere_value.x() > 0.02f);
@@ -3716,15 +3714,15 @@ void test_cuda_instanced_nee_mis_transforms_when_available(
         render_instanced_document_pixel(
             alpha_document,
             camera,
-            std::min(128, samples_per_pixel),
+            std::min(128, 1024),
             913);
     RENDER_CHECK(alpha_value.allFinite());
     RENDER_CHECK(alpha_value.maxCoeff() < 1.0e-6f);
 }
 
-void test_cuda_pathtracer_lighting_contracts_when_available() {
+RENDER_TEST(test_cuda_pathtracer_lighting_contracts_when_available) {
     if (!renderer::cuda_path_backend_available()) {
-        return;
+        RENDER_SKIP("CUDA path backend unavailable");
     }
 
     renderer::Scene environment_scene;
@@ -3814,9 +3812,9 @@ void test_cuda_pathtracer_lighting_contracts_when_available() {
     RENDER_CHECK(complete.isApprox(renderer::Color::Ones(), 1e-6f));
 }
 
-void test_cuda_pathtracer_spheres_materials_and_bump_texture_when_available() {
+RENDER_TEST(test_cuda_pathtracer_spheres_materials_and_bump_texture_when_available) {
     if (!renderer::cuda_path_backend_available()) {
-        return;
+        RENDER_SKIP("CUDA path backend unavailable");
     }
 
     renderer::Scene scene;
@@ -3892,7 +3890,7 @@ void test_cuda_pathtracer_spheres_materials_and_bump_texture_when_available() {
     }
 }
 
-void test_scene_document_import_transform_hierarchy_history_and_roundtrip() {
+RENDER_TEST(test_scene_document_import_transform_hierarchy_history_and_roundtrip) {
     const std::filesystem::path directory = "test_scene_document_assets";
     const std::filesystem::path nested = directory / "nested";
     const std::filesystem::path scene_path = directory / "test_scene.rscene";
@@ -3975,7 +3973,7 @@ void test_scene_document_import_transform_hierarchy_history_and_roundtrip() {
     std::filesystem::remove_all(directory);
 }
 
-void test_scene_document_material_overrides_are_per_object_and_roundtrip() {
+RENDER_TEST(test_scene_document_material_overrides_are_per_object_and_roundtrip) {
     const std::filesystem::path directory =
         "test_scene_document_material_overrides";
     const std::filesystem::path obj_path = directory / "model.obj";
@@ -4283,7 +4281,7 @@ void test_scene_document_material_overrides_are_per_object_and_roundtrip() {
     std::filesystem::remove_all(directory);
 }
 
-void test_viewer_session_roundtrip_and_partial_asset_recovery() {
+RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
     const std::filesystem::path directory = "test_viewer_session";
     const std::filesystem::path obj_path = directory / "model.obj";
     const std::filesystem::path session_path = directory / "last-session.json";
@@ -4769,7 +4767,7 @@ void test_viewer_session_roundtrip_and_partial_asset_recovery() {
     std::filesystem::remove_all(directory);
 }
 
-void test_viewer_session_omits_and_skips_unreferenced_assets() {
+RENDER_TEST(test_viewer_session_omits_and_skips_unreferenced_assets) {
     const std::filesystem::path directory =
         "test_viewer_session_unreferenced_assets";
     const std::filesystem::path live_obj = directory / "live.obj";
@@ -4853,7 +4851,7 @@ void test_viewer_session_omits_and_skips_unreferenced_assets() {
     std::filesystem::remove_all(directory);
 }
 
-void test_environment_map_sampling_sh_and_document_roundtrip() {
+RENDER_TEST(test_environment_map_sampling_sh_and_document_roundtrip) {
     const renderer::Color constant(1.5f, 0.75f, 0.25f);
     std::vector<renderer::Color> pixels(64U * 32U, constant);
     const auto environment = std::make_shared<const renderer::EnvironmentMap>(
@@ -4940,7 +4938,7 @@ void test_environment_map_sampling_sh_and_document_roundtrip() {
     std::filesystem::remove_all(directory);
 }
 
-void test_environment_importance_pdf_integrates_and_histogram_matches_pmf() {
+RENDER_TEST(test_environment_importance_pdf_integrates_and_histogram_matches_pmf) {
     constexpr int width = 8;
     constexpr int height = 4;
     constexpr float pi = 3.14159265358979323846f;
@@ -5007,7 +5005,7 @@ void test_environment_importance_pdf_integrates_and_histogram_matches_pmf() {
     }
 }
 
-void test_pbr_sampling_pdf_and_texture_sampler_contracts() {
+RENDER_TEST(test_pbr_sampling_pdf_and_texture_sampler_contracts) {
     const renderer::Color base_color(0.8f, 0.35f, 0.12f);
     constexpr float metallic = 0.4f;
     const renderer::PbrSurface surface{
@@ -5074,7 +5072,7 @@ void test_pbr_sampling_pdf_and_texture_sampler_contracts() {
         1.0f));
 }
 
-void test_gltf_static_scene_import_and_flattening() {
+RENDER_TEST(test_gltf_static_scene_import_and_flattening) {
     const std::filesystem::path directory = "test_gltf_static_scene";
     const std::filesystem::path gltf_path = directory / "scene.gltf";
     const std::filesystem::path binary_path = directory / "mesh.bin";
@@ -5206,7 +5204,7 @@ void test_gltf_static_scene_import_and_flattening() {
     std::filesystem::remove_all(directory);
 }
 
-void test_gltf_texture_origin_sharing_and_material_extensions() {
+RENDER_TEST(test_gltf_texture_origin_sharing_and_material_extensions) {
     const std::filesystem::path directory = "test_gltf_pbr_extensions";
     const std::filesystem::path gltf_path = directory / "scene.gltf";
     const std::filesystem::path required_transmission_path =
@@ -5465,7 +5463,7 @@ void test_gltf_texture_origin_sharing_and_material_extensions() {
     std::filesystem::remove_all(directory);
 }
 
-void test_render_scene_snapshot_validates_optional_material_slots() {
+RENDER_TEST(test_render_scene_snapshot_validates_optional_material_slots) {
     renderer::Scene missing_scene;
     missing_scene.materials.push_back(renderer::Material{});
     missing_scene.triangles.emplace_back(
@@ -5521,7 +5519,7 @@ void test_render_scene_snapshot_validates_optional_material_slots() {
     RENDER_CHECK(rejected);
 }
 
-void test_scene_revisions_and_mergeable_edit_transactions() {
+RENDER_TEST(test_scene_revisions_and_mergeable_edit_transactions) {
     renderer::SceneDocument document = renderer::SceneDocument::from_scene(
         renderer::make_triangle_scene(),
         "Revision scene");
@@ -5591,7 +5589,7 @@ void test_scene_revisions_and_mergeable_edit_transactions() {
         document.revisions());
 }
 
-void test_shear_matrix_reparent_undo_and_v5_roundtrip() {
+RENDER_TEST(test_shear_matrix_reparent_undo_and_v5_roundtrip) {
     const std::filesystem::path directory = "test_scene_matrix_v5";
     const std::filesystem::path obj_path = directory / "triangle.obj";
     const std::filesystem::path scene_path = directory / "matrix.rscene";
@@ -5680,7 +5678,7 @@ void test_shear_matrix_reparent_undo_and_v5_roundtrip() {
     std::filesystem::remove_all(directory);
 }
 
-void test_document_sphere_mesh_negative_nonuniform_scale_and_pick() {
+RENDER_TEST(test_document_sphere_mesh_negative_nonuniform_scale_and_pick) {
     renderer::Scene scene;
     scene.materials.push_back(renderer::Material{});
     scene.spheres.emplace_back(
@@ -5725,148 +5723,3 @@ void test_document_sphere_mesh_negative_nonuniform_scale_and_pick() {
         snapshot.assets[0].local_scene->triangles.size());
 }
 
-int main(int argc, char** argv) {
-    if (argc == 2 && std::string(argv[1]) == "--atomic-write-regression") {
-        test_atomic_write_failure_preserves_original_bytes();
-        std::cout << "renderer_tests: atomic write regression passed\n";
-        return 0;
-    }
-    if (argc == 2 && std::string(argv[1]) == "--hardening-regression") {
-        test_environment_importance_pdf_integrates_and_histogram_matches_pmf();
-        test_render_scene_snapshot_validates_optional_material_slots();
-        test_scene_revisions_and_mergeable_edit_transactions();
-        test_shear_matrix_reparent_undo_and_v5_roundtrip();
-        test_document_sphere_mesh_negative_nonuniform_scale_and_pick();
-        std::cout << "renderer_tests: hardening regressions passed\n";
-        return 0;
-    }
-    if (argc == 2 && std::string(argv[1]) == "--gltf-pbr-regression") {
-        test_gltf_texture_origin_sharing_and_material_extensions();
-        std::cout << "renderer_tests: glTF PBR regression passed\n";
-        return 0;
-    }
-    if (argc == 2 &&
-        std::string(argv[1]) ==
-            "--cuda-instancing-sanitizer") {
-        test_render_scene_snapshot_view_and_cuda_transform_refit_when_available(4);
-        test_cuda_instanced_nee_mis_transforms_when_available(32);
-        std::cout
-            << "renderer_tests: CUDA instancing sanitizer smoke passed\n";
-        return 0;
-    }
-    if (argc != 1) {
-        throw std::invalid_argument(
-            "unknown renderer_tests argument");
-    }
-    RENDER_CHECK(1 + 1 == 2);
-    test_vec3_arithmetic();
-    test_mat4_composition_order();
-    test_mat4_perspective_uses_degrees_and_ndc_depth();
-    test_mat4_perspective_invalid_inputs_throw();
-    test_mat4_look_at();
-    test_mat4_look_at_invalid_inputs_throw();
-    test_camera_center_ray_points_forward();
-    test_camera_rejects_non_finite_screen_coordinates();
-    test_orbit_camera_controller_zoom_and_orbit_change_camera();
-    test_orbit_camera_controller_horizontal_drag_tracks_scene_direction();
-    test_orbit_camera_controller_pan_moves_in_camera_plane();
-    test_free_camera_controller_looks_and_clamps_pitch();
-    test_free_camera_controller_moves_in_camera_and_world_directions();
-    test_camera_mode_switch_preserves_pose();
-    test_frame_rate_counter_reports_window_average();
-    test_viewer_title_format_includes_fps_and_path_samples();
-    test_interactive_mode_catalog_contains_only_opengl_and_path();
-    test_viewer_selection_keeps_active_object_selected();
-    test_ray_and_bounds_intersection();
-    test_bounds_intersection_counts_corner_touch_as_hit();
-    test_image_invalid_dimensions_throw_invalid_argument();
-    test_image_stores_gamma_corrected_pixels();
-    test_image_and_framebuffer_bulk_pixel_assignment_validates_size();
-    test_atomic_write_failure_preserves_original_bytes();
-    test_to_rgb8_uses_standard_srgb_transfer_curve();
-    test_to_rgb8_sanitizes_non_finite_channels();
-    test_display_settings_apply_exposure_and_tone_mapping();
-    test_viewer_ui_actions_classify_path_resets();
-    test_framebuffer_clear_set_and_rgba8_conversion();
-    test_sphere_intersection();
-    test_sphere_rejects_zero_direction_ray();
-    test_sphere_invalid_radius_throws();
-    test_sphere_invalid_center_throws();
-    test_sphere_rejects_non_finite_direction_rays();
-    test_sphere_rejects_non_finite_origin_rays();
-    test_sphere_inside_ray_reports_back_face();
-    test_sphere_bounds_include_center_and_radius();
-    test_triangle_intersection();
-    test_triangle_interpolates_shading_normal_separately_from_geometry();
-    test_triangle_invalid_vertices_throw();
-    test_triangle_rejects_non_finite_rays();
-    test_triangle_back_side_hit_reports_back_face();
-    test_triangle_boundary_hits_succeed();
-    test_triangle_degenerate_normals_and_uvs_use_finite_fallbacks();
-    test_small_triangle_intersection_remains_valid();
-    test_small_nonzero_uv_basis_remains_valid();
-    test_degenerate_triangle_misses();
-    test_empty_bvh_has_no_nodes_or_hits();
-    test_bvh_matches_bruteforce_triangle_hit();
-    test_bvh_splits_and_traverses_interior_nodes();
-    test_float_bvh_matches_bruteforce_at_large_coordinates();
-    test_scene_intersector_skips_alpha_cutout_hits();
-    test_scene_intersector_continues_through_thin_alpha_layer();
-    test_scene_intersector_respects_single_and_two_sided_materials();
-    test_offset_ray_origin_is_finite_and_monotonic_across_scales();
-    test_offset_ray_origin_uses_float_roundoff_budget_across_scales();
-    test_checker_texture_is_deterministic_for_positive_and_negative_coordinates();
-    test_builtin_scene_contains_renderable_geometry();
-    test_triangle_scene_contains_triangle_and_light();
-    test_mirror_spheres_scene_contains_metal_sphere_and_point_light();
-    test_cornell_box_scene_contains_walls_and_expected_materials();
-    test_builtin_scene_probe_material_ids_are_in_range();
-    test_cornell_box_wall_normals_face_inward();
-    test_cornell_box_light_uses_emissive_material_and_faces_downward();
-    test_cosine_sample_is_in_upper_hemisphere();
-    test_reflect_preserves_unit_length();
-    test_refract_returns_unit_direction();
-    test_refract_rejects_total_internal_reflection();
-    test_render_settings_defaults_are_useful();
-    test_pathtracer_renders_emissive_scene();
-    test_pathtracer_receives_directional_light();
-    test_pathtracer_point_light_uses_inverse_square_falloff();
-    test_pathtracer_direct_light_respects_shadow_blockers();
-    test_pathtracer_russian_roulette_terminates_and_preserves_energy();
-    test_path_interactive_session_matches_direct_samples_and_resets();
-    test_obj_loader_reads_single_triangle();
-    test_scene_asset_loader_preserves_obj_vertex_normals();
-    test_image_texture_samples_obj_uv_space();
-    test_texture_encoding_distinguishes_srgb_from_linear();
-    test_material_evaluator_combines_opacity_and_perturbs_bump_normal();
-    test_scene_asset_loader_loads_map_kd_and_triangle_uvs();
-    test_scene_asset_loader_imports_alpha_and_bump_maps();
-    test_scene_asset_loader_warns_for_missing_optional_maps();
-    test_scene_asset_loader_preserves_obj_mtl_materials();
-    test_scene_asset_loader_does_not_treat_default_tf_as_transmission();
-    test_cuda_path_backend_availability_contract();
-    test_cuda_pathtracer_is_deterministic_when_available();
-    test_cuda_pathtracer_alpha_texture_and_interactive_reset_when_available();
-    test_cuda_pathtracer_auto_interaction_preview_and_native_tiles_when_available();
-    test_render_scene_snapshot_view_and_cuda_transform_refit_when_available();
-    test_cuda_pathtracer_emissive_nee_and_mis_when_available();
-    test_cuda_emissive_nee_surface_contract_when_available();
-    test_cuda_instanced_nee_mis_transforms_when_available();
-    test_cuda_pathtracer_lighting_contracts_when_available();
-    test_cuda_pathtracer_spheres_materials_and_bump_texture_when_available();
-    test_scene_document_import_transform_hierarchy_history_and_roundtrip();
-    test_scene_document_material_overrides_are_per_object_and_roundtrip();
-    test_viewer_session_roundtrip_and_partial_asset_recovery();
-    test_viewer_session_omits_and_skips_unreferenced_assets();
-    test_environment_map_sampling_sh_and_document_roundtrip();
-    test_environment_importance_pdf_integrates_and_histogram_matches_pmf();
-    test_pbr_sampling_pdf_and_texture_sampler_contracts();
-    test_gltf_static_scene_import_and_flattening();
-    test_gltf_texture_origin_sharing_and_material_extensions();
-    test_render_scene_snapshot_validates_optional_material_slots();
-    test_scene_revisions_and_mergeable_edit_transactions();
-    test_shear_matrix_reparent_undo_and_v5_roundtrip();
-    test_document_sphere_mesh_negative_nonuniform_scale_and_pick();
-    std::cout << "renderer_tests: all tests passed\n";
-    return 0;
-}
