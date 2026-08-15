@@ -611,3 +611,51 @@ if(RENDERER_BUILD_VIEWER)
     target_enable_warnings(renderer_opengl)
     target_enable_warnings(viewer)
 endif()
+
+# ---------------------------------------------------------------------------
+# Install, export, and packaging.
+#
+# Executables, headers, shaders, and docs install into a standard prefix.
+# Static libraries are exported for build-tree consumers only: they link
+# FetchContent-provided third-party targets (Eigen3, nlohmann_json, ...) that
+# are not part of an installable package, so an installed config-file package
+# would not be relocatable. Downstream CMake projects may add_subdirectory()
+# this repository and use the exported RendererTargets from the build tree.
+# ---------------------------------------------------------------------------
+include(GNUInstallDirs)
+
+set(RENDERER_INSTALL_EXECUTABLES renderer)
+if(RENDERER_BUILD_VIEWER)
+    list(APPEND RENDERER_INSTALL_EXECUTABLES viewer)
+    install(DIRECTORY shaders/opengl
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/renderer/shaders"
+        PATTERN "LTC_LICENSE.txt" EXCLUDE)
+    install(FILES shaders/opengl/LTC_LICENSE.txt
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/renderer/shaders/opengl")
+endif()
+
+install(TARGETS ${RENDERER_INSTALL_EXECUTABLES}
+    EXPORT RendererTargets
+    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+export(EXPORT RendererTargets
+    FILE "${CMAKE_CURRENT_BINARY_DIR}/RendererTargets.cmake"
+    NAMESPACE renderer::)
+
+install(DIRECTORY src/
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/renderer"
+    FILES_MATCHING
+        PATTERN "*.h"
+        PATTERN "*.cuh")
+install(DIRECTORY external/stb external/tinyobjloader
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/renderer"
+    FILES_MATCHING PATTERN "*.h")
+install(FILES README.md
+    DESTINATION "${CMAKE_INSTALL_DOCDIR}")
+
+set(CPACK_PACKAGE_NAME "renderer")
+set(CPACK_PACKAGE_VENDOR "Zaurry")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+    "C++20 teaching 3D renderer: OpenGL real-time preview and CUDA path tracing")
+set(CPACK_GENERATOR "ZIP")
+include(CPack)
