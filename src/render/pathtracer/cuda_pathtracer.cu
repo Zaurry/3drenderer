@@ -22,6 +22,7 @@
 #include <numeric>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -116,6 +117,9 @@ struct DSphere {
 };
 
 struct DMaterial {
+    // NOTE: kernels copy this by value; pack_material() constructs fields by
+    // name, so the field order itself is not load-bearing. Do not add a
+    // second writer that relies on positional initialization.
     int type;
     DVec3 base_color;
     DVec3 emission;
@@ -295,6 +299,21 @@ struct DScene {
     float environment_rotation_radians;
     int environment_background_visible;
 };
+
+// Device structs are passed to kernels by value and laid out in device
+// buffers; they must stay trivially copyable.
+static_assert(
+    std::is_trivially_copyable_v<DMaterial>,
+    "DMaterial must stay trivially copyable for device kernels");
+static_assert(
+    std::is_trivially_copyable_v<DInstance>,
+    "DInstance must stay trivially copyable for device kernels");
+static_assert(
+    std::is_trivially_copyable_v<DScene>,
+    "DScene must stay trivially copyable for device kernels");
+static_assert(
+    std::is_trivially_copyable_v<DTexture>,
+    "DTexture must stay trivially copyable for device kernels");
 
 struct DHit {
     float t;
@@ -4745,59 +4764,93 @@ private:
         const auto texture_id = [texture_base](int id) {
             return id >= 0 ? texture_base + id : -1;
         };
-        return DMaterial{
-            static_cast<int>(material.type),
-            to_device(material.base_color),
-            to_device(material.emission),
-            material.roughness,
-            material.metallic,
-            material.ior,
-            material.opacity,
-            material.alpha_cutoff,
-            material.bump_scale,
-            material.normal_scale,
-            material.occlusion_strength,
-            static_cast<int>(material.alpha_mode),
-            material.two_sided ? 1 : 0,
-            texture_id(material.diffuse_texture_id),
-            texture_id(material.opacity_texture_id),
-            texture_id(material.bump_texture_id),
-            texture_id(material.base_color_texture_id),
-            texture_id(material.metallic_roughness_texture_id),
-            texture_id(material.normal_texture_id),
-            texture_id(material.occlusion_texture_id),
-            texture_id(material.emissive_texture_id),
-            pack_texture_transform(material.base_color_texture_transform),
-            pack_texture_transform(material.metallic_roughness_texture_transform),
-            pack_texture_transform(material.normal_texture_transform),
-            pack_texture_transform(material.occlusion_texture_transform),
-            pack_texture_transform(material.emissive_texture_transform),
-            material.base_color_texture_transform.rotation,
-            material.metallic_roughness_texture_transform.rotation,
-            material.normal_texture_transform.rotation,
-            material.occlusion_texture_transform.rotation,
-            material.emissive_texture_transform.rotation,
-            material.base_color_texture_transform.texcoord,
-            material.metallic_roughness_texture_transform.texcoord,
-            material.normal_texture_transform.texcoord,
-            material.occlusion_texture_transform.texcoord,
-            material.emissive_texture_transform.texcoord,
-            static_cast<int>(material.pbr_workflow),
-            to_device(material.specular_color),
-            material.specular_factor,
-            material.glossiness,
-            texture_id(material.specular_texture_id),
-            texture_id(material.specular_color_texture_id),
-            texture_id(material.specular_glossiness_texture_id),
-            pack_texture_transform(material.specular_texture_transform),
-            pack_texture_transform(material.specular_color_texture_transform),
-            pack_texture_transform(material.specular_glossiness_texture_transform),
-            material.specular_texture_transform.rotation,
-            material.specular_color_texture_transform.rotation,
-            material.specular_glossiness_texture_transform.rotation,
-            material.specular_texture_transform.texcoord,
-            material.specular_color_texture_transform.texcoord,
-            material.specular_glossiness_texture_transform.texcoord};
+        // Named-field construction: a reordered DMaterial cannot silently
+        // swap values the way the previous ~50-field positional aggregate
+        // initializer could.
+        DMaterial result{};
+        result.type = static_cast<int>(material.type);
+        result.base_color = to_device(material.base_color);
+        result.emission = to_device(material.emission);
+        result.roughness = material.roughness;
+        result.metallic = material.metallic;
+        result.ior = material.ior;
+        result.opacity = material.opacity;
+        result.alpha_cutoff = material.alpha_cutoff;
+        result.bump_scale = material.bump_scale;
+        result.normal_scale = material.normal_scale;
+        result.occlusion_strength = material.occlusion_strength;
+        result.alpha_mode = static_cast<int>(material.alpha_mode);
+        result.two_sided = material.two_sided ? 1 : 0;
+        result.diffuse_texture_id = texture_id(material.diffuse_texture_id);
+        result.opacity_texture_id = texture_id(material.opacity_texture_id);
+        result.bump_texture_id = texture_id(material.bump_texture_id);
+        result.base_color_texture_id =
+            texture_id(material.base_color_texture_id);
+        result.metallic_roughness_texture_id =
+            texture_id(material.metallic_roughness_texture_id);
+        result.normal_texture_id = texture_id(material.normal_texture_id);
+        result.occlusion_texture_id =
+            texture_id(material.occlusion_texture_id);
+        result.emissive_texture_id =
+            texture_id(material.emissive_texture_id);
+        result.base_color_texture_transform =
+            pack_texture_transform(material.base_color_texture_transform);
+        result.metallic_roughness_texture_transform =
+            pack_texture_transform(material.metallic_roughness_texture_transform);
+        result.normal_texture_transform =
+            pack_texture_transform(material.normal_texture_transform);
+        result.occlusion_texture_transform =
+            pack_texture_transform(material.occlusion_texture_transform);
+        result.emissive_texture_transform =
+            pack_texture_transform(material.emissive_texture_transform);
+        result.base_color_texture_rotation =
+            material.base_color_texture_transform.rotation;
+        result.metallic_roughness_texture_rotation =
+            material.metallic_roughness_texture_transform.rotation;
+        result.normal_texture_rotation =
+            material.normal_texture_transform.rotation;
+        result.occlusion_texture_rotation =
+            material.occlusion_texture_transform.rotation;
+        result.emissive_texture_rotation =
+            material.emissive_texture_transform.rotation;
+        result.base_color_texture_texcoord =
+            material.base_color_texture_transform.texcoord;
+        result.metallic_roughness_texture_texcoord =
+            material.metallic_roughness_texture_transform.texcoord;
+        result.normal_texture_texcoord =
+            material.normal_texture_transform.texcoord;
+        result.occlusion_texture_texcoord =
+            material.occlusion_texture_transform.texcoord;
+        result.emissive_texture_texcoord =
+            material.emissive_texture_transform.texcoord;
+        result.pbr_workflow = static_cast<int>(material.pbr_workflow);
+        result.specular_color = to_device(material.specular_color);
+        result.specular_factor = material.specular_factor;
+        result.glossiness = material.glossiness;
+        result.specular_texture_id = texture_id(material.specular_texture_id);
+        result.specular_color_texture_id =
+            texture_id(material.specular_color_texture_id);
+        result.specular_glossiness_texture_id =
+            texture_id(material.specular_glossiness_texture_id);
+        result.specular_texture_transform =
+            pack_texture_transform(material.specular_texture_transform);
+        result.specular_color_texture_transform =
+            pack_texture_transform(material.specular_color_texture_transform);
+        result.specular_glossiness_texture_transform =
+            pack_texture_transform(material.specular_glossiness_texture_transform);
+        result.specular_texture_rotation =
+            material.specular_texture_transform.rotation;
+        result.specular_color_texture_rotation =
+            material.specular_color_texture_transform.rotation;
+        result.specular_glossiness_texture_rotation =
+            material.specular_glossiness_texture_transform.rotation;
+        result.specular_texture_texcoord =
+            material.specular_texture_transform.texcoord;
+        result.specular_color_texture_texcoord =
+            material.specular_color_texture_transform.texcoord;
+        result.specular_glossiness_texture_texcoord =
+            material.specular_glossiness_texture_transform.texcoord;
+        return result;
     }
 
     static DInstance pack_instance(
@@ -4820,15 +4873,16 @@ private:
             throw std::runtime_error(
                 "CUDA instance transform is singular");
         }
-        return DInstance{
-            to_device_affine(instance.object_to_world),
-            to_device_affine(instance.world_to_object),
-            to_device_matrix(instance.normal_to_world),
-            to_device(instance.world_bounds.min),
-            to_device(instance.world_bounds.max),
-            instance.asset_index,
-            material_offset,
-            determinant < 0.0f ? -1.0f : 1.0f};
+        DInstance result{};
+        result.object_to_world = to_device_affine(instance.object_to_world);
+        result.world_to_object = to_device_affine(instance.world_to_object);
+        result.normal_to_world = to_device_matrix(instance.normal_to_world);
+        result.bounds_min = to_device(instance.world_bounds.min);
+        result.bounds_max = to_device(instance.world_bounds.max);
+        result.asset_index = instance.asset_index;
+        result.material_offset = material_offset;
+        result.orientation_sign = determinant < 0.0f ? -1.0f : 1.0f;
+        return result;
     }
 
     static bool instance_surface_metric_changed(

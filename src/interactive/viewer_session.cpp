@@ -13,6 +13,11 @@
 
 namespace renderer {
 
+// Current viewer session schema version. Load applies version-gated
+// upgrades oldest-first (v1 legacy backend note, v3 OpenGL techniques);
+// save() always writes this version.
+constexpr int kViewerSessionVersion = 4;
+
 namespace {
 
 nlohmann::json vec3_json(const Vec3& value) {
@@ -125,6 +130,116 @@ float finite_value_or_default_clamped(
         : std::clamp(fallback, minimum, maximum);
 }
 
+// v3 upgrade: restores the OpenGL techniques subtree introduced in session
+// version 3. Sessions older than v3 keep the defaults in RenderSettings.
+void restore_opengl_settings(
+    OpenGlRenderSettings& settings,
+    const nlohmann::json& render) {
+    const auto& opengl = render.at("opengl");
+    settings.ibl_enabled = opengl.value("ibl_enabled", true);
+    settings.ltc_area_lights_enabled =
+        opengl.value("ltc_area_lights_enabled", true);
+        settings.ibl_enabled =
+            opengl.value("ibl_enabled", true);
+        settings.ltc_area_lights_enabled =
+            opengl.value("ltc_area_lights_enabled", true);
+        if (opengl.contains("shadow_map")) {
+            const auto& shadow = opengl.at("shadow_map");
+            auto& target = settings.shadow_map;
+            target.enabled = shadow.value("enabled", true);
+            target.resolution = std::clamp(
+                shadow.value("resolution", 1024), 128, 4096);
+            target.max_shadow_lights = std::clamp(
+                shadow.value("max_shadow_lights", 8), 1, 32);
+            target.constant_bias = finite_value_clamped(
+                shadow, "constant_bias", 0.0005f, 0.0f, 0.05f);
+            target.slope_bias = finite_value_clamped(
+                shadow, "slope_bias", 0.0025f, 0.0f, 0.1f);
+            target.projection_padding = finite_value_clamped(
+                shadow, "projection_padding", 0.05f, 0.0f, 0.5f);
+            target.debug_view = static_cast<OpenGlShadowDebugView>(std::clamp(
+                shadow.value("debug_view", 0), 0, 3));
+            target.debug_shadow_slot = std::max(
+                0, shadow.value("debug_shadow_slot", 0));
+        }
+        if (opengl.contains("pcss")) {
+            const auto& pcss = opengl.at("pcss");
+            auto& target = settings.pcss;
+            target.enabled = pcss.value("enabled", true);
+            target.blocker_samples = std::clamp(
+                pcss.value("blocker_samples", 16), 1, 64);
+            target.filter_samples = std::clamp(
+                pcss.value("filter_samples", 32), 1, 64);
+            target.max_penumbra_texels = finite_value_clamped(
+                pcss, "max_penumbra_texels", 64.0f, 0.0f, 256.0f);
+            target.light_size_scale = finite_value_clamped(
+                pcss, "light_size_scale", 1.0f, 0.0f, 8.0f);
+        }
+        if (opengl.contains("dominant_light")) {
+            const auto& dominant = opengl.at("dominant_light");
+            auto& target = settings.dominant_light;
+            target.enabled = dominant.value("enabled", true);
+            target.peak_threshold_ev = finite_value_clamped(
+                dominant, "peak_threshold_ev", 3.0f, 0.0f, 20.0f);
+            target.minimum_energy_fraction = finite_value_clamped(
+                dominant, "minimum_energy_fraction", 0.01f, 0.0f, 1.0f);
+            target.intensity_scale = finite_value_clamped(
+                dominant, "intensity_scale", 1.0f, 0.0f, 8.0f);
+        }
+        if (opengl.contains("ambient_occlusion")) {
+            const auto& ao = opengl.at("ambient_occlusion");
+            auto& target = settings.ambient_occlusion;
+            target.mode = static_cast<OpenGlAmbientOcclusionMode>(std::clamp(
+                ao.value("mode", static_cast<int>(OpenGlAmbientOcclusionMode::Gtao)),
+                0,
+                2));
+            target.debug_view = static_cast<OpenGlAmbientOcclusionDebugView>(
+                std::clamp(ao.value("debug_view", 0), 0, 4));
+            if (ao.contains("ssao")) {
+                const auto& source = ao.at("ssao");
+                target.ssao.sample_count = std::clamp(
+                    source.value("sample_count", 32), 8, 64);
+                target.ssao.radius_scale = finite_value_or_default_clamped(
+                    source, "radius_scale", 0.10f, 0.005f, 0.5f);
+                target.ssao.depth_bias_fraction = finite_value_or_default_clamped(
+                    source, "depth_bias_fraction", 0.02f, 0.0f, 0.2f);
+                target.ssao.intensity = finite_value_or_default_clamped(
+                    source, "intensity", 1.0f, 0.0f, 4.0f);
+            }
+            if (ao.contains("gtao")) {
+                const auto& source = ao.at("gtao");
+                target.gtao.slice_count = std::clamp(
+                    source.value("slice_count", 3), 1, 8);
+                target.gtao.samples_per_side = std::clamp(
+                    source.value("samples_per_side", 3), 1, 8);
+                target.gtao.radius_scale = finite_value_or_default_clamped(
+                    source, "radius_scale", 0.10f, 0.005f, 0.5f);
+                target.gtao.falloff_fraction = finite_value_or_default_clamped(
+                    source, "falloff_fraction", 0.60f, 0.05f, 1.0f);
+                target.gtao.thickness_fraction = finite_value_or_default_clamped(
+                    source, "thickness_fraction", 0.20f, 0.0f, 1.0f);
+                target.gtao.intensity = finite_value_or_default_clamped(
+                    source, "intensity", 1.0f, 0.0f, 4.0f);
+                target.gtao.bent_normals_enabled =
+                    source.value("bent_normals_enabled", true);
+            }
+            if (ao.contains("denoise")) {
+                const auto& source = ao.at("denoise");
+                target.denoise.enabled = source.value("enabled", true);
+                target.denoise.kernel_radius = std::clamp(
+                    source.value("kernel_radius", 2), 1, 4);
+                target.denoise.depth_sigma_fraction = finite_value_or_default_clamped(
+                    source, "depth_sigma_fraction", 0.10f, 0.01f, 1.0f);
+                target.denoise.normal_power = finite_value_or_default_clamped(
+                    source, "normal_power", 8.0f, 1.0f, 64.0f);
+            }
+            if (target.debug_view != OpenGlAmbientOcclusionDebugView::Final) {
+                settings.shadow_map.debug_view =
+                    OpenGlShadowDebugView::Final;
+            }
+        }
+}
+
 }  // namespace
 
 ViewerSessionState ViewerSessionStore::load(
@@ -137,7 +252,7 @@ ViewerSessionState ViewerSessionStore::load(
     nlohmann::json root;
     input >> root;
     const int version = root.value("version", 0);
-    if (version < 1 || version > 4) {
+    if (version < 1 || version > kViewerSessionVersion) {
         throw std::runtime_error("unsupported viewer session version");
     }
 
@@ -239,106 +354,9 @@ ViewerSessionState ViewerSessionStore::load(
         render.value("cuda_device", 0));
     state.render_settings.path.samples_per_pixel = 1;
     if (version >= 3 && render.contains("opengl")) {
-        const auto& opengl = render.at("opengl");
-        state.render_settings.opengl.ibl_enabled =
-            opengl.value("ibl_enabled", true);
-        state.render_settings.opengl.ltc_area_lights_enabled =
-            opengl.value("ltc_area_lights_enabled", true);
-        if (opengl.contains("shadow_map")) {
-            const auto& shadow = opengl.at("shadow_map");
-            auto& target = state.render_settings.opengl.shadow_map;
-            target.enabled = shadow.value("enabled", true);
-            target.resolution = std::clamp(
-                shadow.value("resolution", 1024), 128, 4096);
-            target.max_shadow_lights = std::clamp(
-                shadow.value("max_shadow_lights", 8), 1, 32);
-            target.constant_bias = finite_value_clamped(
-                shadow, "constant_bias", 0.0005f, 0.0f, 0.05f);
-            target.slope_bias = finite_value_clamped(
-                shadow, "slope_bias", 0.0025f, 0.0f, 0.1f);
-            target.projection_padding = finite_value_clamped(
-                shadow, "projection_padding", 0.05f, 0.0f, 0.5f);
-            target.debug_view = static_cast<OpenGlShadowDebugView>(std::clamp(
-                shadow.value("debug_view", 0), 0, 3));
-            target.debug_shadow_slot = std::max(
-                0, shadow.value("debug_shadow_slot", 0));
-        }
-        if (opengl.contains("pcss")) {
-            const auto& pcss = opengl.at("pcss");
-            auto& target = state.render_settings.opengl.pcss;
-            target.enabled = pcss.value("enabled", true);
-            target.blocker_samples = std::clamp(
-                pcss.value("blocker_samples", 16), 1, 64);
-            target.filter_samples = std::clamp(
-                pcss.value("filter_samples", 32), 1, 64);
-            target.max_penumbra_texels = finite_value_clamped(
-                pcss, "max_penumbra_texels", 64.0f, 0.0f, 256.0f);
-            target.light_size_scale = finite_value_clamped(
-                pcss, "light_size_scale", 1.0f, 0.0f, 8.0f);
-        }
-        if (opengl.contains("dominant_light")) {
-            const auto& dominant = opengl.at("dominant_light");
-            auto& target = state.render_settings.opengl.dominant_light;
-            target.enabled = dominant.value("enabled", true);
-            target.peak_threshold_ev = finite_value_clamped(
-                dominant, "peak_threshold_ev", 3.0f, 0.0f, 20.0f);
-            target.minimum_energy_fraction = finite_value_clamped(
-                dominant, "minimum_energy_fraction", 0.01f, 0.0f, 1.0f);
-            target.intensity_scale = finite_value_clamped(
-                dominant, "intensity_scale", 1.0f, 0.0f, 8.0f);
-        }
-        if (opengl.contains("ambient_occlusion")) {
-            const auto& ao = opengl.at("ambient_occlusion");
-            auto& target = state.render_settings.opengl.ambient_occlusion;
-            target.mode = static_cast<OpenGlAmbientOcclusionMode>(std::clamp(
-                ao.value("mode", static_cast<int>(OpenGlAmbientOcclusionMode::Gtao)),
-                0,
-                2));
-            target.debug_view = static_cast<OpenGlAmbientOcclusionDebugView>(
-                std::clamp(ao.value("debug_view", 0), 0, 4));
-            if (ao.contains("ssao")) {
-                const auto& source = ao.at("ssao");
-                target.ssao.sample_count = std::clamp(
-                    source.value("sample_count", 32), 8, 64);
-                target.ssao.radius_scale = finite_value_or_default_clamped(
-                    source, "radius_scale", 0.10f, 0.005f, 0.5f);
-                target.ssao.depth_bias_fraction = finite_value_or_default_clamped(
-                    source, "depth_bias_fraction", 0.02f, 0.0f, 0.2f);
-                target.ssao.intensity = finite_value_or_default_clamped(
-                    source, "intensity", 1.0f, 0.0f, 4.0f);
-            }
-            if (ao.contains("gtao")) {
-                const auto& source = ao.at("gtao");
-                target.gtao.slice_count = std::clamp(
-                    source.value("slice_count", 3), 1, 8);
-                target.gtao.samples_per_side = std::clamp(
-                    source.value("samples_per_side", 3), 1, 8);
-                target.gtao.radius_scale = finite_value_or_default_clamped(
-                    source, "radius_scale", 0.10f, 0.005f, 0.5f);
-                target.gtao.falloff_fraction = finite_value_or_default_clamped(
-                    source, "falloff_fraction", 0.60f, 0.05f, 1.0f);
-                target.gtao.thickness_fraction = finite_value_or_default_clamped(
-                    source, "thickness_fraction", 0.20f, 0.0f, 1.0f);
-                target.gtao.intensity = finite_value_or_default_clamped(
-                    source, "intensity", 1.0f, 0.0f, 4.0f);
-                target.gtao.bent_normals_enabled =
-                    source.value("bent_normals_enabled", true);
-            }
-            if (ao.contains("denoise")) {
-                const auto& source = ao.at("denoise");
-                target.denoise.enabled = source.value("enabled", true);
-                target.denoise.kernel_radius = std::clamp(
-                    source.value("kernel_radius", 2), 1, 4);
-                target.denoise.depth_sigma_fraction = finite_value_or_default_clamped(
-                    source, "depth_sigma_fraction", 0.10f, 0.01f, 1.0f);
-                target.denoise.normal_power = finite_value_or_default_clamped(
-                    source, "normal_power", 8.0f, 1.0f, 64.0f);
-            }
-            if (target.debug_view != OpenGlAmbientOcclusionDebugView::Final) {
-                state.render_settings.opengl.shadow_map.debug_view =
-                    OpenGlShadowDebugView::Final;
-            }
-        }
+        restore_opengl_settings(
+            state.render_settings.opengl,
+            render);
     }
     if (state.ui.mode == InteractiveRenderMode::Path) {
         std::string reason;
@@ -350,6 +368,7 @@ ViewerSessionState ViewerSessionStore::load(
                 "Saved Path session opened in OpenGL because CUDA Path is "
                 "unavailable: " + reason;
         } else if (version == 1) {
+            // v1 upgrade: the CPU/Auto path backends no longer exist.
             const std::string legacy_backend =
                 render.value("path_backend", std::string("auto"));
             if (legacy_backend != "cuda") {
@@ -385,7 +404,7 @@ void ViewerSessionStore::save(
     const SceneDocument& document,
     const ViewerSessionState& state) {
     nlohmann::json root;
-    root["version"] = 4;
+    root["version"] = kViewerSessionVersion;
     root["document"] = {
         {"file_path", state.document_path.generic_string()},
         {"dirty", state.document_dirty},
