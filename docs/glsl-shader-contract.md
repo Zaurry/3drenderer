@@ -120,18 +120,21 @@ Shadow pass 只绘制 Opaque/Mask 批次。Mask 必须复用 UV0/UV1、base-colo
 
 矩形面光的漫反射和 GGX 高光使用 64×64 LTC matrix/amplitude LUT。LUT 及 BSD 许可位于 `shaders/opengl/ltc_1.dds`、`ltc_2.dds` 和 `LTC_LICENSE.txt`。
 
-## Ambient Occlusion
+## Screen-space techniques
 
-SSAO/GTAO 使用以下默认辅助 shader，并与主 raster shader 一同参与自动热重载：
+SSAO/GTAO 与 SSR 使用以下默认辅助 shader，并与主 raster shader 一同参与自动热重载：
 
 - `fullscreen.vert`
-- `ao_gbuffer.frag`
+- `screen_space_gbuffer.frag`
 - `ambient_occlusion.frag`
 - `ao_denoise.frag`
+- `ssr.frag`
 
-AO G-buffer 只绘制 Opaque/Mask，复用材质 UV、normal/bump map、opacity、vertex alpha 和 alpha cutoff；Blend 不参与。资源格式为 `DEPTH_COMPONENT32F` 共享深度、`RGB16F` view normal、`R32F` linear depth，以及 `RGBA16F` bent-normal/visibility ping-pong。
+Screen-space G-buffer 只绘制 Opaque/Mask，复用材质 UV、normal/bump map、opacity、vertex alpha 和 alpha cutoff；Blend 不参与。资源格式为 `DEPTH_COMPONENT32F` 共享深度、`RGB16F` view normal、`R32F` linear depth、两张 `RGBA16F` SSR 材质纹理，以及 `RGBA16F` bent-normal/visibility ping-pong。
 
 默认 raster shader 仅将 AO 应用于环境 IBL。直接光、LTC、Shadow Map、Emission 和天空背景不乘 AO；GTAO 的 Bent Normal 用于漫反射环境方向，并用 GTSO 近似处理镜面环境遮蔽。自定义 raster fragment shader 如需接收该效果，必须声明 binding 15 及对应 AO uniforms。
+
+SSR 在 view space 同时追踪朝向和远离相机的反射射线；候选交点必须由可见表面的前方跨越到后方，并在二分细化后落入配置的 thickness 区间。命中颜色从 opaque HDR mip 金字塔按 `roughness²` 选择 LOD，随后替换相同 AO/GTSO 调制下的环境镜面项。Shadow debug view 会旁路 SSR，Blend 在 SSR 之后合成且不参与反射。
 
 ## 输出
 

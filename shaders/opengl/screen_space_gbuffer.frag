@@ -3,6 +3,11 @@
 layout(binding = 0) uniform sampler2D u_base_color_texture;
 layout(binding = 1) uniform sampler2D u_opacity_texture;
 layout(binding = 2) uniform sampler2D u_normal_or_bump_texture;
+layout(binding = 3) uniform sampler2D u_metallic_roughness_texture;
+layout(binding = 4) uniform sampler2D u_occlusion_texture;
+layout(binding = 6) uniform sampler2D u_specular_texture;
+layout(binding = 7) uniform sampler2D u_specular_color_texture;
+layout(binding = 8) uniform sampler2D u_specular_glossiness_texture;
 
 uniform vec3 u_camera_position;
 uniform vec3 u_camera_forward;
@@ -19,6 +24,20 @@ uniform int u_has_base_color_texture;
 uniform int u_has_opacity_texture;
 uniform int u_has_normal_texture;
 uniform int u_has_bump_texture;
+uniform int u_has_metallic_roughness_texture;
+uniform int u_has_occlusion_texture;
+uniform int u_has_specular_texture;
+uniform int u_has_specular_color_texture;
+uniform int u_has_specular_glossiness_texture;
+uniform int u_material_type;
+uniform int u_pbr_workflow;
+uniform float u_ior;
+uniform vec3 u_specular_color;
+uniform float u_specular_factor;
+uniform float u_glossiness;
+uniform float u_metallic;
+uniform float u_roughness;
+uniform float u_occlusion_strength;
 uniform vec4 u_texture_offset_scale[9];
 uniform float u_texture_rotation[9];
 uniform int u_texture_texcoord[9];
@@ -35,6 +54,10 @@ in VS_OUT {
 
 layout(location = 0) out vec3 out_view_normal;
 layout(location = 1) out float out_linear_depth;
+// Screen-space reflection material data: RGB = specular f0, A = roughness.
+layout(location = 2) out vec4 out_ssr_pbr;
+// Screen-space reflection material data: RGB = specular f90, A = occlusion.
+layout(location = 3) out vec4 out_ssr_pbr_aux;
 
 float luminance(vec3 color) {
     return dot(color, vec3(0.2126, 0.7152, 0.0722));
@@ -97,6 +120,59 @@ vec3 surface_normal() {
     return normal;
 }
 
+void evaluate_ssr_material(
+    vec3 base_color,
+    out vec3 specular_f0,
+    out vec3 specular_f90,
+    out float roughness) {
+    // Mirrors the material evaluation in raster.frag so the screen-space
+    // reflection pass can reconstruct the exact specular response.
+    if (u_material_type == 3) {
+        specular_f0 = vec3(0.0);
+        specular_f90 = vec3(0.0);
+        roughness = 1.0;
+        return;
+    }
+    float metallic = u_material_type == 1 ? 1.0 : clamp(u_metallic, 0.0, 1.0);
+    roughness = u_material_type == 0 ? 1.0 : clamp(u_roughness, 0.02, 1.0);
+    if (u_material_type == 4 && u_pbr_workflow == 1) {
+        vec3 specular = max(u_specular_color, vec3(0.0));
+        float glossiness = clamp(u_glossiness, 0.0, 1.0);
+        if (u_has_specular_glossiness_texture != 0) {
+            vec4 packed_specular_glossiness = texture(
+                u_specular_glossiness_texture,
+                material_uv(8));
+            specular *= packed_specular_glossiness.rgb;
+            glossiness *= packed_specular_glossiness.a;
+        }
+        specular_f0 = clamp(specular, vec3(0.0), vec3(1.0));
+        specular_f90 = vec3(1.0);
+        roughness = clamp(1.0 - glossiness, 0.02, 1.0);
+        return;
+    }
+    if (u_has_metallic_roughness_texture != 0) {
+        vec3 packed_value = texture(
+            u_metallic_roughness_texture,
+            material_uv(3)).rgb;
+        roughness = clamp(roughness * packed_value.g, 0.02, 1.0);
+        metallic = clamp(metallic * packed_value.b, 0.0, 1.0);
+    }
+    float specular_strength = clamp(u_specular_factor, 0.0, 1.0);
+    if (u_has_specular_texture != 0) {
+        specular_strength *= texture(u_specular_texture, material_uv(6)).a;
+    }
+    vec3 specular_color = max(u_specular_color, vec3(0.0));
+    if (u_has_specular_color_texture != 0) {
+        specular_color *= texture(u_specular_color_texture, material_uv(7)).rgb;
+    }
+    float ior_ratio = (max(u_ior, 1.0) - 1.0) / (max(u_ior, 1.0) + 1.0);
+    vec3 dielectric_f0 = min(
+        vec3(1.0),
+        specular_color * (ior_ratio * ior_ratio)) * specular_strength;
+    specular_f0 = mix(dielectric_f0, base_color, metallic);
+    specular_f90 = mix(vec3(specular_strength), vec3(1.0), metallic);
+}
+
 void main() {
     vec4 base_sample = u_has_base_color_texture != 0
         ? texture(u_base_color_texture, material_uv(0))
@@ -122,4 +198,17 @@ void main() {
     out_linear_depth = max(
         dot(fragment_in.world_position - u_camera_position, u_camera_forward),
         0.0);
+
+    vec3 base_color = u_base_color * base_sample.rgb * fragment_in.color.rgb;
+    vec3 specular_f0;
+    vec3 specular_f90;
+    float roughness;
+    evaluate_ssr_material(base_color, specular_f0, specular_f90, roughness);
+    float occlusion = 1.0;
+    if (u_has_occlusion_texture != 0) {
+        float sampled = texture(u_occlusion_texture, material_uv(4)).r;
+        occlusion = mix(1.0, sampled, clamp(u_occlusion_strength, 0.0, 1.0));
+    }
+    out_ssr_pbr = vec4(specular_f0, roughness);
+    out_ssr_pbr_aux = vec4(specular_f90, occlusion);
 }

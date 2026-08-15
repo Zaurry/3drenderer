@@ -1,5 +1,6 @@
 #include "interactive/viewer_ui.h"
 
+#include "render/opengl/opengl_shader_contract.h"
 #include "render/pathtracer/cuda_pathtracer.h"
 
 #include <imgui.h>
@@ -1030,6 +1031,8 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         OpenGlShadowDebugView::Final) {
                         render_settings.opengl.ambient_occlusion.debug_view =
                             OpenGlAmbientOcclusionDebugView::Final;
+                        render_settings.opengl.ssr.debug_view =
+                            OpenGlSsrDebugView::Final;
                     }
                 }
                 ImGui::InputInt(
@@ -1322,6 +1325,8 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         OpenGlAmbientOcclusionDebugView::Final) {
                         render_settings.opengl.shadow_map.debug_view =
                             OpenGlShadowDebugView::Final;
+                        render_settings.opengl.ssr.debug_view =
+                            OpenGlSsrDebugView::Final;
                     }
                 }
                 ImGui::EndDisabled();
@@ -1341,6 +1346,114 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 if (!open_gl_mode) {
                     ImGui::TextDisabled(
                         "Path mode uses ray visibility and does not run screen-space AO.");
+                }
+            }
+
+            if (ImGui::CollapsingHeader(
+                    "Screen Space Reflections",
+                    ImGuiTreeNodeFlags_DefaultOpen)) {
+                const bool open_gl_mode =
+                    state.mode == InteractiveRenderMode::OpenGl;
+                auto& ssr = render_settings.opengl.ssr;
+                ImGui::BeginDisabled(!open_gl_mode);
+                ImGui::Checkbox("Enable SSR", &ssr.enabled);
+                ImGui::BeginDisabled(!ssr.enabled);
+                ImGui::SliderInt(
+                    "Ray steps",
+                    &ssr.max_steps,
+                    8,
+                    kOpenGlMaxSsrSteps);
+                ssr.max_steps = std::clamp(
+                    ssr.max_steps,
+                    8,
+                    kOpenGlMaxSsrSteps);
+                ImGui::SliderInt(
+                    "Refinement steps",
+                    &ssr.refinement_steps,
+                    0,
+                    kOpenGlMaxSsrRefinementSteps);
+                ssr.refinement_steps = std::clamp(
+                    ssr.refinement_steps,
+                    0,
+                    kOpenGlMaxSsrRefinementSteps);
+                ImGui::SliderFloat(
+                    "Max distance / scene radius",
+                    &ssr.max_distance_scale,
+                    0.05f,
+                    4.0f,
+                    "%.3f",
+                    ImGuiSliderFlags_Logarithmic);
+                ssr.max_distance_scale = std::clamp(
+                    ssr.max_distance_scale,
+                    0.05f,
+                    4.0f);
+                ImGui::SliderFloat(
+                    "Thickness / distance",
+                    &ssr.thickness_scale,
+                    0.0005f,
+                    0.1f,
+                    "%.5f",
+                    ImGuiSliderFlags_Logarithmic);
+                ssr.thickness_scale = std::clamp(
+                    ssr.thickness_scale,
+                    0.0005f,
+                    0.1f);
+                ImGui::SliderFloat(
+                    "Max roughness",
+                    &ssr.max_roughness,
+                    0.0f,
+                    1.0f,
+                    "%.3f");
+                ssr.max_roughness = std::clamp(ssr.max_roughness, 0.0f, 1.0f);
+                ImGui::SliderFloat(
+                    "Intensity",
+                    &ssr.intensity,
+                    0.0f,
+                    4.0f,
+                    "%.2f");
+                ssr.intensity = std::clamp(ssr.intensity, 0.0f, 4.0f);
+                ImGui::SliderFloat(
+                    "Edge fade",
+                    &ssr.edge_fade,
+                    0.0f,
+                    0.5f,
+                    "%.3f");
+                ssr.edge_fade = std::clamp(ssr.edge_fade, 0.0f, 0.5f);
+                ImGui::Checkbox("Ray jitter", &ssr.jitter);
+
+                constexpr const char* debug_views[] = {
+                    "Final image",
+                    "Reflection",
+                    "Confidence"};
+                int debug_view = static_cast<int>(ssr.debug_view);
+                if (ImGui::Combo(
+                        "SSR debug view",
+                        &debug_view,
+                        debug_views,
+                        static_cast<int>(std::size(debug_views)))) {
+                    ssr.debug_view = static_cast<OpenGlSsrDebugView>(debug_view);
+                    if (ssr.debug_view != OpenGlSsrDebugView::Final) {
+                        render_settings.opengl.shadow_map.debug_view =
+                            OpenGlShadowDebugView::Final;
+                        render_settings.opengl.ambient_occlusion.debug_view =
+                            OpenGlAmbientOcclusionDebugView::Final;
+                    }
+                }
+                ImGui::EndDisabled();
+                ImGui::EndDisabled();
+
+                ImGui::Text(
+                    "Max distance: %.4g  |  thickness: %.4g",
+                    scene_radius(bounds) * ssr.max_distance_scale,
+                    scene_radius(bounds) * ssr.max_distance_scale *
+                        ssr.thickness_scale);
+                ImGui::TextDisabled(
+                    "Screen-space hits replace the environment specular term; misses fall back to the environment.");
+                ImGui::TextDisabled(
+                    "Reflections apply to opaque surfaces; transparent objects are composited after and are not reflected.");
+                if (!open_gl_mode) {
+                    ImGui::TextDisabled(
+                        "Path mode renders true reflections via ray tracing; screen-space reflections do not run.");
                 }
             }
         }

@@ -3,6 +3,7 @@
 #include "render/opengl/opengl_raster_renderer.h"
 #include "render/opengl/opengl_ao_math.h"
 #include "render/opengl/opengl_shadow_math.h"
+#include "render/opengl/opengl_ssr_math.h"
 
 RENDER_TEST(test_open_gl_geometry_upload_predicate) {
     RENDER_CHECK(renderer::open_gl_requires_geometry_upload(
@@ -147,4 +148,75 @@ RENDER_TEST(test_open_gl_gtso_visibility_range) {
             alignment, 0.25f, 0.5f, 0.75f);
         RENDER_CHECK(visibility >= 0.0f && visibility <= 1.0f);
     }
+}
+
+RENDER_TEST(test_open_gl_ssr_edge_fade) {
+    // Screen-center UVs stay untouched; the fade band hugs the viewport edge.
+    RENDER_CHECK(nearly_equal(
+        renderer::open_gl_ssr_edge_fade(0.5f, 0.5f, 0.15f),
+        1.0f));
+    RENDER_CHECK(nearly_equal(
+        renderer::open_gl_ssr_edge_fade(1.0f, 0.5f, 0.15f),
+        0.0f));
+    RENDER_CHECK(nearly_equal(
+        renderer::open_gl_ssr_edge_fade(0.5f, 0.0f, 0.15f),
+        0.0f));
+    // Fade decreases monotonically toward the edge inside the fade band.
+    RENDER_CHECK(renderer::open_gl_ssr_edge_fade(0.94f, 0.5f, 0.15f) >
+        renderer::open_gl_ssr_edge_fade(0.97f, 0.5f, 0.15f));
+    RENDER_CHECK(renderer::open_gl_ssr_edge_fade(0.97f, 0.5f, 0.15f) >
+        renderer::open_gl_ssr_edge_fade(0.99f, 0.5f, 0.15f));
+    // A wider fade band attenuates further into the frame.
+    RENDER_CHECK(renderer::open_gl_ssr_edge_fade(0.90f, 0.5f, 0.30f) <
+        renderer::open_gl_ssr_edge_fade(0.90f, 0.5f, 0.10f));
+    // Zero fade width disables the falloff for in-screen UVs.
+    RENDER_CHECK(nearly_equal(
+        renderer::open_gl_ssr_edge_fade(0.0f, 1.0f, 0.0f),
+        1.0f));
+    for (const float uv_x : {0.0f, 0.3f, 0.6f, 1.0f}) {
+        for (const float uv_y : {0.0f, 0.25f, 0.75f, 1.0f}) {
+            const float fade = renderer::open_gl_ssr_edge_fade(
+                uv_x, uv_y, 0.15f);
+            RENDER_CHECK(fade >= 0.0f && fade <= 1.0f);
+        }
+    }
+}
+
+RENDER_TEST(test_open_gl_ssr_depth_hit_and_roughness_lod) {
+    // A hit is a front-to-back crossing of the sampled screen-space surface.
+    // The rule is independent of whether the reflected ray itself moves
+    // toward or away from the camera.
+    RENDER_CHECK(renderer::open_gl_ssr_depth_crossing(-0.1f, 0.0f));
+    RENDER_CHECK(renderer::open_gl_ssr_depth_crossing(-0.1f, 0.1f));
+    RENDER_CHECK(!renderer::open_gl_ssr_depth_crossing(0.1f, -0.1f));
+    RENDER_CHECK(!renderer::open_gl_ssr_depth_crossing(0.0f, 0.1f));
+
+    RENDER_CHECK(renderer::open_gl_ssr_depth_within_thickness(
+        5.0f, 5.0f, 0.1f));
+    RENDER_CHECK(renderer::open_gl_ssr_depth_within_thickness(
+        5.1f, 5.0f, 0.1f));
+    RENDER_CHECK(!renderer::open_gl_ssr_depth_within_thickness(
+        5.1001f, 5.0f, 0.1f));
+    RENDER_CHECK(!renderer::open_gl_ssr_depth_within_thickness(
+        4.99f, 5.0f, 0.1f));
+
+    RENDER_CHECK(nearly_equal(
+        renderer::open_gl_ssr_reflection_lod(0.0f, 10),
+        0.0f));
+    RENDER_CHECK(nearly_equal(
+        renderer::open_gl_ssr_reflection_lod(0.5f, 10),
+        2.25f));
+    RENDER_CHECK(nearly_equal(
+        renderer::open_gl_ssr_reflection_lod(1.0f, 10),
+        9.0f));
+
+    renderer::OpenGlRenderSettings settings;
+    RENDER_CHECK(renderer::open_gl_ssr_requested(settings));
+    settings.ssr.enabled = false;
+    RENDER_CHECK(!renderer::open_gl_ssr_requested(settings));
+    settings.ssr.debug_view = renderer::OpenGlSsrDebugView::Confidence;
+    RENDER_CHECK(renderer::open_gl_ssr_requested(settings));
+    settings.shadow_map.debug_view =
+        renderer::OpenGlShadowDebugView::Visibility;
+    RENDER_CHECK(!renderer::open_gl_ssr_requested(settings));
 }

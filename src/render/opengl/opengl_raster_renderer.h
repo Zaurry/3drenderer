@@ -26,6 +26,12 @@ constexpr bool open_gl_requires_geometry_upload(SceneChangeSet changes) {
         has_scene_change(changes, SceneChange::InstanceTransforms);
 }
 
+constexpr bool open_gl_ssr_requested(const OpenGlRenderSettings& settings) {
+    return settings.shadow_map.debug_view == OpenGlShadowDebugView::Final &&
+        (settings.ssr.enabled ||
+         settings.ssr.debug_view != OpenGlSsrDebugView::Final);
+}
+
 class OpenGlRasterRenderer : public TextureLifetimeOwner {
 public:
     OpenGlRasterRenderer(

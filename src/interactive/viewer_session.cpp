@@ -236,6 +236,35 @@ void restore_opengl_settings(
             if (target.debug_view != OpenGlAmbientOcclusionDebugView::Final) {
                 settings.shadow_map.debug_view =
                     OpenGlShadowDebugView::Final;
+                settings.ssr.debug_view = OpenGlSsrDebugView::Final;
+            }
+        }
+        if (opengl.contains("ssr")) {
+            const auto& ssr = opengl.at("ssr");
+            auto& target = settings.ssr;
+            target.enabled = ssr.value("enabled", true);
+            target.max_steps = std::clamp(
+                ssr.value("max_steps", 64), 8, 256);
+            target.refinement_steps = std::clamp(
+                ssr.value("refinement_steps", 4), 0, 16);
+            target.max_distance_scale = finite_value_or_default_clamped(
+                ssr, "max_distance_scale", 1.0f, 0.05f, 4.0f);
+            target.thickness_scale = finite_value_or_default_clamped(
+                ssr, "thickness_scale", 0.01f, 0.0005f, 0.1f);
+            target.max_roughness = finite_value_clamped(
+                ssr, "max_roughness", 0.9f, 0.0f, 1.0f);
+            target.intensity = finite_value_clamped(
+                ssr, "intensity", 1.0f, 0.0f, 4.0f);
+            target.edge_fade = finite_value_clamped(
+                ssr, "edge_fade", 0.15f, 0.0f, 0.5f);
+            target.jitter = ssr.value("jitter", true);
+            target.debug_view = static_cast<OpenGlSsrDebugView>(std::clamp(
+                ssr.value("debug_view", 0), 0, 2));
+            if (target.debug_view != OpenGlSsrDebugView::Final) {
+                settings.shadow_map.debug_view =
+                    OpenGlShadowDebugView::Final;
+                settings.ambient_occlusion.debug_view =
+                    OpenGlAmbientOcclusionDebugView::Final;
             }
         }
 }
@@ -508,6 +537,18 @@ void ViewerSessionStore::save(
                 {"depth_sigma_fraction", state.render_settings.opengl.ambient_occlusion.denoise.depth_sigma_fraction},
                 {"normal_power", state.render_settings.opengl.ambient_occlusion.denoise.normal_power},
             }},
+        }},
+        {"ssr", {
+            {"enabled", state.render_settings.opengl.ssr.enabled},
+            {"max_steps", state.render_settings.opengl.ssr.max_steps},
+            {"refinement_steps", state.render_settings.opengl.ssr.refinement_steps},
+            {"max_distance_scale", state.render_settings.opengl.ssr.max_distance_scale},
+            {"thickness_scale", state.render_settings.opengl.ssr.thickness_scale},
+            {"max_roughness", state.render_settings.opengl.ssr.max_roughness},
+            {"intensity", state.render_settings.opengl.ssr.intensity},
+            {"edge_fade", state.render_settings.opengl.ssr.edge_fade},
+            {"jitter", state.render_settings.opengl.ssr.jitter},
+            {"debug_view", static_cast<int>(state.render_settings.opengl.ssr.debug_view)},
         }},
     };
     root["camera"] = {

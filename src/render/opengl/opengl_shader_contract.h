@@ -11,6 +11,8 @@ inline constexpr int kOpenGlMaxShadowLightSlots = 32;
 inline constexpr int kOpenGlMaxPcssSamples = 64;
 inline constexpr int kOpenGlShadowResolutionMin = 128;
 inline constexpr int kOpenGlShadowResolutionMax = 4096;
+inline constexpr int kOpenGlMaxSsrSteps = 256;
+inline constexpr int kOpenGlMaxSsrRefinementSteps = 16;
 
 struct OpenGlShaderBinding {
     int location = -1;

@@ -32,10 +32,12 @@ RENDER_TEST(test_opengl_shader_source_contract_lint) {
         std::filesystem::path(RENDERER_SOURCE_DIR) / "shaders" / "opengl";
     const std::string vertex = read_text(shader_root / "raster.vert");
     const std::string fragment = read_text(shader_root / "raster.frag");
-    const std::string ao_gbuffer = read_text(shader_root / "ao_gbuffer.frag");
+    const std::string screen_space_gbuffer = read_text(
+        shader_root / "screen_space_gbuffer.frag");
     const std::string ao_fragment = read_text(
         shader_root / "ambient_occlusion.frag");
     const std::string ao_denoise = read_text(shader_root / "ao_denoise.frag");
+    const std::string ssr_fragment = read_text(shader_root / "ssr.frag");
     const std::string renderer_source = read_text(
         std::filesystem::path(RENDERER_SOURCE_DIR) /
         "src" / "render" / "opengl" / "opengl_raster_renderer.cpp");
@@ -72,9 +74,15 @@ RENDER_TEST(test_opengl_shader_source_contract_lint) {
     RENDER_CHECK(fragment.find("gtso_visibility") != std::string::npos);
     RENDER_CHECK(fragment.find(
         "diffuse_ibl * (occlusion * screen_ao)") != std::string::npos);
-    RENDER_CHECK(ao_gbuffer.find("u_alpha_cutoff") != std::string::npos);
-    RENDER_CHECK(ao_gbuffer.find("u_has_normal_texture") != std::string::npos);
-    RENDER_CHECK(ao_gbuffer.find("u_has_bump_texture") != std::string::npos);
+    RENDER_CHECK(screen_space_gbuffer.find("u_alpha_cutoff") != std::string::npos);
+    RENDER_CHECK(screen_space_gbuffer.find("u_has_normal_texture") != std::string::npos);
+    RENDER_CHECK(screen_space_gbuffer.find("u_has_bump_texture") != std::string::npos);
+    RENDER_CHECK(screen_space_gbuffer.find("out_ssr_pbr") != std::string::npos);
+    RENDER_CHECK(screen_space_gbuffer.find("u_metallic") != std::string::npos);
+    RENDER_CHECK(screen_space_gbuffer.find(
+        "u_has_metallic_roughness_texture") != std::string::npos);
+    RENDER_CHECK(screen_space_gbuffer.find("evaluate_ssr_material") !=
+        std::string::npos);
     RENDER_CHECK(ao_fragment.find("evaluate_ssao") != std::string::npos);
     RENDER_CHECK(ao_fragment.find("evaluate_gtao") != std::string::npos);
     RENDER_CHECK(ao_fragment.find("bent_normal_sum") != std::string::npos);
@@ -86,8 +94,41 @@ RENDER_TEST(test_opengl_shader_source_contract_lint) {
     RENDER_CHECK(ao_denoise.find("u_depth_sigma_fraction") !=
         std::string::npos);
     RENDER_CHECK(ao_denoise.find("u_normal_power") != std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("u_max_steps") != std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("u_refinement_steps") !=
+        std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("reconstruct_view_position") !=
+        std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("project_view_position") !=
+        std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("fresnel_schlick") != std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("gtso_visibility") != std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("screen_edge_fade") != std::string::npos);
+    RENDER_CHECK(ssr_fragment.find(
+        "previous_delta < 0.0 && depth_delta >= 0.0") != std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("refined_delta <= thickness") !=
+        std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("reflection_view.z < 0.0") ==
+        std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("textureQueryLevels") != std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("textureLod(\n                u_opaque") !=
+        std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("u_ssr_pbr") != std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("u_debug_view") != std::string::npos);
+    const std::string ssr_step_cap =
+        "index < " + std::to_string(renderer::kOpenGlMaxSsrSteps);
+    RENDER_CHECK(ssr_fragment.find(ssr_step_cap) != std::string::npos);
+    const std::string ssr_refinement_cap =
+        "refine < " + std::to_string(renderer::kOpenGlMaxSsrRefinementSteps);
+    RENDER_CHECK(ssr_fragment.find(ssr_refinement_cap) != std::string::npos);
     RENDER_CHECK(renderer_source.find("GL_R32F") != std::string::npos);
     RENDER_CHECK(renderer_source.find("GL_DEPTH_COMPONENT32F") !=
+        std::string::npos);
+    RENDER_CHECK(renderer_source.find("open_gl_ssr_requested(settings.opengl)") !=
+        std::string::npos);
+    RENDER_CHECK(renderer_source.find(
+        "glGenerateMipmap(GL_TEXTURE_2D);\n            "
+        "render_screen_space_reflections") !=
         std::string::npos);
     RENDER_CHECK(renderer_source.find("GL_RGB16F") != std::string::npos);
     RENDER_CHECK(renderer_source.find("GL_RGBA16F") != std::string::npos);
@@ -107,9 +148,10 @@ RENDER_TEST(test_opengl_shader_source_contract_lint) {
              "shadow.vert",
              "shadow.frag",
              "composite.frag",
-             "ao_gbuffer.frag",
+             "screen_space_gbuffer.frag",
              "ambient_occlusion.frag",
-             "ao_denoise.frag"}) {
+             "ao_denoise.frag",
+             "ssr.frag"}) {
         const std::filesystem::path shader = shader_root / filename;
         RENDER_CHECK(std::filesystem::exists(shader));
         RENDER_CHECK(std::filesystem::file_size(shader) > 0);
@@ -137,7 +179,8 @@ RENDER_TEST(test_opengl_shader_source_contract_lint) {
     RENDER_CHECK(fragment.find(pcss_sample_cap) != std::string::npos);
     const std::string luminance_literal = "0.2126, 0.7152, 0.0722";
     RENDER_CHECK(fragment.find(luminance_literal) != std::string::npos);
-    RENDER_CHECK(ao_gbuffer.find(luminance_literal) != std::string::npos);
+    RENDER_CHECK(screen_space_gbuffer.find(luminance_literal) !=
+        std::string::npos);
     const std::string shadow_fragment_source =
         read_text(shader_root / "shadow.frag");
     RENDER_CHECK(

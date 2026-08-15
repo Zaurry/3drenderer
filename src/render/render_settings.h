@@ -108,6 +108,27 @@ struct AmbientOcclusionRenderSettings {
     bool operator==(const AmbientOcclusionRenderSettings&) const = default;
 };
 
+enum class OpenGlSsrDebugView : std::uint8_t {
+    Final = 0,
+    Reflection,
+    Confidence,
+};
+
+struct SsrRenderSettings {
+    bool enabled = true;
+    int max_steps = 64;
+    int refinement_steps = 4;
+    float max_distance_scale = 1.0f;
+    float thickness_scale = 0.01f;
+    float max_roughness = 0.9f;
+    float intensity = 1.0f;
+    float edge_fade = 0.15f;
+    bool jitter = true;
+    OpenGlSsrDebugView debug_view = OpenGlSsrDebugView::Final;
+
+    bool operator==(const SsrRenderSettings&) const = default;
+};
+
 struct OpenGlRenderSettings {
     bool ibl_enabled = true;
     bool ltc_area_lights_enabled = true;
@@ -115,6 +136,7 @@ struct OpenGlRenderSettings {
     PcssRenderSettings pcss;
     DominantLightExtractionRenderSettings dominant_light;
     AmbientOcclusionRenderSettings ambient_occlusion;
+    SsrRenderSettings ssr;
 
     bool operator==(const OpenGlRenderSettings&) const = default;
 };

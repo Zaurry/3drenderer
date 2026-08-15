@@ -4378,6 +4378,17 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
     state.render_settings.opengl.ambient_occlusion.denoise.kernel_radius = 3;
     state.render_settings.opengl.ambient_occlusion.denoise.depth_sigma_fraction = 0.2f;
     state.render_settings.opengl.ambient_occlusion.denoise.normal_power = 12.0f;
+    state.render_settings.opengl.ssr.enabled = false;
+    state.render_settings.opengl.ssr.max_steps = 96;
+    state.render_settings.opengl.ssr.refinement_steps = 6;
+    state.render_settings.opengl.ssr.max_distance_scale = 1.75f;
+    state.render_settings.opengl.ssr.thickness_scale = 0.02f;
+    state.render_settings.opengl.ssr.max_roughness = 0.6f;
+    state.render_settings.opengl.ssr.intensity = 1.5f;
+    state.render_settings.opengl.ssr.edge_fade = 0.25f;
+    state.render_settings.opengl.ssr.jitter = false;
+    state.render_settings.opengl.ssr.debug_view =
+        renderer::OpenGlSsrDebugView::Final;
     state.camera.eye = renderer::Vec3(4.0f, 5.0f, 6.0f);
     state.camera.forward =
         renderer::Vec3(-1.0f, -0.5f, -2.0f).normalized();
@@ -4527,6 +4538,28 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
     RENDER_CHECK(nearly_equal(
         loaded.render_settings.opengl.ambient_occlusion.denoise.normal_power,
         12.0f));
+    RENDER_CHECK(!loaded.render_settings.opengl.ssr.enabled);
+    RENDER_CHECK(loaded.render_settings.opengl.ssr.max_steps == 96);
+    RENDER_CHECK(loaded.render_settings.opengl.ssr.refinement_steps == 6);
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.ssr.max_distance_scale,
+        1.75f));
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.ssr.thickness_scale,
+        0.02f));
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.ssr.max_roughness,
+        0.6f));
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.ssr.intensity,
+        1.5f));
+    RENDER_CHECK(nearly_equal(
+        loaded.render_settings.opengl.ssr.edge_fade,
+        0.25f));
+    RENDER_CHECK(!loaded.render_settings.opengl.ssr.jitter);
+    RENDER_CHECK(
+        loaded.render_settings.opengl.ssr.debug_view ==
+        renderer::OpenGlSsrDebugView::Final);
     RENDER_CHECK(loaded.camera.eye.isApprox(state.camera.eye));
     RENDER_CHECK(loaded.camera.forward.isApprox(state.camera.forward));
     RENDER_CHECK(nearly_equal(
