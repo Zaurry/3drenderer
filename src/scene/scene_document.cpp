@@ -1178,6 +1178,13 @@ ObjectId SceneDocument::import_gltf(
             }
             const GltfCameraAsset& camera_source =
                 loaded.cameras[static_cast<std::size_t>(source.camera_index)];
+            if (camera_source.orthographic) {
+                warnings_.push_back(
+                    normalized.string() + ": camera '" +
+                    camera_source.name +
+                    "' is orthographic; the viewer previews it with a "
+                    "perspective camera");
+            }
             const ObjectId camera_id = create_camera(
                 camera_source.name,
                 camera_source.orthographic
