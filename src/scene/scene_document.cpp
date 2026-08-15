@@ -1425,6 +1425,11 @@ bool SceneDocument::is_descendant(ObjectId candidate, ObjectId ancestor) const {
         const SceneObject* object = find(current);
         current = object ? object->parent_id : kInvalidObjectId;
     }
+    // Reaching the cap without a definitive answer used to return a silent
+    // wrong result; surface it instead.
+    if (current != kInvalidObjectId) {
+        throw std::runtime_error("scene hierarchy exceeds maximum depth");
+    }
     return false;
 }
 
@@ -1437,7 +1442,10 @@ bool SceneDocument::is_effectively_visible(ObjectId id) const {
         }
         current = object->parent_id;
     }
-    return current == kInvalidObjectId;
+    if (current != kInvalidObjectId) {
+        throw std::runtime_error("scene hierarchy exceeds maximum depth");
+    }
+    return true;
 }
 
 bool SceneDocument::reparent(ObjectId id, ObjectId new_parent_id) {
@@ -1446,6 +1454,23 @@ bool SceneDocument::reparent(ObjectId id, ObjectId new_parent_id) {
         (new_parent_id != kInvalidObjectId && !find(new_parent_id)) ||
         is_descendant(new_parent_id, id)) {
         return false;
+    }
+    // Reject parents whose ancestor chain leaves no room for the moved
+    // node, so reparent cannot create an over-deep chain in the first place.
+    if (new_parent_id != kInvalidObjectId) {
+        int chain_length = 0;
+        ObjectId current = new_parent_id;
+        while (current != kInvalidObjectId) {
+            ++chain_length;
+            if (chain_length > kMaximumHierarchyDepth) {
+                throw std::runtime_error("scene hierarchy exceeds maximum depth");
+            }
+            const SceneObject* ancestor = find(current);
+            current = ancestor ? ancestor->parent_id : kInvalidObjectId;
+        }
+        if (chain_length >= kMaximumHierarchyDepth) {
+            return false;
+        }
     }
     Mat4 old_world = world_matrix(id);
     Mat4 parent_world = new_parent_id == kInvalidObjectId
@@ -1622,12 +1647,17 @@ void SceneDocument::rebuild_spatial_cache() const {
 
     std::vector<ObjectId> topology;
     topology.reserve(state_.objects.size());
-    std::vector<ObjectId> stack;
+    std::vector<std::pair<ObjectId, int>> stack;
     const auto roots = children(kInvalidObjectId);
-    stack.insert(stack.end(), roots.rbegin(), roots.rend());
+    for (auto iterator = roots.rbegin(); iterator != roots.rend(); ++iterator) {
+        stack.emplace_back(*iterator, 0);
+    }
     while (!stack.empty()) {
-        const ObjectId id = stack.back();
+        const auto [id, depth] = stack.back();
         stack.pop_back();
+        if (depth >= kMaximumHierarchyDepth) {
+            throw std::runtime_error("scene hierarchy exceeds maximum depth");
+        }
         const SceneObject* object = find(id);
         if (!object) {
             continue;
@@ -1638,7 +1668,9 @@ void SceneDocument::rebuild_spatial_cache() const {
         world_matrices_[id] = parent_world * object->transform.matrix();
         topology.push_back(id);
         const auto descendants = children(id);
-        stack.insert(stack.end(), descendants.rbegin(), descendants.rend());
+        for (auto iterator = descendants.rbegin(); iterator != descendants.rend(); ++iterator) {
+            stack.emplace_back(*iterator, depth + 1);
+        }
         if (topology.size() > state_.objects.size()) {
             throw std::runtime_error("scene hierarchy contains a cycle");
         }

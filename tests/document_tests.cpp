@@ -139,3 +139,40 @@ RENDER_TEST(test_undo_redo_import_manages_asset_lifetime) {
 
     std::filesystem::remove_all(directory);
 }
+
+RENDER_TEST(test_document_hierarchy_depth_limit_is_enforced) {
+    renderer::SceneDocument document;
+    renderer::ObjectId parent = renderer::kInvalidObjectId;
+    // One more level than the 1024 cap.
+    for (int index = 0; index < 1025; ++index) {
+        parent = document.create_group("chain", parent);
+    }
+    bool rejected = false;
+    try {
+        (void)document.render_scene_snapshot();
+    } catch (const std::runtime_error&) {
+        rejected = true;
+    }
+    RENDER_CHECK(rejected);
+}
+
+RENDER_TEST(test_document_reparent_rejects_over_deep_parent) {
+    renderer::SceneDocument document;
+    renderer::ObjectId deepest = renderer::kInvalidObjectId;
+    // A legal chain that fills the depth cap exactly (depths 0..1023).
+    for (int index = 0; index < 1024; ++index) {
+        deepest = document.create_group("chain", deepest);
+    }
+    const renderer::ObjectId leaf = document.create_group("leaf");
+    RENDER_CHECK(!document.reparent(leaf, deepest));
+
+    // One level below the cap still accepts a child.
+    renderer::SceneDocument shallow_document;
+    renderer::ObjectId shallow_deepest = renderer::kInvalidObjectId;
+    for (int index = 0; index < 1023; ++index) {
+        shallow_deepest = shallow_document.create_group("chain", shallow_deepest);
+    }
+    const renderer::ObjectId shallow_leaf =
+        shallow_document.create_group("leaf");
+    RENDER_CHECK(shallow_document.reparent(shallow_leaf, shallow_deepest));
+}
