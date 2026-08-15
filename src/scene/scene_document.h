@@ -75,6 +75,15 @@ struct SceneMeshAsset {
     std::vector<std::string> material_names;
 };
 
+// Per-object material override, stored per material slot.
+//
+// REDESIGN TODO (docs/design-review.md §1.1): this is a hand-maintained
+// partial copy of Material. Field mapping is duplicated across validation,
+// copy-from-source, application, and (de)serialization; specular-glossiness
+// parameters and texture transforms are not overridable, and the use_*
+// booleans can only disable textures (true = keep the source material's
+// texture). Planned: replace with a full Material plus a slot and migrate
+// the .rscene format.
 struct SceneMaterialOverride {
     std::uint32_t material_slot = 0;
     MaterialType type = MaterialType::Diffuse;

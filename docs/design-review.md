@@ -12,11 +12,14 @@
 > | 条目 | 状态 | 说明 |
 > |---|---|---|
 > | §1.6、§1.8 | ✅ | 程序球双表示已文档化；`Random`、`world_matrix_recursive`、`ExecutionBackend` 已删除，测试专用函数已标注 |
+> | §1.7 | ✅ | 导入正交 glTF 相机时给出显式警告（预览仍为透视） |
 > | §2.1 | ✅ | 事务备份不再拷贝整条撤销历史；事务期间 `undo()/redo()` 抛错 |
 > | §2.2 | ✅ | undo/redo 经 `history_pruned_assets_` 管理资产生命周期（撤销导入即分离资产、重做可复原） |
 > | §2.3 | ⚠️→文档 | 单线程契约已写入 `scene_document.h` 头注释 |
 > | §2.4、§2.5 | ✅ | `find_mutable` 改为置脏的 `mutable_object_for_edit`；`find_asset` 改为惰性哈希索引 |
+> | §2.6 | ✅ | 层级深度上限在遍历/重父级处显式报错，不再静默误分类 |
 > | §3.4 | ✅ | MIS 权重收敛到共享 `render/mis_weight.h`（host/device 同源）+ 边界单测 |
+> | §3.5 | ✅ | `pack_material`/`pack_instance` 改命名字段构造（消除位置聚合错位风险）+ 设备结构体 `trivially_copyable` 断言 |
 > | §3.6、§3.7、§3.9 | ✅ | 契约常量上移 `opengl_shader_contract.h`；亮度权重/衰减进 `render/shading_constants.h`；lint 测试由契约数组生成期望 |
 > | §3.11、§3.19 | ✅ | 渲染器内重复条件合并为一处；Path 后端不再重复计算 scene diff |
 > | §3.17 | ✅ | `statistics()` 只读缓存 + 显式 `refresh_statistics()` |
@@ -27,13 +30,15 @@
 > | §4.6 | ✅ | Escape 改为 UI 帧后按键盘捕获判定退出，不再绕过 ImGui |
 > | §4.10、§4.11 | ✅ | delta 上限 0.1s；relative-mouse 失败降级为状态提示 |
 > | §4.12、§5.4 | ✅ | last-frame 呈现契约写入接口注释；对话框 `open` 标志移入锁作用域 |
+> | §5.2 | ✅ | 会话版本常量 `kViewerSessionVersion` + OpenGL 子树解析提取为 v3 迁移函数、v1 升级注释化 |
 > | §6.1、§6.2、§6.3、§6.4 | ✅ | 4 个依赖补 `URL_HASH`；删除 SDL3 hack；`renderer_cuda` 拆分为 api/pathtracer/path_session，诊断构建只重编 `cuda_pathtracer.cu` |
+> | §6.5 | ✅ | `install()`/`export()`（构建树）/`CPack` 规则；可执行文件、头文件、shader、文档可安装 |
 > | §7.1、§7.2、§7.3、§7.4 | ✅ | 注册表式测试运行器（`--filter`、显式 skip、exit 77 + `SKIP_RETURN_CODE`）；CUDA 测试诚实跳过；领域测试拆分；lint 与数值契约测试分离 |
 > | §7.5 | ✅ | CI smoke 断言改为稳定标记 `path-mode-unavailable`；README 更新 skip 语义 |
 > | §8.1、§8.3、§8.4 | ✅ | `learning/`、`output/**` 分析产物、benchmark raw.json 已停止跟踪（约 270 MiB） |
 > | §9.1 | ✅ | `scene-object-system.md` 会话版本修正为 v4；本报告事实已按核查修订 |
 >
-> 未整改的结构性条目（§1.1 覆盖结构、§1.2 variant、§1.4 每实例材质、§2.6 深度上限、§3.1/3.2 模块拆分、§3.5 设备结构体 schema、§4.1/4.2 上帝对象、§5.2 迁移管线等）作为后续批次处理。
+> 未整改的结构性条目（后续批次）：§1.1 覆盖结构完整化（已在 `scene_document.h` 标注 REDESIGN TODO）、§1.2 `SceneObject` variant、§1.4 每实例材质共享、§2.8/2.9 错误契约与警告去重、§3.1/3.2 模块拆分、§3.18 统计记录器、§4.1/4.2 上帝对象拆分、§4.7 相机状态聚合、§5.3 基准工具去重。
 
 ---
 
