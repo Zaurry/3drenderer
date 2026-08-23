@@ -2435,6 +2435,105 @@ RENDER_TEST(test_scene_asset_loader_preserves_obj_mtl_materials) {
     std::remove(mtl_path.c_str());
 }
 
+RENDER_TEST(test_scene_asset_loader_promotes_emissive_quad_to_rect_area_light) {
+    const std::string obj_path = "test_emissive_quad.obj";
+    const std::string mtl_path = "test_emissive_quad.mtl";
+    {
+        std::ofstream mtl(mtl_path);
+        mtl << "newmtl light\nKd 0.8 0.8 0.8\nKe 17 12 4\nillum 2\n";
+    }
+    {
+        std::ofstream obj(obj_path);
+        obj << "mtllib " << mtl_path << "\n";
+        obj << "v -0.24 1.98 0.16\n";
+        obj << "v -0.24 1.98 -0.22\n";
+        obj << "v 0.23 1.98 -0.22\n";
+        obj << "v 0.23 1.98 0.16\n";
+        obj << "g light\nusemtl light\nf 1 2 3 4\n";
+    }
+
+    const renderer::LoadedScene loaded =
+        renderer::load_scene_asset(obj_path, 64, 64);
+    RENDER_CHECK(loaded.scene.rect_area_lights.size() == 1);
+    RENDER_CHECK(loaded.scene.triangles.empty());
+    RENDER_CHECK(loaded.scene.directional_lights.empty());
+    const renderer::RectAreaLight& light = loaded.scene.rect_area_lights[0];
+    RENDER_CHECK(light.position.isApprox(renderer::Vec3(-0.005f, 1.98f, -0.03f)));
+    RENDER_CHECK(light.radiance.isApprox(renderer::Color(17.0f, 12.0f, 4.0f)));
+    RENDER_CHECK(!light.two_sided);
+    RENDER_CHECK(
+        renderer::rect_area_light_emission_direction(light).y() < -0.999f);
+
+    std::remove(obj_path.c_str());
+    std::remove(mtl_path.c_str());
+}
+
+RENDER_TEST(test_scene_asset_loader_recovers_light_from_same_stem_mtl) {
+    const std::string obj_path = "test_supplemental_light.obj";
+    const std::string declared_mtl_path = "test_incomplete_materials.mtl";
+    const std::string supplemental_mtl_path = "test_supplemental_light.mtl";
+    {
+        std::ofstream mtl(declared_mtl_path);
+        mtl << "newmtl surface\nKd 0.8 0.8 0.8\nillum 2\n";
+    }
+    {
+        std::ofstream mtl(supplemental_mtl_path);
+        mtl << "newmtl light\nKd 1 1 1\nKe 2 3 4\nillum 2\n";
+    }
+    {
+        std::ofstream obj(obj_path);
+        obj << "mtllib " << declared_mtl_path << "\n";
+        obj << "v -1 1 -1\nv -1 1 1\nv 1 1 1\nv 1 1 -1\n";
+        obj << "g light\nusemtl light\nf 1 2 3 4\n";
+    }
+
+    const renderer::LoadedScene loaded =
+        renderer::load_scene_asset(obj_path, 64, 64);
+    RENDER_CHECK(loaded.scene.rect_area_lights.size() == 1);
+    RENDER_CHECK(loaded.scene.rect_area_lights[0].radiance.isApprox(
+        renderer::Color(2.0f, 3.0f, 4.0f)));
+    RENDER_CHECK(std::any_of(
+        loaded.warnings.begin(),
+        loaded.warnings.end(),
+        [](const std::string& warning) {
+            return warning.find("same-stem library") != std::string::npos;
+        }));
+
+    std::remove(obj_path.c_str());
+    std::remove(declared_mtl_path.c_str());
+    std::remove(supplemental_mtl_path.c_str());
+}
+
+RENDER_TEST(test_scene_asset_loader_recovers_named_light_without_mtl_definition) {
+    const std::string obj_path = "test_named_light.obj";
+    const std::string mtl_path = "test_named_light_materials.mtl";
+    {
+        std::ofstream mtl(mtl_path);
+        mtl << "newmtl surface\nKd 0.8 0.8 0.8\nillum 2\n";
+    }
+    {
+        std::ofstream obj(obj_path);
+        obj << "mtllib " << mtl_path << "\n";
+        obj << "v -1 1 -1\nv -1 1 1\nv 1 1 1\nv 1 1 -1\n";
+        obj << "g light\nusemtl light\nf 1 2 3 4\n";
+    }
+
+    const renderer::LoadedScene loaded =
+        renderer::load_scene_asset(obj_path, 64, 64);
+    RENDER_CHECK(loaded.scene.rect_area_lights.size() == 1);
+    RENDER_CHECK(loaded.scene.rect_area_lights[0].radiance.isApprox(
+        renderer::Color(10.0f, 10.0f, 10.0f)));
+    RENDER_CHECK(std::any_of(
+        loaded.warnings.begin(),
+        loaded.warnings.end(),
+        [](const std::string& warning) {
+            return warning.find("white emissive light") != std::string::npos;
+        }));
+
+    std::remove(obj_path.c_str());
+    std::remove(mtl_path.c_str());
+}
+
 RENDER_TEST(test_scene_asset_loader_does_not_treat_default_tf_as_transmission) {
     const std::string obj_path = "test_tf_materials.obj";
     const std::string mtl_path = "test_tf_materials.mtl";

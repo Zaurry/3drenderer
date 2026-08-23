@@ -662,38 +662,10 @@ SceneDocument SceneDocument::from_scene(
             directional_lights[index].shadow_priority;
     }
     for (std::size_t index = 0; index < rect_area_lights.size(); ++index) {
-        const RectAreaLight& source = rect_area_lights[index];
-        Vec3 direction = rect_area_light_emission_direction(source);
-        if (usable_direction(direction)) {
-            direction.normalize();
-        } else {
-            direction = Vec3(0.0f, 0.0f, -1.0f);
-        }
-        const ObjectId light_id = document.create_rect_area_light(
+        document.create_rect_area_light_from_source(
             "Rect Area Light " + std::to_string(index + 1),
-            source.position,
-            direction,
-            source.radiance,
-            2.0f * source.axis_u.norm(),
-            2.0f * source.axis_v.norm(),
-            source.two_sided);
-        SceneObject* light_object = document.mutable_object_for_edit(light_id);
-        light_object->light_casts_shadows = source.casts_shadows;
-        light_object->light_shadow_priority = source.shadow_priority;
-        if (usable_direction(source.axis_u) &&
-            usable_direction(source.axis_v)) {
-            const Vec3 unit_u = source.axis_u.normalized();
-            const Vec3 unit_v = source.axis_v.normalized();
-            const Vec3 unit_z = unit_u.cross(unit_v);
-            if (usable_direction(unit_z)) {
-                Mat4 local_matrix = Mat4::Identity();
-                local_matrix.topLeftCorner<3, 1>() = unit_u;
-                local_matrix.block<3, 1>(0, 1) = unit_v;
-                local_matrix.block<3, 1>(0, 2) = unit_z.normalized();
-                local_matrix.topRightCorner<3, 1>() = source.position;
-                light_object->transform.local_matrix = local_matrix;
-            }
-        }
+            rect_area_lights[index],
+            kInvalidObjectId);
     }
     document.history_.assign(1, document.state_);
     document.history_pruned_assets_.assign(1, {});
@@ -1020,6 +992,45 @@ ObjectId SceneDocument::create_rect_area_light(
     return id;
 }
 
+ObjectId SceneDocument::create_rect_area_light_from_source(
+    std::string name,
+    const RectAreaLight& source,
+    ObjectId parent_id) {
+    Vec3 direction = rect_area_light_emission_direction(source);
+    if (usable_direction(direction)) {
+        direction.normalize();
+    } else {
+        direction = Vec3(0.0f, 0.0f, -1.0f);
+    }
+    const ObjectId light_id = create_rect_area_light(
+        std::move(name),
+        source.position,
+        direction,
+        source.radiance,
+        2.0f * source.axis_u.norm(),
+        2.0f * source.axis_v.norm(),
+        source.two_sided,
+        parent_id);
+    SceneObject* light_object = mutable_object_for_edit(light_id);
+    light_object->light_casts_shadows = source.casts_shadows;
+    light_object->light_shadow_priority = source.shadow_priority;
+    if (usable_direction(source.axis_u) &&
+        usable_direction(source.axis_v)) {
+        const Vec3 unit_u = source.axis_u.normalized();
+        const Vec3 unit_v = source.axis_v.normalized();
+        const Vec3 unit_z = unit_u.cross(unit_v);
+        if (usable_direction(unit_z)) {
+            Mat4 local_matrix = Mat4::Identity();
+            local_matrix.topLeftCorner<3, 1>() = unit_u;
+            local_matrix.block<3, 1>(0, 1) = unit_v;
+            local_matrix.block<3, 1>(0, 2) = unit_z.normalized();
+            local_matrix.topRightCorner<3, 1>() = source.position;
+            light_object->transform.local_matrix = local_matrix;
+        }
+    }
+    return light_id;
+}
+
 ObjectId SceneDocument::create_camera(
     std::string name,
     SceneCameraProjection projection,
@@ -1095,6 +1106,8 @@ std::shared_ptr<SceneMeshAsset> SceneDocument::store_loaded_asset(
     asset->source_path = normalized_path;
     asset->source_mesh_index = source_mesh_index;
     asset->local_scene = std::move(loaded.scene);
+    asset->rect_area_lights =
+        std::move(asset->local_scene.rect_area_lights);
     asset->local_scene.directional_lights.clear();
     asset->local_scene.point_lights.clear();
     asset->local_scene.spot_lights.clear();
@@ -1252,8 +1265,16 @@ ObjectId SceneDocument::import_obj(
     object.type = SceneObjectType::Mesh;
     object.asset_id = asset->id;
     state_.objects.push_back(std::move(object));
+    object_index_dirty_ = true;
+    const ObjectId mesh_id = state_.objects.back().id;
+    for (std::size_t index = 0; index < asset->rect_area_lights.size(); ++index) {
+        create_rect_area_light_from_source(
+            "Rect Area Light " + std::to_string(index + 1),
+            asset->rect_area_lights[index],
+            mesh_id);
+    }
     mark_changed(SceneRevisionDomain::All, true);
-    return state_.objects.back().id;
+    return mesh_id;
 }
 
 std::vector<ObjectId> SceneDocument::import_path(

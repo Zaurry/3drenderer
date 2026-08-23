@@ -67,6 +67,9 @@ struct SceneMeshAsset {
     std::string builtin_id;
     int source_mesh_index = -1;
     Scene local_scene;
+    // Analytic lights extracted from mesh geometry are instantiated as child
+    // document objects for every import of this asset.
+    std::vector<RectAreaLight> rect_area_lights;
     std::shared_ptr<const Scene> render_geometry;
     std::vector<Sphere> procedural_spheres;
     std::shared_ptr<const SceneIntersector> picking_intersector;
@@ -364,6 +367,10 @@ private:
         ObjectId parent_id,
         int width,
         int height);
+    ObjectId create_rect_area_light_from_source(
+        std::string name,
+        const RectAreaLight& source,
+        ObjectId parent_id);
     ObjectId clone_subtree(ObjectId source_id, ObjectId parent_id);
     bool is_descendant(ObjectId candidate, ObjectId ancestor) const;
     bool is_effectively_visible(ObjectId id) const;

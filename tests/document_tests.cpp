@@ -79,6 +79,54 @@ RENDER_TEST(test_document_import_reparent_save_load_roundtrip) {
     std::filesystem::remove_all(directory);
 }
 
+RENDER_TEST(test_document_import_instantiates_emissive_rect_area_light) {
+    const std::filesystem::path directory = "document_rect_light_import_tests";
+    const std::filesystem::path obj_path = directory / "cornell.obj";
+    const std::filesystem::path mtl_path = directory / "cornell.mtl";
+    std::filesystem::remove_all(directory);
+    std::filesystem::create_directories(directory);
+    {
+        std::ofstream mtl(mtl_path);
+        mtl << "newmtl light\nKd 0.78 0.78 0.78\nKe 17 12 4\nillum 2\n";
+    }
+    {
+        std::ofstream obj(obj_path);
+        obj << "mtllib cornell.mtl\n";
+        obj << "v -0.24 1.98 0.16\n";
+        obj << "v -0.24 1.98 -0.22\n";
+        obj << "v 0.23 1.98 -0.22\n";
+        obj << "v 0.23 1.98 0.16\n";
+        obj << "g light\nusemtl light\nf 1 2 3 4\n";
+    }
+
+    renderer::SceneDocument document;
+    const std::vector<renderer::ObjectId> imported =
+        document.import_path(obj_path, 64, 64);
+    RENDER_CHECK(imported.size() == 1);
+    const std::vector<renderer::ObjectId> children =
+        document.children(imported.front());
+    RENDER_CHECK(children.size() == 1);
+    const renderer::SceneObject* light_object = document.find(children.front());
+    RENDER_CHECK(light_object != nullptr);
+    RENDER_CHECK(light_object->type == renderer::SceneObjectType::RectAreaLight);
+
+    renderer::SceneTrs mesh_transform;
+    mesh_transform.translation = renderer::Vec3(3.0f, 0.0f, 0.0f);
+    RENDER_CHECK(document.set_local_trs(imported.front(), mesh_transform));
+    const renderer::RenderSceneSnapshot& snapshot =
+        document.render_scene_snapshot();
+    RENDER_CHECK(snapshot.rect_area_lights.size() == 1);
+    RENDER_CHECK(snapshot.directional_lights.empty());
+    RENDER_CHECK(snapshot.rect_area_lights[0].radiance.isApprox(
+        renderer::Color(17.0f, 12.0f, 4.0f)));
+    RENDER_CHECK(renderer::rect_area_light_emission_direction(
+        snapshot.rect_area_lights[0]).y() < -0.999f);
+    RENDER_CHECK(std::abs(snapshot.rect_area_lights[0].position.x() - 2.995f) <
+        1.0e-5f);
+
+    std::filesystem::remove_all(directory);
+}
+
 RENDER_TEST(test_transaction_rejects_undo_and_redo) {
     renderer::SceneDocument document;
     auto edit = document.begin_edit();

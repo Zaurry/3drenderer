@@ -15,11 +15,14 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
+#include <fstream>
 #include <functional>
+#include <map>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -307,6 +310,113 @@ Material fallback_material() {
     return material;
 }
 
+bool recognize_rect_area_light(
+    const std::vector<std::array<Vec3, 3>>& triangles,
+    const Material& material,
+    RectAreaLight& result) {
+    if (triangles.size() != 2 ||
+        material.type != MaterialType::Emissive ||
+        !material.emission.allFinite() ||
+        color_energy(material.emission) <= 0.0f) {
+        return false;
+    }
+
+    float scale = 0.0f;
+    for (const auto& triangle : triangles) {
+        for (const Vec3& a : triangle) {
+            for (const auto& other_triangle : triangles) {
+                for (const Vec3& b : other_triangle) {
+                    scale = std::max(scale, (a - b).norm());
+                }
+            }
+        }
+    }
+    if (!std::isfinite(scale) || scale <= 1.0e-8f) {
+        return false;
+    }
+    const float position_tolerance = std::max(1.0e-6f, scale * 1.0e-5f);
+
+    std::vector<Vec3> corners;
+    corners.reserve(4);
+    for (const auto& triangle : triangles) {
+        for (const Vec3& point : triangle) {
+            const bool duplicate = std::any_of(
+                corners.begin(),
+                corners.end(),
+                [&](const Vec3& corner) {
+                    return (point - corner).norm() <= position_tolerance;
+                });
+            if (!duplicate) {
+                corners.push_back(point);
+            }
+        }
+    }
+    if (corners.size() != 4) {
+        return false;
+    }
+
+    const Vec3 first_cross =
+        (triangles[0][1] - triangles[0][0])
+            .cross(triangles[0][2] - triangles[0][0]);
+    const Vec3 second_cross =
+        (triangles[1][1] - triangles[1][0])
+            .cross(triangles[1][2] - triangles[1][0]);
+    if (!usable_direction(first_cross) || !usable_direction(second_cross)) {
+        return false;
+    }
+    const Vec3 normal = first_cross.normalized();
+    if (normal.dot(second_cross.normalized()) < 0.999f) {
+        return false;
+    }
+
+    for (std::size_t diagonal = 1; diagonal < corners.size(); ++diagonal) {
+        std::array<std::size_t, 2> adjacent{};
+        std::size_t adjacent_count = 0;
+        for (std::size_t index = 1; index < corners.size(); ++index) {
+            if (index != diagonal) {
+                adjacent[adjacent_count++] = index;
+            }
+        }
+
+        const Vec3 parallelogram_error =
+            corners[0] + corners[diagonal] -
+            corners[adjacent[0]] - corners[adjacent[1]];
+        if (parallelogram_error.norm() > position_tolerance * 4.0f) {
+            continue;
+        }
+
+        const Vec3 edge_a = corners[adjacent[0]] - corners[0];
+        const Vec3 edge_b = corners[adjacent[1]] - corners[0];
+        const float length_a = edge_a.norm();
+        const float length_b = edge_b.norm();
+        if (!std::isfinite(length_a) || !std::isfinite(length_b) ||
+            length_a <= position_tolerance || length_b <= position_tolerance) {
+            continue;
+        }
+        if (std::abs(edge_a.dot(edge_b)) > length_a * length_b * 1.0e-2f) {
+            continue;
+        }
+
+        const float rectangle_area = edge_a.cross(edge_b).norm();
+        const float triangle_area = 0.5f * (first_cross.norm() + second_cross.norm());
+        if (!std::isfinite(rectangle_area) || rectangle_area <= 1.0e-12f ||
+            std::abs(triangle_area - rectangle_area) > rectangle_area * 1.0e-3f) {
+            continue;
+        }
+
+        result.position = (corners[0] + corners[diagonal]) * 0.5f;
+        result.axis_u = edge_b * 0.5f;
+        result.axis_v = edge_a * 0.5f;
+        if (result.axis_v.cross(result.axis_u).dot(normal) < 0.0f) {
+            result.axis_u = -result.axis_u;
+        }
+        result.radiance = material.emission.cwiseMax(Color::Zero());
+        result.two_sided = false;
+        return true;
+    }
+    return false;
+}
+
 Camera make_default_camera(const Bounds3& bounds, int width, int height) {
     const Vec3 center = (bounds.min + bounds.max) * 0.5f;
     const float radius = std::max(0.5f, (bounds.max - bounds.min).norm() * 0.5f);
@@ -505,7 +615,65 @@ LoadedScene load_scene_asset(const std::string& path, int width, int height) {
         add_warning(loaded.warnings, warning_keys, "tinyobj", reader.Warning());
     }
     std::unordered_map<TextureCacheKey, int, TextureCacheKeyHash> texture_cache;
-    for (const tinyobj::material_t& source : reader.GetMaterials()) {
+    std::vector<tinyobj::material_t> source_materials = reader.GetMaterials();
+    std::unordered_map<std::string, int> material_ids_by_name;
+    for (std::size_t index = 0; index < source_materials.size(); ++index) {
+        material_ids_by_name.emplace(
+            lowercase_ascii(source_materials[index].name),
+            static_cast<int>(index));
+    }
+
+    // Some archives ship an OBJ whose mtllib line points at a related, but
+    // incomplete, material library. If tinyobj reports a missing material,
+    // use a same-stem MTL as a supplemental source without overriding any
+    // material that the OBJ explicitly resolved.
+    if (reader.Warning().find("not found in .mtl") != std::string::npos) {
+        std::filesystem::path supplemental_mtl = obj_path;
+        supplemental_mtl.replace_extension(".mtl");
+        if (std::filesystem::exists(supplemental_mtl)) {
+            const std::size_t material_count_before_supplement =
+                source_materials.size();
+            std::ifstream input(supplemental_mtl);
+            std::map<std::string, int> supplemental_map;
+            std::vector<tinyobj::material_t> supplemental_materials;
+            std::string supplemental_warning;
+            std::string supplemental_error;
+            tinyobj::LoadMtl(
+                &supplemental_map,
+                &supplemental_materials,
+                &input,
+                &supplemental_warning,
+                &supplemental_error);
+            for (const tinyobj::material_t& source : supplemental_materials) {
+                const std::string key = lowercase_ascii(source.name);
+                if (material_ids_by_name.contains(key)) {
+                    continue;
+                }
+                material_ids_by_name.emplace(
+                    key,
+                    static_cast<int>(source_materials.size()));
+                source_materials.push_back(source);
+            }
+            if (source_materials.size() > material_count_before_supplement) {
+                add_warning(
+                    loaded.warnings,
+                    warning_keys,
+                    "supplemental-mtl-recovered:" + supplemental_mtl.string(),
+                    "Recovered missing OBJ materials from same-stem library '" +
+                        supplemental_mtl.string() + "'.");
+            }
+            if (!supplemental_error.empty()) {
+                add_warning(
+                    loaded.warnings,
+                    warning_keys,
+                    "supplemental-mtl:" + supplemental_mtl.string(),
+                    "Failed to read supplemental material library '" +
+                        supplemental_mtl.string() + "': " + supplemental_error);
+            }
+        }
+    }
+
+    for (const tinyobj::material_t& source : source_materials) {
         loaded.scene.materials.push_back(convert_material(
             source,
             parent_path,
@@ -521,9 +689,37 @@ LoadedScene load_scene_asset(const std::string& path, int width, int height) {
     const int fallback_material_id = static_cast<int>(loaded.scene.materials.size());
     loaded.scene.materials.push_back(fallback_material());
     loaded.material_names.push_back("<default>");
+    int recovered_light_material_id = -1;
+
+    const auto recover_named_light_material = [&]() {
+        if (recovered_light_material_id >= 0) {
+            return recovered_light_material_id;
+        }
+        Material light;
+        light.type = MaterialType::Emissive;
+        light.base_color = Color(0.78f, 0.78f, 0.78f);
+        light.emission = Color(10.0f, 10.0f, 10.0f);
+        light.two_sided = true;
+        recovered_light_material_id =
+            static_cast<int>(loaded.scene.materials.size());
+        loaded.scene.materials.push_back(light);
+        loaded.material_names.push_back("light (recovered)");
+        add_warning(
+            loaded.warnings,
+            warning_keys,
+            "recovered-named-light",
+            "OBJ group 'light' has no resolved material; treating its rectangular "
+            "geometry as a white emissive light with radiance 10.");
+        return recovered_light_material_id;
+    };
 
     const tinyobj::attrib_t& attrib = reader.GetAttrib();
+    std::unordered_set<std::size_t> promoted_light_triangle_indices;
     for (const tinyobj::shape_t& shape : reader.GetShapes()) {
+        std::unordered_map<int, std::vector<std::array<Vec3, 3>>>
+            emissive_triangles_by_material;
+        std::unordered_map<int, std::vector<std::size_t>>
+            emissive_triangle_indices_by_material;
         std::size_t index_offset = 0;
         for (std::size_t face = 0; face < shape.mesh.num_face_vertices.size(); ++face) {
             const int vertex_count = shape.mesh.num_face_vertices[face];
@@ -537,11 +733,20 @@ LoadedScene load_scene_asset(const std::string& path, int width, int height) {
             const int source_material_id = face < shape.mesh.material_ids.size()
                 ? shape.mesh.material_ids[face]
                 : -1;
-            const int material_id =
+            int material_id =
                 source_material_id >= 0 &&
                     static_cast<std::size_t>(source_material_id) < reader.GetMaterials().size()
                 ? source_material_id
                 : fallback_material_id;
+            if (source_material_id < 0) {
+                const auto supplemental = material_ids_by_name.find(
+                    lowercase_ascii(shape.name));
+                if (supplemental != material_ids_by_name.end()) {
+                    material_id = supplemental->second;
+                } else if (lowercase_ascii(shape.name) == "light") {
+                    material_id = recover_named_light_material();
+                }
+            }
 
             const Vec3 a = vertex_from_index(attrib, i0);
             const Vec3 b = vertex_from_index(attrib, i1);
@@ -569,6 +774,14 @@ LoadedScene load_scene_asset(const std::string& path, int width, int height) {
                 material_id);
             if (material_id >= 0 &&
                 static_cast<std::size_t>(material_id) < loaded.scene.materials.size() &&
+                loaded.scene.materials[static_cast<std::size_t>(material_id)].type ==
+                    MaterialType::Emissive) {
+                emissive_triangles_by_material[material_id].push_back({a, b, c});
+                emissive_triangle_indices_by_material[material_id].push_back(
+                    loaded.scene.triangles.size() - 1U);
+            }
+            if (material_id >= 0 &&
+                static_cast<std::size_t>(material_id) < loaded.scene.materials.size() &&
                 loaded.scene.materials[static_cast<std::size_t>(material_id)].bump_texture_id >= 0 &&
                 !loaded.scene.triangles.back().has_valid_uv_basis()) {
                 add_warning(
@@ -584,17 +797,48 @@ LoadedScene load_scene_asset(const std::string& path, int width, int height) {
 
             index_offset += static_cast<std::size_t>(vertex_count);
         }
+
+        for (const auto& [material_id, triangles] : emissive_triangles_by_material) {
+            RectAreaLight light;
+            if (recognize_rect_area_light(
+                    triangles,
+                    loaded.scene.materials[static_cast<std::size_t>(material_id)],
+                    light)) {
+                loaded.scene.rect_area_lights.push_back(light);
+                const auto indices =
+                    emissive_triangle_indices_by_material.find(material_id);
+                if (indices != emissive_triangle_indices_by_material.end()) {
+                    promoted_light_triangle_indices.insert(
+                        indices->second.begin(),
+                        indices->second.end());
+                }
+            }
+        }
     }
 
     if (loaded.scene.triangles.empty()) {
         throw std::runtime_error("Scene asset contains no triangles");
     }
 
+    if (!promoted_light_triangle_indices.empty()) {
+        std::vector<Triangle> retained_triangles;
+        retained_triangles.reserve(
+            loaded.scene.triangles.size() - promoted_light_triangle_indices.size());
+        for (std::size_t index = 0; index < loaded.scene.triangles.size(); ++index) {
+            if (!promoted_light_triangle_indices.contains(index)) {
+                retained_triangles.push_back(std::move(loaded.scene.triangles[index]));
+            }
+        }
+        loaded.scene.triangles = std::move(retained_triangles);
+    }
+
     loaded.scene.environment = Color(0.02f, 0.025f, 0.03f);
-    loaded.scene.directional_lights.push_back(
-        DirectionalLight{
-            Vec3(-0.5f, -1.0f, -0.25f).normalized(),
-            Color(25.0f, 25.0f, 25.0f)});
+    if (loaded.scene.rect_area_lights.empty()) {
+        loaded.scene.directional_lights.push_back(
+            DirectionalLight{
+                Vec3(-0.5f, -1.0f, -0.25f).normalized(),
+                Color(25.0f, 25.0f, 25.0f)});
+    }
     loaded.camera = make_default_camera(loaded.bounds, width, height);
     return loaded;
 }
