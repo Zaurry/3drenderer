@@ -3,6 +3,7 @@
 #include "render/opengl/opengl_shader_contract.h"
 #include "render/shading_constants.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -20,9 +21,11 @@ namespace {
 std::string read_text(const std::filesystem::path& path) {
     std::ifstream input(path, std::ios::binary);
     RENDER_CHECK(input.good());
-    return std::string(
+    std::string text{
         std::istreambuf_iterator<char>(input),
-        std::istreambuf_iterator<char>());
+        std::istreambuf_iterator<char>()};
+    text.erase(std::remove(text.begin(), text.end(), '\r'), text.end());
+    return text;
 }
 
 }  // namespace
