@@ -134,7 +134,7 @@ Screen-space G-buffer 只绘制 Opaque/Mask，复用材质 UV、normal/bump map�
 
 默认 raster shader 仅将 AO 应用于环境 IBL。直接光、LTC、Shadow Map、Emission 和天空背景不乘 AO；GTAO 的 Bent Normal 用于漫反射环境方向，并用 GTSO 近似处理镜面环境遮蔽。自定义 raster fragment shader 如需接收该效果，必须声明 binding 15 及对应 AO uniforms。
 
-SSR 在 view space 同时追踪朝向和远离相机的反射射线；候选交点必须由可见表面的前方跨越到后方，并在二分细化后落入配置的 thickness 区间。命中颜色从 opaque HDR mip 金字塔按 `roughness²` 选择 LOD，随后替换相同 AO/GTSO 调制下的环境镜面项。Shadow debug view 会旁路 SSR，Blend 在 SSR 之后合成且不参与反射。
+SSR 在 view space 同时追踪朝向和远离相机的反射射线；候选交点必须由可见表面的前方跨越到后方，并在二分细化后落入配置的 thickness 区间。Glossy 命中使用与 Path 一致的 GGX `alpha = roughness²`，以 GGX 中心波瓣的 FWHM 构造适合普通 box-filter mip 的有效反射锥，并由命中距离、命中深度、相机投影和输出分辨率计算 opaque HDR mip 金字塔的屏幕 footprint LOD；LOD 使用锥的像素半宽，以补偿 trilinear mip 采样本身覆盖相邻 texel 的约双倍支持范围。超出屏幕支持范围的锥会降低置信度并回退环境项。命中项与被替换的环境项共用 split-sum BRDF 响应和相同的 AO/GTSO 调制。Shadow debug view 会旁路 SSR，Blend 在 SSR 之后合成且不参与反射。
 
 ## 输出
 

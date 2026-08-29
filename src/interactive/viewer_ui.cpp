@@ -1448,7 +1448,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     scene_radius(bounds) * ssr.max_distance_scale *
                         ssr.thickness_scale);
                 ImGui::TextDisabled(
-                    "Screen-space hits replace the environment specular term; misses fall back to the environment.");
+                    "Glossy hits use a GGX reflection cone; missing screen support falls back to the environment.");
                 ImGui::TextDisabled(
                     "Reflections apply to opaque surfaces; transparent objects are composited after and are not reflected.");
                 if (!open_gl_mode) {

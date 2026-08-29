@@ -182,7 +182,7 @@ RENDER_TEST(test_open_gl_ssr_edge_fade) {
     }
 }
 
-RENDER_TEST(test_open_gl_ssr_depth_hit_and_roughness_lod) {
+RENDER_TEST(test_open_gl_ssr_depth_hit_and_ggx_cone_lod) {
     // A hit is a front-to-back crossing of the sampled screen-space surface.
     // The rule is independent of whether the reflected ray itself moves
     // toward or away from the camera.
@@ -201,14 +201,40 @@ RENDER_TEST(test_open_gl_ssr_depth_hit_and_roughness_lod) {
         4.99f, 5.0f, 0.1f));
 
     RENDER_CHECK(nearly_equal(
-        renderer::open_gl_ssr_reflection_lod(0.0f, 10),
+        renderer::open_gl_ssr_ggx_cone_tangent(0.0f),
         0.0f));
     RENDER_CHECK(nearly_equal(
-        renderer::open_gl_ssr_reflection_lod(0.5f, 10),
-        2.25f));
-    RENDER_CHECK(nearly_equal(
-        renderer::open_gl_ssr_reflection_lod(1.0f, 10),
-        9.0f));
+        renderer::open_gl_ssr_ggx_cone_tangent(0.5f),
+        0.3303486f,
+        1.0e-5f));
+    RENDER_CHECK(std::isfinite(
+        renderer::open_gl_ssr_ggx_cone_tangent(1.0f)));
+
+    const float mirror_lod = renderer::open_gl_ssr_reflection_lod(
+        0.0f, 2.0f, 4.0f, 2.0f, 1.0f, 800, 400, 10);
+    const float glossy_lod = renderer::open_gl_ssr_reflection_lod(
+        0.5f, 2.0f, 4.0f, 2.0f, 1.0f, 800, 400, 10);
+    const float close_hit_lod = renderer::open_gl_ssr_reflection_lod(
+        0.5f, 0.25f, 4.0f, 2.0f, 1.0f, 800, 400, 10);
+    const float deep_hit_lod = renderer::open_gl_ssr_reflection_lod(
+        0.5f, 2.0f, 8.0f, 2.0f, 1.0f, 800, 400, 10);
+    RENDER_CHECK(nearly_equal(mirror_lod, 0.0f));
+    RENDER_CHECK(glossy_lod > 5.5f && glossy_lod < 6.5f);
+    RENDER_CHECK(close_hit_lod < glossy_lod);
+    RENDER_CHECK(deep_hit_lod < glossy_lod);
+    const float fully_rough_lod = renderer::open_gl_ssr_reflection_lod(
+        1.0f, 2.0f, 4.0f, 2.0f, 1.0f, 800, 400, 10);
+    RENDER_CHECK(fully_rough_lod > glossy_lod);
+    RENDER_CHECK(fully_rough_lod > 8.5f && fully_rough_lod <= 9.0f);
+
+    RENDER_CHECK(nearly_equal(renderer::open_gl_ssr_cone_edge_fade(
+        0.5f, 0.5f, 0.1f, 0.1f), 1.0f));
+    RENDER_CHECK(nearly_equal(renderer::open_gl_ssr_cone_edge_fade(
+        0.0f, 0.5f, 0.1f, 0.1f), 0.0f));
+    RENDER_CHECK(renderer::open_gl_ssr_cone_edge_fade(
+        0.25f, 0.5f, 0.5f, 0.5f) <
+        renderer::open_gl_ssr_cone_edge_fade(
+            0.25f, 0.5f, 0.1f, 0.1f));
 
     renderer::OpenGlRenderSettings settings;
     RENDER_CHECK(renderer::open_gl_ssr_requested(settings));

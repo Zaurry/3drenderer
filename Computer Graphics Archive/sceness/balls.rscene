@@ -1,0 +1,498 @@
+{
+  "assets": [
+    {
+      "id": 1,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../hw1/floor/floor.obj"
+    },
+    {
+      "id": 2,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../sphere/sphere-cylcoords-1k.obj"
+    },
+    {
+      "id": 3,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../sphere/sphere-cylcoords-4k.obj"
+    },
+    {
+      "id": 4,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../bunny/bunny.obj"
+    }
+  ],
+  "environment": {
+    "background_visible": true,
+    "color": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "intensity": 1.5240000486373901,
+    "path": "../environment map/je_gray_02_4k.exr",
+    "rotation_degrees": 3.5
+  },
+  "objects": [
+    {
+      "asset": 1,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 38,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "local_matrix": [
+        [
+          1.9799998998641968,
+          0.0,
+          0.0,
+          0.2504587173461914
+        ],
+        [
+          0.0,
+          1.9799998998641968,
+          0.0,
+          -0.4489906430244446
+        ],
+        [
+          0.0,
+          0.0,
+          1.9799998998641968,
+          -12.800715446472168
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "material_overrides": [
+        {
+          "alpha_cutoff": 0.5,
+          "alpha_mode": "opaque",
+          "base_color": [
+            0.800000011920929,
+            0.800000011920929,
+            0.800000011920929
+          ],
+          "bump_scale": 1.0,
+          "emission": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "ior": 1.0,
+          "metallic": 0.0,
+          "name": "None",
+          "normal_scale": 1.0,
+          "occlusion_strength": 1.0,
+          "opacity": 1.0,
+          "roughness": 0.0,
+          "slot": 0,
+          "two_sided": true,
+          "type": "diffuse",
+          "use_base_color_texture": true,
+          "use_bump_texture": false,
+          "use_diffuse_texture": false,
+          "use_emissive_texture": true,
+          "use_metallic_roughness_texture": true,
+          "use_normal_texture": true,
+          "use_occlusion_texture": true,
+          "use_opacity_texture": false
+        }
+      ],
+      "name": "floor",
+      "parent": 0,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 39,
+      "light_color": [
+        1.7369999885559082,
+        1.7369999885559082,
+        1.7369999885559082
+      ],
+      "light_range": 0.0,
+      "local_matrix": [
+        [
+          0.6411685943603516,
+          -0.2376636415719986,
+          0.3316907584667206,
+          0.0
+        ],
+        [
+          -0.2376614660024643,
+          0.2846750319004059,
+          0.6633831262588501,
+          0.0
+        ],
+        [
+          -0.33169224858283997,
+          -0.6633822321891785,
+          0.16584369540214539,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "Sun",
+      "parent": 0,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "directional_light",
+      "visible": false
+    },
+    {
+      "asset": 2,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 41,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "local_matrix": [
+        [
+          0.07920002937316895,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.07920002937316895,
+          0.0,
+          8.165952682495117
+        ],
+        [
+          0.0,
+          0.0,
+          0.07920002937316895,
+          -8.865703582763672
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "material_overrides": [
+        {
+          "alpha_cutoff": 0.5,
+          "alpha_mode": "opaque",
+          "base_color": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "bump_scale": 1.0,
+          "emission": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "ior": 1.5,
+          "metallic": 0.0,
+          "name": "default",
+          "normal_scale": 1.0,
+          "occlusion_strength": 1.0,
+          "opacity": 1.0,
+          "roughness": 0.07100000232458115,
+          "slot": 0,
+          "two_sided": true,
+          "type": "metal",
+          "use_base_color_texture": false,
+          "use_bump_texture": false,
+          "use_diffuse_texture": true,
+          "use_emissive_texture": false,
+          "use_metallic_roughness_texture": false,
+          "use_normal_texture": false,
+          "use_occlusion_texture": false,
+          "use_opacity_texture": false
+        },
+        {
+          "alpha_cutoff": 0.5,
+          "alpha_mode": "opaque",
+          "base_color": [
+            0.5178571343421936,
+            0.5055271983146667,
+            0.5178571343421936
+          ],
+          "bump_scale": 1.0,
+          "emission": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "ior": 1.5,
+          "metallic": 0.0,
+          "name": "<default>",
+          "normal_scale": 1.0,
+          "occlusion_strength": 1.0,
+          "opacity": 1.0,
+          "roughness": 0.0,
+          "slot": 1,
+          "two_sided": true,
+          "type": "metal",
+          "use_base_color_texture": false,
+          "use_bump_texture": false,
+          "use_diffuse_texture": false,
+          "use_emissive_texture": false,
+          "use_metallic_roughness_texture": false,
+          "use_normal_texture": false,
+          "use_occlusion_texture": false,
+          "use_opacity_texture": false
+        }
+      ],
+      "name": "sphere-cylcoords-1k",
+      "parent": 0,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 3,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 42,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "local_matrix": [
+        [
+          0.07900203764438629,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.07900203764438629,
+          0.0,
+          8.079811096191406
+        ],
+        [
+          0.0,
+          0.0,
+          0.07900203764438629,
+          15.143574714660645
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "material_overrides": [
+        {
+          "alpha_cutoff": 0.5,
+          "alpha_mode": "opaque",
+          "base_color": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "bump_scale": 1.0,
+          "emission": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "ior": 2.1730000972747803,
+          "metallic": 0.0,
+          "name": "default",
+          "normal_scale": 1.0,
+          "occlusion_strength": 1.0,
+          "opacity": 1.0,
+          "roughness": 0.3162277638912201,
+          "slot": 0,
+          "two_sided": true,
+          "type": "dielectric",
+          "use_base_color_texture": false,
+          "use_bump_texture": false,
+          "use_diffuse_texture": true,
+          "use_emissive_texture": false,
+          "use_metallic_roughness_texture": false,
+          "use_normal_texture": false,
+          "use_occlusion_texture": false,
+          "use_opacity_texture": false
+        },
+        {
+          "alpha_cutoff": 0.5,
+          "alpha_mode": "opaque",
+          "base_color": [
+            0.9642857313156128,
+            0.9154974818229675,
+            0.9642857313156128
+          ],
+          "bump_scale": 1.0,
+          "emission": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "ior": 1.437000036239624,
+          "metallic": 0.0,
+          "name": "<default>",
+          "normal_scale": 1.0,
+          "occlusion_strength": 1.0,
+          "opacity": 1.0,
+          "roughness": 0.0,
+          "slot": 1,
+          "two_sided": true,
+          "type": "dielectric",
+          "use_base_color_texture": false,
+          "use_bump_texture": false,
+          "use_diffuse_texture": false,
+          "use_emissive_texture": false,
+          "use_metallic_roughness_texture": false,
+          "use_normal_texture": false,
+          "use_occlusion_texture": false,
+          "use_opacity_texture": false
+        }
+      ],
+      "name": "sphere-cylcoords-4k",
+      "parent": 0,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 4,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 44,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "local_matrix": [
+        [
+          13.48380184173584,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          13.48380184173584,
+          0.0,
+          -0.4407651424407959
+        ],
+        [
+          0.0,
+          0.0,
+          13.48380184173584,
+          -34.10554504394531
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "material_overrides": [
+        {
+          "alpha_cutoff": 0.5,
+          "alpha_mode": "opaque",
+          "base_color": [
+            0.8392857313156128,
+            0.7868303656578064,
+            0.8392857313156128
+          ],
+          "bump_scale": 1.0,
+          "emission": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "ior": 1.5,
+          "metallic": 0.0,
+          "name": "<default>",
+          "normal_scale": 1.0,
+          "occlusion_strength": 1.0,
+          "opacity": 1.0,
+          "roughness": 0.16500000655651093,
+          "slot": 0,
+          "two_sided": true,
+          "type": "pbr",
+          "use_base_color_texture": false,
+          "use_bump_texture": false,
+          "use_diffuse_texture": false,
+          "use_emissive_texture": false,
+          "use_metallic_roughness_texture": false,
+          "use_normal_texture": false,
+          "use_occlusion_texture": false,
+          "use_opacity_texture": false
+        }
+      ],
+      "name": "bunny",
+      "parent": 0,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    }
+  ],
+  "version": 4
+}

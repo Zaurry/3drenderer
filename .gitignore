@@ -1,10 +1,8 @@
 .worktrees/
 build/
 CMakeUserPresets.json
-Computer Graphics Archive/
 
 # Personal course material, unrelated to the renderer build.
-learning/
 tmp/
 
 # Generated analysis artifacts. Keep only .gitkeep and curated outputs.

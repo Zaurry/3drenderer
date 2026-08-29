@@ -104,9 +104,15 @@ RENDER_TEST(test_opengl_shader_source_contract_lint) {
         std::string::npos);
     RENDER_CHECK(ssr_fragment.find("project_view_position") !=
         std::string::npos);
-    RENDER_CHECK(ssr_fragment.find("fresnel_schlick") != std::string::npos);
     RENDER_CHECK(ssr_fragment.find("gtso_visibility") != std::string::npos);
     RENDER_CHECK(ssr_fragment.find("screen_edge_fade") != std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("ggx_reflection_cone_tangent") !=
+        std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("reflection_cone_radius_uv") !=
+        std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("reflection_cone_edge_fade") !=
+        std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("specular_response") != std::string::npos);
     RENDER_CHECK(ssr_fragment.find(
         "previous_delta < 0.0 && depth_delta >= 0.0") != std::string::npos);
     RENDER_CHECK(ssr_fragment.find("refined_delta <= thickness") !=

@@ -1,0 +1,8860 @@
+{
+  "assets": [
+    {
+      "id": 1,
+      "kind": "gltf",
+      "mesh_index": 0,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 2,
+      "kind": "gltf",
+      "mesh_index": 1,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 3,
+      "kind": "gltf",
+      "mesh_index": 2,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 4,
+      "kind": "gltf",
+      "mesh_index": 3,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 5,
+      "kind": "gltf",
+      "mesh_index": 4,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 6,
+      "kind": "gltf",
+      "mesh_index": 5,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 7,
+      "kind": "gltf",
+      "mesh_index": 6,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 8,
+      "kind": "gltf",
+      "mesh_index": 7,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 9,
+      "kind": "gltf",
+      "mesh_index": 8,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 10,
+      "kind": "gltf",
+      "mesh_index": 9,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 11,
+      "kind": "gltf",
+      "mesh_index": 10,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 12,
+      "kind": "gltf",
+      "mesh_index": 11,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 13,
+      "kind": "gltf",
+      "mesh_index": 12,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 14,
+      "kind": "gltf",
+      "mesh_index": 13,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 15,
+      "kind": "gltf",
+      "mesh_index": 14,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 16,
+      "kind": "gltf",
+      "mesh_index": 15,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 17,
+      "kind": "gltf",
+      "mesh_index": 16,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 18,
+      "kind": "gltf",
+      "mesh_index": 17,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 19,
+      "kind": "gltf",
+      "mesh_index": 18,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 20,
+      "kind": "gltf",
+      "mesh_index": 19,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 21,
+      "kind": "gltf",
+      "mesh_index": 20,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 22,
+      "kind": "gltf",
+      "mesh_index": 21,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 23,
+      "kind": "gltf",
+      "mesh_index": 22,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 24,
+      "kind": "gltf",
+      "mesh_index": 23,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 25,
+      "kind": "gltf",
+      "mesh_index": 24,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 26,
+      "kind": "gltf",
+      "mesh_index": 25,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 27,
+      "kind": "gltf",
+      "mesh_index": 26,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 28,
+      "kind": "gltf",
+      "mesh_index": 27,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 29,
+      "kind": "gltf",
+      "mesh_index": 28,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 30,
+      "kind": "gltf",
+      "mesh_index": 29,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 31,
+      "kind": "gltf",
+      "mesh_index": 30,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 32,
+      "kind": "gltf",
+      "mesh_index": 31,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 33,
+      "kind": "gltf",
+      "mesh_index": 32,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 34,
+      "kind": "gltf",
+      "mesh_index": 33,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 35,
+      "kind": "gltf",
+      "mesh_index": 34,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 36,
+      "kind": "gltf",
+      "mesh_index": 35,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 37,
+      "kind": "gltf",
+      "mesh_index": 36,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 38,
+      "kind": "gltf",
+      "mesh_index": 37,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 39,
+      "kind": "gltf",
+      "mesh_index": 38,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 40,
+      "kind": "gltf",
+      "mesh_index": 39,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 41,
+      "kind": "gltf",
+      "mesh_index": 40,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 42,
+      "kind": "gltf",
+      "mesh_index": 41,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 43,
+      "kind": "gltf",
+      "mesh_index": 42,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 44,
+      "kind": "gltf",
+      "mesh_index": 43,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 45,
+      "kind": "gltf",
+      "mesh_index": 44,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 46,
+      "kind": "gltf",
+      "mesh_index": 45,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 47,
+      "kind": "gltf",
+      "mesh_index": 46,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 48,
+      "kind": "gltf",
+      "mesh_index": 47,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 49,
+      "kind": "gltf",
+      "mesh_index": 48,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 50,
+      "kind": "gltf",
+      "mesh_index": 49,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 51,
+      "kind": "gltf",
+      "mesh_index": 50,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 52,
+      "kind": "gltf",
+      "mesh_index": 51,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 53,
+      "kind": "gltf",
+      "mesh_index": 52,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 54,
+      "kind": "gltf",
+      "mesh_index": 53,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 55,
+      "kind": "gltf",
+      "mesh_index": 54,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 56,
+      "kind": "gltf",
+      "mesh_index": 55,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 57,
+      "kind": "gltf",
+      "mesh_index": 56,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 58,
+      "kind": "gltf",
+      "mesh_index": 57,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 59,
+      "kind": "gltf",
+      "mesh_index": 58,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 60,
+      "kind": "gltf",
+      "mesh_index": 59,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 61,
+      "kind": "gltf",
+      "mesh_index": 60,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 62,
+      "kind": "gltf",
+      "mesh_index": 61,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 63,
+      "kind": "gltf",
+      "mesh_index": 62,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 64,
+      "kind": "gltf",
+      "mesh_index": 63,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 65,
+      "kind": "gltf",
+      "mesh_index": 64,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 66,
+      "kind": "gltf",
+      "mesh_index": 65,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 67,
+      "kind": "gltf",
+      "mesh_index": 66,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 68,
+      "kind": "gltf",
+      "mesh_index": 67,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 69,
+      "kind": "gltf",
+      "mesh_index": 68,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 70,
+      "kind": "gltf",
+      "mesh_index": 69,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 71,
+      "kind": "gltf",
+      "mesh_index": 70,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 72,
+      "kind": "gltf",
+      "mesh_index": 71,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 73,
+      "kind": "gltf",
+      "mesh_index": 72,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 74,
+      "kind": "gltf",
+      "mesh_index": 73,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 75,
+      "kind": "gltf",
+      "mesh_index": 74,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 76,
+      "kind": "gltf",
+      "mesh_index": 75,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 77,
+      "kind": "gltf",
+      "mesh_index": 76,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 78,
+      "kind": "gltf",
+      "mesh_index": 77,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 79,
+      "kind": "gltf",
+      "mesh_index": 78,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 80,
+      "kind": "gltf",
+      "mesh_index": 79,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 81,
+      "kind": "gltf",
+      "mesh_index": 80,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 82,
+      "kind": "gltf",
+      "mesh_index": 81,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 83,
+      "kind": "gltf",
+      "mesh_index": 82,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 84,
+      "kind": "gltf",
+      "mesh_index": 83,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 85,
+      "kind": "gltf",
+      "mesh_index": 84,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 86,
+      "kind": "gltf",
+      "mesh_index": 85,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 87,
+      "kind": "gltf",
+      "mesh_index": 86,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 88,
+      "kind": "gltf",
+      "mesh_index": 87,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 89,
+      "kind": "gltf",
+      "mesh_index": 88,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 90,
+      "kind": "gltf",
+      "mesh_index": 89,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 91,
+      "kind": "gltf",
+      "mesh_index": 90,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 92,
+      "kind": "gltf",
+      "mesh_index": 91,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 93,
+      "kind": "gltf",
+      "mesh_index": 92,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 94,
+      "kind": "gltf",
+      "mesh_index": 93,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 95,
+      "kind": "gltf",
+      "mesh_index": 94,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 96,
+      "kind": "gltf",
+      "mesh_index": 95,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 97,
+      "kind": "gltf",
+      "mesh_index": 96,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 98,
+      "kind": "gltf",
+      "mesh_index": 97,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 99,
+      "kind": "gltf",
+      "mesh_index": 98,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 100,
+      "kind": "gltf",
+      "mesh_index": 99,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 101,
+      "kind": "gltf",
+      "mesh_index": 100,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 102,
+      "kind": "gltf",
+      "mesh_index": 101,
+      "path": "../sponza-palace/source/scene.glb"
+    },
+    {
+      "id": 103,
+      "kind": "gltf",
+      "mesh_index": 102,
+      "path": "../sponza-palace/source/scene.glb"
+    }
+  ],
+  "environment": {
+    "background_visible": true,
+    "color": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "intensity": 0.9459999799728394,
+    "rotation_degrees": 3.5
+  },
+  "objects": [
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 39,
+      "light_color": [
+        130.38299560546875,
+        113.5635986328125,
+        106.91405487060547
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "Sun",
+      "parent": 0,
+      "rotation_degrees": [
+        61.2619514465332,
+        165.89837646484375,
+        147.412841796875
+      ],
+      "scale": [
+        0.3343997895717621,
+        0.33439984917640686,
+        0.33439984917640686
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "directional_light",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 45,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "scene",
+      "parent": 0,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 46,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "sponza_cd.glb",
+      "parent": 45,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        2.6499998569488525,
+        2.6499998569488525,
+        2.6499998569488525
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 47,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "Node 103",
+      "parent": 46,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        0.00800000037997961,
+        0.00800000037997961,
+        0.00800000037997961
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 48,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 1,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 49,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0 Mesh",
+      "parent": 48,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 50,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_1",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 2,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 51,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_1 Mesh",
+      "parent": 50,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 52,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_2",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 3,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 53,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_2 Mesh",
+      "parent": 52,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 54,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_3",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 4,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 55,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_3 Mesh",
+      "parent": 54,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 56,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_4",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 5,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 57,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_4 Mesh",
+      "parent": 56,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 58,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_5",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 6,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 59,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_5 Mesh",
+      "parent": 58,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 60,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_6",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 7,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 61,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_6 Mesh",
+      "parent": 60,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 62,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_7",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 8,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 63,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_7 Mesh",
+      "parent": 62,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 64,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_8",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 9,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 65,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_8 Mesh",
+      "parent": 64,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 66,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_9",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 10,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 67,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "material_overrides": [
+        {
+          "alpha_cutoff": 0.5,
+          "alpha_mode": "opaque",
+          "base_color": [
+            0.5879999995231628,
+            0.5879999995231628,
+            0.5879999995231628
+          ],
+          "bump_scale": 1.0,
+          "emission": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "ior": 1.5,
+          "metallic": 0.0,
+          "name": "Material 9",
+          "normal_scale": 1.0,
+          "occlusion_strength": 1.0,
+          "opacity": 1.0,
+          "roughness": 0.16300000250339508,
+          "slot": 8,
+          "two_sided": false,
+          "type": "pbr",
+          "use_base_color_texture": true,
+          "use_bump_texture": false,
+          "use_diffuse_texture": false,
+          "use_emissive_texture": false,
+          "use_metallic_roughness_texture": true,
+          "use_normal_texture": true,
+          "use_occlusion_texture": false,
+          "use_opacity_texture": false
+        }
+      ],
+      "name": "mesh_0_9 Mesh",
+      "parent": 66,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 68,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_10",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 11,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 69,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_10 Mesh",
+      "parent": 68,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 70,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_11",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 12,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 71,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_11 Mesh",
+      "parent": 70,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 72,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_12",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 13,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 73,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_12 Mesh",
+      "parent": 72,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 74,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_13",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 14,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 75,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_13 Mesh",
+      "parent": 74,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 76,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_14",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 15,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 77,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_14 Mesh",
+      "parent": 76,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 78,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_15",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 16,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 79,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_15 Mesh",
+      "parent": 78,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 80,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_16",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 17,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 81,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_16 Mesh",
+      "parent": 80,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 82,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_17",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 18,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 83,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_17 Mesh",
+      "parent": 82,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 84,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_18",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 19,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 85,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_18 Mesh",
+      "parent": 84,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 86,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_19",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 20,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 87,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_19 Mesh",
+      "parent": 86,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 88,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_20",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 21,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 89,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_20 Mesh",
+      "parent": 88,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 90,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_21",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 22,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 91,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_21 Mesh",
+      "parent": 90,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 92,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_22",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 23,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 93,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_22 Mesh",
+      "parent": 92,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 94,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_23",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 24,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 95,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_23 Mesh",
+      "parent": 94,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 96,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_24",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 25,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 97,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_24 Mesh",
+      "parent": 96,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 98,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_25",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 26,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 99,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_25 Mesh",
+      "parent": 98,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 100,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_26",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 27,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 101,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_26 Mesh",
+      "parent": 100,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 102,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_27",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 28,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 103,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_27 Mesh",
+      "parent": 102,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 104,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_28",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 29,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 105,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_28 Mesh",
+      "parent": 104,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 106,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_29",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 30,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 107,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_29 Mesh",
+      "parent": 106,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 108,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_30",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 31,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 109,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_30 Mesh",
+      "parent": 108,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 110,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_31",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 32,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 111,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_31 Mesh",
+      "parent": 110,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 112,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_32",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 33,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 113,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_32 Mesh",
+      "parent": 112,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 114,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_33",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 34,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 115,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_33 Mesh",
+      "parent": 114,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 116,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_34",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 35,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 117,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_34 Mesh",
+      "parent": 116,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 118,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_35",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 36,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 119,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_35 Mesh",
+      "parent": 118,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 120,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_36",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 37,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 121,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_36 Mesh",
+      "parent": 120,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 122,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_37",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 38,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 123,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_37 Mesh",
+      "parent": 122,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 124,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_38",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 39,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 125,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_38 Mesh",
+      "parent": 124,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 126,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_39",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 40,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 127,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_39 Mesh",
+      "parent": 126,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 128,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_40",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 41,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 129,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_40 Mesh",
+      "parent": 128,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 130,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_41",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 42,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 131,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_41 Mesh",
+      "parent": 130,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 132,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_42",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 43,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 133,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_42 Mesh",
+      "parent": 132,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 134,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_43",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 44,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 135,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_43 Mesh",
+      "parent": 134,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 136,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_44",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 45,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 137,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_44 Mesh",
+      "parent": 136,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 138,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_45",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 46,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 139,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_45 Mesh",
+      "parent": 138,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 140,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_46",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 47,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 141,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_46 Mesh",
+      "parent": 140,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 142,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_47",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 48,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 143,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_47 Mesh",
+      "parent": 142,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 144,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_48",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 49,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 145,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_48 Mesh",
+      "parent": 144,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 146,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_49",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 50,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 147,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_49 Mesh",
+      "parent": 146,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 148,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_50",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 51,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 149,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_50 Mesh",
+      "parent": 148,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 150,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_51",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 52,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 151,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_51 Mesh",
+      "parent": 150,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 152,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_52",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 53,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 153,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_52 Mesh",
+      "parent": 152,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 154,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_53",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 54,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 155,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_53 Mesh",
+      "parent": 154,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 156,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_54",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 55,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 157,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_54 Mesh",
+      "parent": 156,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 158,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_55",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 56,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 159,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_55 Mesh",
+      "parent": 158,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 160,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_56",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 57,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 161,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_56 Mesh",
+      "parent": 160,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 162,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_57",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 58,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 163,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_57 Mesh",
+      "parent": 162,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 164,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_58",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 59,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 165,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_58 Mesh",
+      "parent": 164,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 166,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_59",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 60,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 167,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_59 Mesh",
+      "parent": 166,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 168,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_60",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 61,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 169,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_60 Mesh",
+      "parent": 168,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 170,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_61",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 62,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 171,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_61 Mesh",
+      "parent": 170,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 172,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_62",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 63,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 173,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_62 Mesh",
+      "parent": 172,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 174,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_63",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 64,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 175,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_63 Mesh",
+      "parent": 174,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 176,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_64",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 65,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 177,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_64 Mesh",
+      "parent": 176,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 178,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_65",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 66,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 179,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_65 Mesh",
+      "parent": 178,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 180,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_66",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 67,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 181,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_66 Mesh",
+      "parent": 180,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 182,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_67",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 68,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 183,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_67 Mesh",
+      "parent": 182,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 184,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_68",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 69,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 185,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_68 Mesh",
+      "parent": 184,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 186,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_69",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 70,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 187,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_69 Mesh",
+      "parent": 186,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 188,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_70",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 71,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 189,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_70 Mesh",
+      "parent": 188,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 190,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_71",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 72,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 191,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_71 Mesh",
+      "parent": 190,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 192,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_72",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 73,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 193,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_72 Mesh",
+      "parent": 192,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 194,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_73",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 74,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 195,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_73 Mesh",
+      "parent": 194,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 196,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_74",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 75,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 197,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_74 Mesh",
+      "parent": 196,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 198,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_75",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 76,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 199,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_75 Mesh",
+      "parent": 198,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 200,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_76",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 77,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 201,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_76 Mesh",
+      "parent": 200,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 202,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_77",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 78,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 203,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_77 Mesh",
+      "parent": 202,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 204,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_78",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 79,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 205,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_78 Mesh",
+      "parent": 204,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 206,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_79",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 80,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 207,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_79 Mesh",
+      "parent": 206,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 208,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_80",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 81,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 209,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_80 Mesh",
+      "parent": 208,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 210,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_81",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 82,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 211,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_81 Mesh",
+      "parent": 210,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 212,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_82",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 83,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 213,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_82 Mesh",
+      "parent": 212,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 214,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_83",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 84,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 215,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_83 Mesh",
+      "parent": 214,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 216,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_84",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 85,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 217,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_84 Mesh",
+      "parent": 216,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 218,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_85",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 86,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 219,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_85 Mesh",
+      "parent": 218,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 220,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_86",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 87,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 221,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_86 Mesh",
+      "parent": 220,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 222,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_87",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 88,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 223,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_87 Mesh",
+      "parent": 222,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 224,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_88",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 89,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 225,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_88 Mesh",
+      "parent": 224,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 226,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_89",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 90,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 227,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_89 Mesh",
+      "parent": 226,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 228,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_90",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 91,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 229,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_90 Mesh",
+      "parent": 228,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 230,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_91",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 92,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 231,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_91 Mesh",
+      "parent": 230,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 232,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_92",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 93,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 233,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_92 Mesh",
+      "parent": 232,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 234,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_93",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 94,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 235,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_93 Mesh",
+      "parent": 234,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 236,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_94",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 95,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 237,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_94 Mesh",
+      "parent": 236,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 238,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_95",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 96,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 239,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_95 Mesh",
+      "parent": 238,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 240,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_96",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 97,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 241,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_96 Mesh",
+      "parent": 240,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 242,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_97",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 98,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 243,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_97 Mesh",
+      "parent": 242,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 244,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_98",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 99,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 245,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_98 Mesh",
+      "parent": 244,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 246,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_99",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 100,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 247,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_99 Mesh",
+      "parent": 246,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 248,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_100",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 101,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 249,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_100 Mesh",
+      "parent": 248,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 250,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_101",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 102,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 251,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_101 Mesh",
+      "parent": 250,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 252,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_102",
+      "parent": 47,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 103,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 253,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "mesh_0_102 Mesh",
+      "parent": 252,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    }
+  ],
+  "version": 3
+}

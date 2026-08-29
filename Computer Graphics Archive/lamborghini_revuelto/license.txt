@@ -1,0 +1,11 @@
+Model Information:
+* title:	Lamborghini Revuelto
+* source:	https://sketchfab.com/3d-models/lamborghini-revuelto-2c05874ee41f4060a061371ef096bb5b
+* author:	DRIVER-FIRE (https://sketchfab.com/DRIVER-FIRE)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Lamborghini Revuelto" (https://sketchfab.com/3d-models/lamborghini-revuelto-2c05874ee41f4060a061371ef096bb5b) by DRIVER-FIRE (https://sketchfab.com/DRIVER-FIRE) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

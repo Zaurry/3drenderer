@@ -1,0 +1,129 @@
+{
+  "assets": [
+    {
+      "id": 2,
+      "path": "../bedroom/iscv2.obj"
+    }
+  ],
+  "environment": [
+    0.19529476761817932,
+    0.23115667700767517,
+    0.36145347356796265
+  ],
+  "objects": [
+    {
+      "asset": 2,
+      "id": 33,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "locked": false,
+      "material_overrides": [
+        {
+          "alpha_cutoff": 0.5,
+          "base_color": [
+            1.0,
+            0.0,
+            1.0
+          ],
+          "bump_scale": 1.0,
+          "emission": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "ior": 1.0,
+          "name": "iscv2_Material",
+          "opacity": 1.0,
+          "roughness": 0.20000000298023224,
+          "slot": 0,
+          "two_sided": true,
+          "type": "diffuse",
+          "use_bump_texture": false,
+          "use_diffuse_texture": false,
+          "use_opacity_texture": false
+        }
+      ],
+      "name": "iscv2",
+      "parent": 0,
+      "rotation_degrees": [
+        -92.06795501708984,
+        -4.069912910461426,
+        4.0786824226379395
+      ],
+      "scale": [
+        1.0000003576278687,
+        0.9999999403953552,
+        0.9999988079071045
+      ],
+      "translation": [
+        1.1655811249511316e-07,
+        -39.48959732055664,
+        -10.333603858947754
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "id": 36,
+      "light_color": [
+        13.565999984741211,
+        13.565999984741211,
+        13.565999984741211
+      ],
+      "locked": false,
+      "name": "Directional Light",
+      "parent": 0,
+      "rotation_degrees": [
+        -82.64786529541016,
+        -126.09524536132813,
+        53.07559585571289
+      ],
+      "scale": [
+        0.9999992251396179,
+        0.9999995231628418,
+        1.0000005960464478
+      ],
+      "translation": [
+        6.233850399439689e-06,
+        -13.330000877380371,
+        6.381580829620361
+      ],
+      "type": "directional_light",
+      "visible": false
+    },
+    {
+      "asset": 0,
+      "id": 37,
+      "light_color": [
+        839.5059814453125,
+        839.5059814453125,
+        839.5059814453125
+      ],
+      "locked": false,
+      "name": "Point Light",
+      "parent": 0,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "translation": [
+        -4.631403923034668,
+        -4.097912788391113,
+        0.18648499250411987
+      ],
+      "type": "point_light",
+      "visible": true
+    }
+  ],
+  "version": 2
+}

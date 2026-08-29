@@ -72,10 +72,6 @@ vec3 rotate_y(vec3 direction, float radians) {
         -s * direction.x + c * direction.z);
 }
 
-vec3 fresnel_schlick(float cosine, vec3 f0, vec3 f90) {
-    return f0 + (f90 - f0) * pow(1.0 - clamp(cosine, 0.0, 1.0), 5.0);
-}
-
 float gtso_visibility(
     vec3 bent_normal,
     vec3 reflection,
@@ -125,7 +121,8 @@ bool march_reflection(
     float step,
     float jitter_value,
     out vec2 hit_uv,
-    out float edge_fade) {
+    out float edge_fade,
+    out float hit_distance) {
     float ray_distance = thickness * 2.0 + step * jitter_value;
     vec3 previous_position = position + reflection * ray_distance;
     vec2 previous_uv = project_view_position(previous_position);
@@ -139,6 +136,7 @@ bool march_reflection(
     }
     hit_uv = vec2(0.0);
     edge_fade = 0.0;
+    hit_distance = 0.0;
     for (int index = 0; index < 256; ++index) {
         if (index >= u_max_steps) {
             break;
@@ -196,6 +194,9 @@ bool march_reflection(
             if (refined_delta >= 0.0 && refined_delta <= thickness) {
                 hit_uv = refined_uv;
                 edge_fade = screen_edge_fade(refined_uv);
+                hit_distance = max(
+                    dot(far_position - position, reflection),
+                    0.0);
                 return edge_fade > 0.0;
             }
         }
@@ -206,10 +207,51 @@ bool march_reflection(
     return false;
 }
 
-float reflection_lod(float roughness) {
+float ggx_reflection_cone_tangent(float roughness) {
+    // The glTF perceptual roughness maps to the GGX slope parameter alpha=r^2.
+    // A box-filtered mip should cover the lobe's central FWHM, not its wider
+    // 50%-energy diameter: GGX reaches half maximum at
+    // tan(theta_h) = alpha * sqrt(sqrt(2)-1). Reflection doubles theta_h.
+    float alpha = pow(clamp(roughness, 0.0, 1.0), 2.0);
+    float half_maximum_slope = alpha * 0.6435942529;
+    return min(
+        2.0 * half_maximum_slope /
+            max(1.0 - half_maximum_slope * half_maximum_slope, 1.0e-4),
+        8.0);
+}
+
+vec2 reflection_cone_radius_uv(
+    float roughness,
+    float hit_distance,
+    float hit_view_depth) {
+    float radius_view = max(hit_distance, 0.0) *
+        ggx_reflection_cone_tangent(roughness);
+    return radius_view / max(
+        u_camera_viewport * max(hit_view_depth, 1.0e-5),
+        vec2(1.0e-5));
+}
+
+float reflection_lod(vec2 cone_radius_uv) {
     float maximum_lod = float(max(textureQueryLevels(u_opaque) - 1, 0));
-    float alpha = clamp(roughness, 0.0, 1.0);
-    return alpha * alpha * maximum_lod;
+    // Bilinear sampling at a mip level already spans adjacent box-filtered
+    // texels, so its effective support is about twice the nominal footprint.
+    // Select from the half-width to avoid applying the GGX diameter twice.
+    vec2 cone_radius_pixels = cone_radius_uv *
+        vec2(textureSize(u_opaque, 0));
+    float footprint = max(
+        max(cone_radius_pixels.x, cone_radius_pixels.y),
+        1.0);
+    return clamp(log2(footprint), 0.0, maximum_lod);
+}
+
+float reflection_cone_edge_fade(vec2 uv, vec2 cone_radius_uv) {
+    if (max(cone_radius_uv.x, cone_radius_uv.y) <= 1.0e-8) {
+        return 1.0;
+    }
+    vec2 edge_distance = min(uv, vec2(1.0) - uv);
+    vec2 support = edge_distance / max(cone_radius_uv, vec2(1.0e-8));
+    float complete_radius = clamp(min(support.x, support.y), 0.0, 1.0);
+    return smoothstep(0.0, 1.0, complete_radius);
 }
 
 void main() {
@@ -239,6 +281,7 @@ void main() {
             : 0.5;
         vec2 hit_uv;
         float edge_fade = 0.0;
+        float hit_distance = 0.0;
         if (march_reflection(
                 position,
                 reflection_view,
@@ -246,12 +289,20 @@ void main() {
                 step,
                 jitter_value,
                 hit_uv,
-                edge_fade)) {
+                edge_fade,
+                hit_distance)) {
+            float hit_view_depth = texture(u_linear_depth, hit_uv).r;
+            vec2 cone_radius_uv = reflection_cone_radius_uv(
+                roughness,
+                hit_distance,
+                hit_view_depth);
             hit_radiance = textureLod(
                 u_opaque,
                 hit_uv,
-                reflection_lod(roughness)).rgb;
-            confidence = edge_fade;
+                reflection_lod(cone_radius_uv)).rgb;
+            confidence = edge_fade * reflection_cone_edge_fade(
+                hit_uv,
+                cone_radius_uv);
         }
 
         if (u_debug_view != 0) {
@@ -267,6 +318,11 @@ void main() {
         vec3 specular_f0 = pbr.rgb;
         vec3 specular_f90 = pbr_aux.rgb;
         float occlusion = clamp(pbr_aux.a, 0.0, 1.0);
+        vec2 brdf = texture(
+            u_environment_brdf_lut,
+            vec2(n_dot_v, roughness)).rg;
+        vec3 specular_response =
+            specular_f0 * brdf.x + specular_f90 * brdf.y;
 
         mat3 view_to_world = mat3(
             u_camera_right,
@@ -314,11 +370,8 @@ void main() {
                     roughness * max(u_environment_mip_count - 1.0, 0.0)).rgb *
                     u_environment_color * u_environment_intensity
                 : u_environment_color * u_environment_intensity;
-            vec2 brdf = texture(
-                u_environment_brdf_lut,
-                vec2(n_dot_v, roughness)).rg;
             environment_term = specular_radiance *
-                (specular_f0 * brdf.x + specular_f90 * brdf.y);
+                specular_response;
         }
 
         float roughness_weight = 1.0 - smoothstep(
@@ -327,8 +380,7 @@ void main() {
             roughness);
         float weight = clamp(u_intensity, 0.0, 4.0) *
             confidence * roughness_weight;
-        vec3 fresnel = fresnel_schlick(n_dot_v, specular_f0, specular_f90);
-        vec3 correction = (fresnel * hit_radiance - environment_term) *
+        vec3 correction = (specular_response * hit_radiance - environment_term) *
             (occlusion * specular_visibility * weight);
         out_linear_color = vec4(opaque + correction, confidence);
         return;

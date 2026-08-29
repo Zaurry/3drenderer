@@ -1,0 +1,887 @@
+{
+  "assets": [
+    {
+      "id": 1,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../hw1/floor/floor.obj"
+    },
+    {
+      "id": 2,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../CornellBox/CornellBox-Empty-CO.obj"
+    },
+    {
+      "id": 3,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../CornellBox/CornellBox-Empty-RG.obj"
+    },
+    {
+      "id": 4,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../CornellBox/CornellBox-Empty-Squashed.obj"
+    },
+    {
+      "id": 5,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../CornellBox/CornellBox-Empty-White.obj"
+    },
+    {
+      "id": 6,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../CornellBox/CornellBox-Glossy-Floor.obj"
+    },
+    {
+      "id": 7,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../CornellBox/CornellBox-Glossy.obj"
+    },
+    {
+      "id": 8,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../CornellBox/CornellBox-Mirror.obj"
+    },
+    {
+      "id": 9,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../CornellBox/CornellBox-Original.obj"
+    },
+    {
+      "id": 10,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../CornellBox/CornellBox-Sphere.obj"
+    },
+    {
+      "id": 11,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../CornellBox/CornellBox-Water.obj"
+    },
+    {
+      "id": 12,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../CornellBox/water.obj"
+    }
+  ],
+  "environment": {
+    "background_visible": true,
+    "color": [
+      0.19529476761817932,
+      0.23115667700767517,
+      0.36145347356796265
+    ],
+    "intensity": 1.0,
+    "rotation_degrees": 0.0
+  },
+  "objects": [
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 36,
+      "light_casts_shadows": true,
+      "light_color": [
+        13.565999984741211,
+        13.565999984741211,
+        13.565999984741211
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          -0.6345370411872864,
+          0.12855330109596252,
+          -0.7621245980262756,
+          -6.073135409678798e-06
+        ],
+        [
+          -0.4709639251232147,
+          0.7175429463386536,
+          0.5131506323814392,
+          -13.329994201660156
+        ],
+        [
+          0.6128259897232056,
+          0.6845477819442749,
+          -0.39476272463798523,
+          6.381582736968994
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "Directional Light",
+      "parent": 0,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "directional_light",
+      "visible": false
+    },
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 1,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 38,
+      "light_casts_shadows": true,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          2.60229229927063,
+          0.0,
+          0.0,
+          -0.03815674036741257
+        ],
+        [
+          0.0,
+          86.75057220458984,
+          0.0,
+          0.03394607454538345
+        ],
+        [
+          0.0,
+          0.0,
+          2.602292060852051,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.9999998807907104
+        ]
+      ],
+      "locked": false,
+      "name": "floor",
+      "parent": 0,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2557,
+      "light_casts_shadows": true,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          5.805299282073975,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          5.805299282073975,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          5.805299758911133,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.9999997615814209
+        ]
+      ],
+      "locked": false,
+      "name": "CornellBox",
+      "parent": 0,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "group",
+      "visible": true
+    },
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 2,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2558,
+      "light_casts_shadows": true,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          -0.0034940792247653008
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.03728625550866127
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "CornellBox-Empty-CO",
+      "parent": 2557,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 3,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2559,
+      "light_casts_shadows": true,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          -4.2623186111450195
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          2.091524124145508
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "CornellBox-Empty-RG",
+      "parent": 2557,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 4,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2560,
+      "light_casts_shadows": true,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          4.333948135375977
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          2.0095808506011963
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "CornellBox-Empty-Squashed",
+      "parent": 2557,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 5,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2561,
+      "light_casts_shadows": true,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          2.152493715286255
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          1.704115629196167
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "CornellBox-Empty-White",
+      "parent": 2557,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 6,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2562,
+      "light_casts_shadows": true,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          -2.1740241050720215
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          1.646606206893921
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "CornellBox-Glossy-Floor",
+      "parent": 2557,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 7,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2563,
+      "light_casts_shadows": true,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          -2.108254909515381
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "CornellBox-Glossy",
+      "parent": 2557,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 8,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2564,
+      "light_casts_shadows": true,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          4.180910587310791
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "CornellBox-Mirror",
+      "parent": 2557,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 9,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2565,
+      "light_casts_shadows": true,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          -4.184930324554443
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "CornellBox-Original",
+      "parent": 2557,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 10,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2566,
+      "light_casts_shadows": true,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.029246807098388672
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          2.067567825317383
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "CornellBox-Sphere",
+      "parent": 2557,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 11,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2567,
+      "light_casts_shadows": true,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          2.1160004138946533
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "CornellBox-Water",
+      "parent": 2557,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 12,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2568,
+      "light_casts_shadows": true,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "water",
+      "parent": 2557,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    }
+  ],
+  "version": 5
+}

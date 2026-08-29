@@ -1,0 +1,102 @@
+{
+  "assets": [
+    {
+      "id": 1,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../San_Miguel/san-miguel-low-poly.obj"
+    }
+  ],
+  "environment": {
+    "background_visible": true,
+    "color": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "intensity": 1.0,
+    "path": "../environment map/quarry_04_puresky_4k.exr",
+    "rotation_degrees": 0.0
+  },
+  "objects": [
+    {
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 26,
+      "light_color": [
+        25.0,
+        20.774999618530273,
+        21.875
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "Sun",
+      "parent": 0,
+      "rotation_degrees": [
+        126.97907257080078,
+        -144.1652069091797,
+        157.3109893798828
+      ],
+      "scale": [
+        0.9999995231628418,
+        0.9999998211860657,
+        1.0000001192092896
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "directional_light",
+      "visible": true
+    },
+    {
+      "asset": 1,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "id": 27,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "locked": false,
+      "name": "san-miguel-low-poly",
+      "parent": 0,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "translation": [
+        0.0,
+        0.43299412727355957,
+        0.017568111419677734
+      ],
+      "type": "mesh",
+      "visible": true
+    }
+  ],
+  "version": 3
+}

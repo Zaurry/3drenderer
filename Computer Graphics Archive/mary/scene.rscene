@@ -1,0 +1,256 @@
+{
+  "assets": [
+    {
+      "id": 1,
+      "path": "../hw1/floor/floor.obj"
+    },
+    {
+      "id": 2,
+      "path": "../hw1/mary/Marry.obj"
+    },
+    {
+      "id": 3,
+      "path": "../CornellBox/CornellBox-Sphere.obj"
+    }
+  ],
+  "environment": [
+    0.019999999552965164,
+    0.02500000037252903,
+    0.029999999329447746
+  ],
+  "objects": [
+    {
+      "asset": 0,
+      "id": 1,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "locked": false,
+      "name": "hw1",
+      "parent": 0,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "id": 2,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "locked": false,
+      "name": "floor",
+      "parent": 1,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 1,
+      "id": 3,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "locked": false,
+      "name": "floor",
+      "parent": 2,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "id": 4,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "locked": false,
+      "name": "mary",
+      "parent": 1,
+      "rotation_degrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "asset": 2,
+      "id": 5,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "locked": false,
+      "name": "Marry",
+      "parent": 4,
+      "rotation_degrees": [
+        -159.0491485595703,
+        160.54437255859375,
+        6.733951568603516
+      ],
+      "scale": [
+        2.423130512237549,
+        1.9299970865249634,
+        1.9299997091293335
+      ],
+      "translation": [
+        0.9565218091011047,
+        7.980930805206299,
+        0.16333431005477905
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "id": 8,
+      "light_color": [
+        10.0,
+        10.0,
+        10.0
+      ],
+      "locked": false,
+      "name": "Point Light",
+      "parent": 0,
+      "rotation_degrees": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "translation": [
+        0.6387500762939453,
+        4.5867085456848145,
+        2.682821750640869
+      ],
+      "type": "point_light",
+      "visible": true
+    },
+    {
+      "asset": 3,
+      "id": 9,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "locked": false,
+      "name": "CornellBox-Sphere",
+      "parent": 0,
+      "rotation_degrees": [
+        -0.0,
+        -0.0,
+        0.0
+      ],
+      "scale": [
+        4.856387138366699,
+        5.279603481292725,
+        4.856398582458496
+      ],
+      "translation": [
+        0.8108875751495361,
+        0.1766819804906845,
+        1.0778584480285645
+      ],
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "asset": 0,
+      "id": 10,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "locked": false,
+      "name": "Sun",
+      "parent": 0,
+      "rotation_degrees": [
+        104.0362319946289,
+        154.12330627441406,
+        159.66180419921875
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "directional_light",
+      "visible": true
+    }
+  ],
+  "version": 1
+}

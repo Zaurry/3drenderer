@@ -1,0 +1,350 @@
+{
+  "assets": [
+    {
+      "id": 1,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../hw1/floor/floor.obj"
+    },
+    {
+      "id": 2,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../mary/Marry.obj"
+    }
+  ],
+  "environment": {
+    "background_visible": true,
+    "color": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "intensity": 1.0,
+    "path": "../environment map/je_gray_02_4k.exr",
+    "rotation_degrees": 72.80000305175781
+  },
+  "objects": [
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 36,
+      "light_casts_shadows": true,
+      "light_color": [
+        13.565999984741211,
+        13.565999984741211,
+        13.565999984741211
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          -0.6345370411872864,
+          0.12855330109596252,
+          -0.7621245980262756,
+          -6.073135409678798e-06
+        ],
+        [
+          -0.4709639251232147,
+          0.7175429463386536,
+          0.5131506323814392,
+          -13.329994201660156
+        ],
+        [
+          0.6128259897232056,
+          0.6845477819442749,
+          -0.39476272463798523,
+          6.381582736968994
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "Directional Light",
+      "parent": 0,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "directional_light",
+      "visible": false
+    },
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 1,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 38,
+      "light_casts_shadows": true,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          2.60229229927063,
+          0.0,
+          0.0,
+          0.2508494257926941
+        ],
+        [
+          0.0,
+          86.75057220458984,
+          0.0,
+          -0.48204901814460754
+        ],
+        [
+          0.0,
+          0.0,
+          2.602292060852051,
+          0.06221770867705345
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.9999998807907104
+        ]
+      ],
+      "locked": false,
+      "material_overrides": [
+        {
+          "alpha_cutoff": 0.5,
+          "alpha_mode": "opaque",
+          "base_color": [
+            0.800000011920929,
+            0.800000011920929,
+            0.800000011920929
+          ],
+          "bump_scale": 1.0,
+          "emission": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "ior": 1.0,
+          "metallic": 0.0,
+          "name": "None",
+          "normal_scale": 1.0,
+          "occlusion_strength": 1.0,
+          "opacity": 1.0,
+          "roughness": 0.04472136124968529,
+          "slot": 0,
+          "two_sided": true,
+          "type": "diffuse",
+          "use_base_color_texture": false,
+          "use_bump_texture": false,
+          "use_diffuse_texture": false,
+          "use_emissive_texture": false,
+          "use_metallic_roughness_texture": false,
+          "use_normal_texture": false,
+          "use_occlusion_texture": false,
+          "use_opacity_texture": false
+        }
+      ],
+      "name": "floor",
+      "parent": 0,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 2,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2571,
+      "light_casts_shadows": true,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          8.029999732971191,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          8.029999732971191,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          8.029999732971191,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.9999998807907104
+        ]
+      ],
+      "locked": false,
+      "name": "Marry",
+      "parent": 0,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 51.85231018066406,
+      "area_width": 51.85231018066406,
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2572,
+      "light_casts_shadows": true,
+      "light_color": [
+        27.31100082397461,
+        27.31100082397461,
+        27.31100082397461
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          0.18137168884277344,
+          -0.002794591011479497,
+          -0.5835793614387512,
+          -24.565340042114258
+        ],
+        [
+          0.28233131766319275,
+          -0.004771905019879341,
+          0.3748529553413391,
+          39.30379867553711
+        ],
+        [
+          -0.012022768147289753,
+          -0.15421761572360992,
+          -0.0010239119874313474,
+          0.06221771985292435
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "Rectangle Light",
+      "parent": 0,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "rect_area_light",
+      "visible": true
+    },
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2576,
+      "light_casts_shadows": true,
+      "light_color": [
+        1092.4949951171875,
+        1092.4949951171875,
+        1092.4949951171875
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          14.963935852050781
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          33.745540618896484
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          9.88603687286377
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "Point Light",
+      "parent": 0,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "point_light",
+      "visible": true
+    }
+  ],
+  "version": 5
+}
