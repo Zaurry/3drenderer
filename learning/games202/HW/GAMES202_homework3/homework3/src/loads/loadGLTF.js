@@ -2,7 +2,10 @@ function loadGLTF(renderer, path, name, materialName) {
 
 	const manager = new THREE.LoadingManager();
 	manager.onProgress = function (item, loaded, total) {
-		console.log(item, loaded, total);
+		let label = item;
+		if (item.startsWith('data:')) label = 'embedded buffer';
+		if (item.startsWith('blob:')) label = 'embedded image';
+		console.log(label, loaded, total);
 	};
 
 	function onProgress(xhr) {

@@ -5,6 +5,9 @@
 
 namespace renderer {
 
+inline constexpr float kOpenGlSsrMaxAnisotropy = 8.0f;
+inline constexpr int kOpenGlSsrMaxFilterTaps = 9;
+
 // C++ mirror of the GLSL screen_edge_fade() helper in shaders/opengl/ssr.frag
 // so the screen-space reflection edge falloff can be verified without a live
 // OpenGL context (see tests/opengl_contract_tests.cpp).
@@ -61,6 +64,46 @@ inline float open_gl_ssr_ggx_cone_tangent(float roughness) {
         8.0f);
 }
 
+struct OpenGlSsrLobeRadii {
+    float major = 0.0f;
+    float minor = 0.0f;
+};
+
+inline OpenGlSsrLobeRadii open_gl_ssr_lobe_radii(
+    float roughness,
+    float hit_distance,
+    float n_dot_v) {
+    if (!std::isfinite(roughness) || !std::isfinite(hit_distance) ||
+        !std::isfinite(n_dot_v) || hit_distance <= 0.0f) {
+        return {};
+    }
+    const float major = hit_distance *
+        open_gl_ssr_ggx_cone_tangent(roughness);
+    const float minor_scale = std::max(
+        std::clamp(n_dot_v, 0.0f, 1.0f),
+        1.0f / kOpenGlSsrMaxAnisotropy);
+    return {major, major * minor_scale};
+}
+
+inline int open_gl_ssr_filter_tap_count(
+    float major_radius_pixels,
+    float minor_radius_pixels) {
+    if (!std::isfinite(major_radius_pixels) ||
+        !std::isfinite(minor_radius_pixels)) {
+        return 1;
+    }
+    const float effective_minor = std::max(minor_radius_pixels, 1.0f);
+    const float anisotropy = std::clamp(
+        major_radius_pixels / effective_minor,
+        1.0f,
+        kOpenGlSsrMaxAnisotropy);
+    const int half_taps = static_cast<int>(
+        std::ceil((anisotropy - 1.0f) * 0.5f));
+    return std::min(
+        1 + 2 * half_taps,
+        kOpenGlSsrMaxFilterTaps);
+}
+
 inline float open_gl_ssr_reflection_lod(
     float roughness,
     float hit_distance,
@@ -81,8 +124,10 @@ inline float open_gl_ssr_reflection_lod(
         texture_height <= 0 || maximum_lod <= 0.0f) {
         return 0.0f;
     }
-    const float radius_view = hit_distance *
-        open_gl_ssr_ggx_cone_tangent(roughness);
+    const float radius_view = open_gl_ssr_lobe_radii(
+        roughness,
+        hit_distance,
+        1.0f).major;
     const float radius_pixels_x = radius_view *
         static_cast<float>(texture_width) /
         (camera_viewport_width * hit_view_depth);

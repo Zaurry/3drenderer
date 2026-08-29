@@ -1,6 +1,8 @@
 #version 450 core
 
 const float PI = 3.14159265358979323846;
+const float SSR_MAX_ANISOTROPY = 8.0;
+const int SSR_MAX_FILTER_TAPS = 9;
 
 layout(binding = 0) uniform sampler2D u_opaque;
 layout(binding = 1) uniform sampler2D u_linear_depth;
@@ -220,36 +222,197 @@ float ggx_reflection_cone_tangent(float roughness) {
         8.0);
 }
 
-vec2 reflection_cone_radius_uv(
-    float roughness,
-    float hit_distance,
-    float hit_view_depth) {
-    float radius_view = max(hit_distance, 0.0) *
-        ggx_reflection_cone_tangent(roughness);
-    return radius_view / max(
-        u_camera_viewport * max(hit_view_depth, 1.0e-5),
+struct ReflectionFootprint {
+    vec2 major_axis_uv;
+    vec2 support_radius_uv;
+    float major_radius_pixels;
+    float minor_radius_pixels;
+};
+
+void reflection_lobe_basis(
+    vec3 view_ray,
+    vec3 view_normal,
+    vec3 reflection,
+    out vec3 major_direction,
+    out vec3 minor_direction,
+    out float minor_scale) {
+    float n_dot_v = clamp(dot(view_normal, -view_ray), 0.0, 1.0);
+    vec3 incident_tangent = view_ray -
+        view_normal * dot(view_ray, view_normal);
+    if (dot(incident_tangent, incident_tangent) > 1.0e-8) {
+        incident_tangent = normalize(incident_tangent);
+        // Differentiating reflect(I, N) with respect to the micro-normal
+        // gives a wider lobe in the plane of incidence.  The orthogonal
+        // derivative contracts by N.V, which is the source of specular
+        // elongation at grazing angles.
+        major_direction = normalize(-2.0 * (
+            dot(view_ray, incident_tangent) * view_normal +
+            dot(view_ray, view_normal) * incident_tangent));
+        minor_direction = normalize(cross(reflection, major_direction));
+        minor_scale = max(n_dot_v, 1.0 / SSR_MAX_ANISOTROPY);
+        return;
+    }
+
+    vec3 helper = abs(reflection.z) < 0.999
+        ? vec3(0.0, 0.0, 1.0)
+        : vec3(0.0, 1.0, 0.0);
+    major_direction = normalize(cross(helper, reflection));
+    minor_direction = normalize(cross(reflection, major_direction));
+    minor_scale = 1.0;
+}
+
+vec2 project_view_offset(vec3 position, vec3 offset) {
+    float depth = max(-position.z, 1.0e-5);
+    vec2 numerator = offset.xy * depth + position.xy * offset.z;
+    return numerator / max(
+        u_camera_viewport * depth * depth,
         vec2(1.0e-5));
 }
 
-float reflection_lod(vec2 cone_radius_uv) {
+ReflectionFootprint reflection_footprint(
+    float roughness,
+    float hit_distance,
+    float hit_view_depth,
+    vec2 hit_uv,
+    vec3 view_ray,
+    vec3 view_normal,
+    vec3 reflection) {
+    vec3 major_direction;
+    vec3 minor_direction;
+    float minor_scale;
+    reflection_lobe_basis(
+        view_ray,
+        view_normal,
+        reflection,
+        major_direction,
+        minor_direction,
+        minor_scale);
+
+    float major_radius_view = max(hit_distance, 0.0) *
+        ggx_reflection_cone_tangent(roughness);
+    float minor_radius_view = major_radius_view * minor_scale;
+    vec3 hit_position = reconstruct_view_position(hit_uv, hit_view_depth);
+    vec2 major_axis_uv = project_view_offset(
+        hit_position,
+        major_direction * major_radius_view);
+    vec2 minor_axis_uv = project_view_offset(
+        hit_position,
+        minor_direction * minor_radius_view);
+
+    vec2 source_size = vec2(textureSize(u_opaque, 0));
+    vec2 major_axis_pixels = major_axis_uv * source_size;
+    vec2 minor_axis_pixels = minor_axis_uv * source_size;
+    float covariance_xx = major_axis_pixels.x * major_axis_pixels.x +
+        minor_axis_pixels.x * minor_axis_pixels.x;
+    float covariance_xy = major_axis_pixels.x * major_axis_pixels.y +
+        minor_axis_pixels.x * minor_axis_pixels.y;
+    float covariance_yy = major_axis_pixels.y * major_axis_pixels.y +
+        minor_axis_pixels.y * minor_axis_pixels.y;
+    float discriminant = sqrt(max(
+        (covariance_xx - covariance_yy) *
+            (covariance_xx - covariance_yy) +
+            4.0 * covariance_xy * covariance_xy,
+        0.0));
+    float maximum_eigenvalue = max(
+        0.5 * (covariance_xx + covariance_yy + discriminant),
+        0.0);
+    float minimum_eigenvalue = max(
+        0.5 * (covariance_xx + covariance_yy - discriminant),
+        0.0);
+    vec2 major_direction_pixels;
+    if (abs(covariance_xy) > 1.0e-8) {
+        major_direction_pixels = normalize(vec2(
+            covariance_xy,
+            maximum_eigenvalue - covariance_xx));
+    } else {
+        major_direction_pixels = covariance_xx >= covariance_yy
+            ? vec2(1.0, 0.0)
+            : vec2(0.0, 1.0);
+    }
+
+    ReflectionFootprint footprint;
+    footprint.major_radius_pixels = sqrt(maximum_eigenvalue);
+    footprint.minor_radius_pixels = sqrt(minimum_eigenvalue);
+    footprint.major_axis_uv = major_direction_pixels *
+        footprint.major_radius_pixels / max(source_size, vec2(1.0));
+    // Axis-aligned bounds of the projected ellipse keep every anisotropic
+    // tap inside the valid screen support before edge fading reaches one.
+    footprint.support_radius_uv = sqrt(max(vec2(
+        major_axis_uv.x * major_axis_uv.x +
+            minor_axis_uv.x * minor_axis_uv.x,
+        major_axis_uv.y * major_axis_uv.y +
+            minor_axis_uv.y * minor_axis_uv.y),
+        vec2(0.0)));
+    return footprint;
+}
+
+float reflection_lod(float radius_pixels) {
     float maximum_lod = float(max(textureQueryLevels(u_opaque) - 1, 0));
     // Bilinear sampling at a mip level already spans adjacent box-filtered
     // texels, so its effective support is about twice the nominal footprint.
-    // Select from the half-width to avoid applying the GGX diameter twice.
-    vec2 cone_radius_pixels = cone_radius_uv *
-        vec2(textureSize(u_opaque, 0));
-    float footprint = max(
-        max(cone_radius_pixels.x, cone_radius_pixels.y),
-        1.0);
+    // Select from the minor half-width; explicit taps cover the major axis.
+    float footprint = max(radius_pixels, 1.0);
     return clamp(log2(footprint), 0.0, maximum_lod);
 }
 
-float reflection_cone_edge_fade(vec2 uv, vec2 cone_radius_uv) {
-    if (max(cone_radius_uv.x, cone_radius_uv.y) <= 1.0e-8) {
+int reflection_filter_tap_count(
+    float major_radius_pixels,
+    float minor_radius_pixels) {
+    float effective_minor = max(minor_radius_pixels, 1.0);
+    float anisotropy = clamp(
+        major_radius_pixels / effective_minor,
+        1.0,
+        SSR_MAX_ANISOTROPY);
+    int half_taps = int(ceil((anisotropy - 1.0) * 0.5));
+    return min(1 + 2 * half_taps, SSR_MAX_FILTER_TAPS);
+}
+
+vec3 sample_elliptical_reflection(
+    vec2 hit_uv,
+    ReflectionFootprint footprint) {
+    float lod = reflection_lod(footprint.minor_radius_pixels);
+    float effective_minor = max(footprint.minor_radius_pixels, 1.0);
+    float residual_scale = clamp(
+        1.0 - effective_minor /
+            max(footprint.major_radius_pixels, effective_minor),
+        0.0,
+        1.0);
+    vec2 sample_axis_uv = footprint.major_axis_uv * residual_scale;
+    int tap_count = reflection_filter_tap_count(
+        footprint.major_radius_pixels,
+        footprint.minor_radius_pixels);
+    int half_taps = tap_count / 2;
+    vec3 radiance = vec3(0.0);
+    float weight_sum = 0.0;
+    for (int tap_index = 0; tap_index < SSR_MAX_FILTER_TAPS; ++tap_index) {
+        if (tap_index >= tap_count) {
+            break;
+        }
+        float tap_position = half_taps > 0
+            ? float(tap_index - half_taps) / float(half_taps)
+            : 0.0;
+        // The projected radius is the GGX FWHM radius, so the outer taps
+        // retain half weight instead of using a box kernel.
+        float weight = exp2(-tap_position * tap_position);
+        radiance += textureLod(
+            u_opaque,
+            hit_uv + sample_axis_uv * tap_position,
+            lod).rgb * weight;
+        weight_sum += weight;
+    }
+    return radiance / max(weight_sum, 1.0e-5);
+}
+
+float reflection_footprint_edge_fade(
+    vec2 uv,
+    vec2 support_radius_uv) {
+    if (max(support_radius_uv.x, support_radius_uv.y) <= 1.0e-8) {
         return 1.0;
     }
     vec2 edge_distance = min(uv, vec2(1.0) - uv);
-    vec2 support = edge_distance / max(cone_radius_uv, vec2(1.0e-8));
+    vec2 support = edge_distance / max(
+        support_radius_uv,
+        vec2(1.0e-8));
     float complete_radius = clamp(min(support.x, support.y), 0.0, 1.0);
     return smoothstep(0.0, 1.0, complete_radius);
 }
@@ -292,17 +455,18 @@ void main() {
                 edge_fade,
                 hit_distance)) {
             float hit_view_depth = texture(u_linear_depth, hit_uv).r;
-            vec2 cone_radius_uv = reflection_cone_radius_uv(
+            ReflectionFootprint footprint = reflection_footprint(
                 roughness,
                 hit_distance,
-                hit_view_depth);
-            hit_radiance = textureLod(
-                u_opaque,
+                hit_view_depth,
                 hit_uv,
-                reflection_lod(cone_radius_uv)).rgb;
-            confidence = edge_fade * reflection_cone_edge_fade(
+                view_ray,
+                view_normal,
+                reflection_view);
+            hit_radiance = sample_elliptical_reflection(hit_uv, footprint);
+            confidence = edge_fade * reflection_footprint_edge_fade(
                 hit_uv,
-                cone_radius_uv);
+                footprint.support_radius_uv);
         }
 
         if (u_debug_view != 0) {
