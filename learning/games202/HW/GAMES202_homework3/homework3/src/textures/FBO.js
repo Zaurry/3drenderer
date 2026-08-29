@@ -1,22 +1,25 @@
 class FBO{
     constructor(gl){
         //定义错误函数
-        function error() {
+        function error(message) {
+            if(framebuffer && framebuffer.textures) {
+                for (const target of framebuffer.textures) {
+                    if (target) gl.deleteTexture(target);
+                }
+            }
+            if(depthBuffer) gl.deleteRenderbuffer(depthBuffer);
             if(framebuffer) gl.deleteFramebuffer(framebuffer);
-            if(texture) gl.deleteFramebuffer(texture);
-            if(depthBuffer) gl.deleteFramebuffer(depthBuffer);
-            return null;
+            throw new Error(message);
         }
 
         function CreateAndBindColorTargetTexture(fbo, attachment) {
             //创建纹理对象并设置其尺寸和参数
             var texture = gl.createTexture();
             if(!texture){
-                console.log("无法创建纹理对象");
-                return error();
+                return error("Unable to create a GBuffer texture.");
             }
             gl.bindTexture(gl.TEXTURE_2D, texture);
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, window.screen.width, window.screen.height, 0, gl.RGBA, gl.FLOAT, null);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, framebuffer.width, framebuffer.height, 0, gl.RGBA, gl.FLOAT, null);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -29,10 +32,11 @@ class FBO{
         //创建帧缓冲区对象
         var framebuffer = gl.createFramebuffer();
         if(!framebuffer){
-            console.log("无法创建帧缓冲区对象");
-            return error();
+            return error("Unable to create a framebuffer.");
         }
         gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+		framebuffer.width = gl.drawingBufferWidth;
+		framebuffer.height = gl.drawingBufferHeight;
 
         var GBufferNum = 5;
 	    framebuffer.attachments = [];
@@ -51,8 +55,12 @@ class FBO{
         // Create depth buffer
         var depthBuffer = gl.createRenderbuffer(); // Create a renderbuffer object
         gl.bindRenderbuffer(gl.RENDERBUFFER, depthBuffer); // Bind the object to target
-        gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, window.screen.width, window.screen.height);
+        gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, framebuffer.width, framebuffer.height);
         gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depthBuffer);
+
+		if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+			return error('Framebuffer is incomplete.');
+		}
 
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         gl.bindTexture(gl.TEXTURE_2D, null);

@@ -1,6 +1,7 @@
 #include "test_framework.h"
 
 #include "render/opengl/opengl_shader_contract.h"
+#include "render/opengl/opengl_ssr_math.h"
 #include "render/shading_constants.h"
 
 #include <algorithm>
@@ -108,9 +109,19 @@ RENDER_TEST(test_opengl_shader_source_contract_lint) {
     RENDER_CHECK(ssr_fragment.find("screen_edge_fade") != std::string::npos);
     RENDER_CHECK(ssr_fragment.find("ggx_reflection_cone_tangent") !=
         std::string::npos);
-    RENDER_CHECK(ssr_fragment.find("reflection_cone_radius_uv") !=
+    RENDER_CHECK(ssr_fragment.find("reflection_lobe_basis") !=
         std::string::npos);
-    RENDER_CHECK(ssr_fragment.find("reflection_cone_edge_fade") !=
+    RENDER_CHECK(ssr_fragment.find("project_view_offset") !=
+        std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("reflection_footprint") !=
+        std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("reflection_filter_tap_count") !=
+        std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("sample_elliptical_reflection") !=
+        std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("minor_scale = max(n_dot_v") !=
+        std::string::npos);
+    RENDER_CHECK(ssr_fragment.find("footprint.minor_radius_pixels") !=
         std::string::npos);
     RENDER_CHECK(ssr_fragment.find("specular_response") != std::string::npos);
     RENDER_CHECK(ssr_fragment.find(
@@ -120,10 +131,22 @@ RENDER_TEST(test_opengl_shader_source_contract_lint) {
     RENDER_CHECK(ssr_fragment.find("reflection_view.z < 0.0") ==
         std::string::npos);
     RENDER_CHECK(ssr_fragment.find("textureQueryLevels") != std::string::npos);
-    RENDER_CHECK(ssr_fragment.find("textureLod(\n                u_opaque") !=
+    RENDER_CHECK(ssr_fragment.find("textureLod(\n            u_opaque") !=
         std::string::npos);
     RENDER_CHECK(ssr_fragment.find("u_ssr_pbr") != std::string::npos);
+    RENDER_CHECK(ssr_fragment.find(
+        "float roughness = clamp(pbr.a, 0.02, 1.0)") !=
+        std::string::npos);
     RENDER_CHECK(ssr_fragment.find("u_debug_view") != std::string::npos);
+    const std::string ssr_filter_tap_cap =
+        "const int SSR_MAX_FILTER_TAPS = " +
+        std::to_string(renderer::kOpenGlSsrMaxFilterTaps) + ";";
+    RENDER_CHECK(ssr_fragment.find(ssr_filter_tap_cap) != std::string::npos);
+    const std::string ssr_anisotropy_cap =
+        "const float SSR_MAX_ANISOTROPY = " +
+        std::to_string(static_cast<int>(renderer::kOpenGlSsrMaxAnisotropy)) +
+        ".0;";
+    RENDER_CHECK(ssr_fragment.find(ssr_anisotropy_cap) != std::string::npos);
     const std::string ssr_step_cap =
         "index < " + std::to_string(renderer::kOpenGlMaxSsrSteps);
     RENDER_CHECK(ssr_fragment.find(ssr_step_cap) != std::string::npos);

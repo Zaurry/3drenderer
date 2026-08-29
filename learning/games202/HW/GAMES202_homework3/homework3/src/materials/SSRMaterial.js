@@ -7,6 +7,24 @@ class SSRMaterial extends Material {
         super({
             'uLightRadiance': { type: '3fv', value: lightIntensity },
             'uLightDir': { type: '3fv', value: lightDir },
+            'uRenderMode': {
+                type: '1i',
+                value: Number.isInteger(window.homework3RenderMode)
+                    ? window.homework3RenderMode
+                    : 0
+            },
+            'uSampleCount': {
+                type: '1i',
+                value: Number.isInteger(window.homework3SampleCount)
+                    ? window.homework3SampleCount
+                    : 2
+            },
+            'uRayMarchSteps': {
+                type: '1i',
+                value: Number.isInteger(window.homework3RayMarchSteps)
+                    ? window.homework3RayMarchSteps
+                    : 96
+            },
 
             'uGDiffuse': { type: 'texture', value: camera.fbo.textures[0] },
             'uGDepth': { type: 'texture', value: camera.fbo.textures[1] },

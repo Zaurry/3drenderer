@@ -191,6 +191,41 @@
         ]
       ],
       "locked": false,
+      "material_overrides": [
+        {
+          "alpha_cutoff": 0.5,
+          "alpha_mode": "opaque",
+          "base_color": [
+            0.800000011920929,
+            0.800000011920929,
+            0.800000011920929
+          ],
+          "bump_scale": 1.0,
+          "emission": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "ior": 1.0,
+          "metallic": 0.0,
+          "name": "None",
+          "normal_scale": 1.0,
+          "occlusion_strength": 1.0,
+          "opacity": 1.0,
+          "roughness": 0.21400000154972076,
+          "slot": 0,
+          "two_sided": true,
+          "type": "metal",
+          "use_base_color_texture": false,
+          "use_bump_texture": false,
+          "use_diffuse_texture": false,
+          "use_emissive_texture": false,
+          "use_metallic_roughness_texture": false,
+          "use_normal_texture": false,
+          "use_occlusion_texture": false,
+          "use_opacity_texture": false
+        }
+      ],
       "name": "floor",
       "parent": 0,
       "spot_inner_cone_radians": 0.0,
@@ -210,7 +245,7 @@
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
       "directional_angular_radius_radians": 0.004642575979232788,
-      "id": 2557,
+      "id": 2569,
       "light_casts_shadows": true,
       "light_color": [
         25.0,
@@ -223,28 +258,28 @@
       "light_two_sided": false,
       "local_matrix": [
         [
-          5.805299282073975,
+          4.189999580383301,
           0.0,
           0.0,
           0.0
         ],
         [
           0.0,
-          5.805299282073975,
+          4.189999580383301,
           0.0,
           0.0
         ],
         [
           0.0,
           0.0,
-          5.805299758911133,
+          4.189999580383301,
           0.0
         ],
         [
           0.0,
           0.0,
           0.0,
-          0.9999997615814209
+          1.0
         ]
       ],
       "locked": false,
@@ -267,7 +302,7 @@
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
       "directional_angular_radius_radians": 0.004642575979232788,
-      "id": 2558,
+      "id": 2570,
       "light_casts_shadows": true,
       "light_color": [
         25.0,
@@ -283,13 +318,13 @@
           1.0,
           0.0,
           0.0,
-          -0.0034940792247653008
+          0.0
         ],
         [
           0.0,
           1.0,
           0.0,
-          0.03728625550866127
+          0.0
         ],
         [
           0.0,
@@ -306,10 +341,67 @@
       ],
       "locked": false,
       "name": "CornellBox-Empty-CO",
-      "parent": 2557,
+      "parent": 2569,
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
       "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 0.3799999952316284,
+      "area_width": 0.4699999988079071,
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2571,
+      "light_casts_shadows": true,
+      "light_color": [
+        10.0,
+        10.0,
+        10.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          -0.0,
+          -0.004999995231628418
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          1.9800000190734863
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          -0.030000001192092896
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "Rect Area Light 1",
+      "parent": 2570,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "rect_area_light",
       "visible": true
     },
     {
@@ -324,7 +416,7 @@
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
       "directional_angular_radius_radians": 0.004642575979232788,
-      "id": 2559,
+      "id": 2572,
       "light_casts_shadows": true,
       "light_color": [
         25.0,
@@ -340,13 +432,13 @@
           1.0,
           0.0,
           0.0,
-          -4.2623186111450195
+          -4.3122334480285645
         ],
         [
           0.0,
           1.0,
           0.0,
-          2.091524124145508
+          2.0028610229492188
         ],
         [
           0.0,
@@ -363,10 +455,67 @@
       ],
       "locked": false,
       "name": "CornellBox-Empty-RG",
-      "parent": 2557,
+      "parent": 2569,
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
       "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 0.3799999952316284,
+      "area_width": 0.4699999988079071,
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2573,
+      "light_casts_shadows": true,
+      "light_color": [
+        17.0,
+        12.0,
+        4.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          -0.0,
+          -0.004999995231628418
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          1.9800000190734863
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          -0.030000001192092896
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "Rect Area Light 1",
+      "parent": 2572,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "rect_area_light",
       "visible": true
     },
     {
@@ -381,7 +530,7 @@
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
       "directional_angular_radius_radians": 0.004642575979232788,
-      "id": 2560,
+      "id": 2574,
       "light_casts_shadows": true,
       "light_color": [
         25.0,
@@ -397,13 +546,13 @@
           1.0,
           0.0,
           0.0,
-          4.333948135375977
+          -2.1107373237609863
         ],
         [
           0.0,
           1.0,
           0.0,
-          2.0095808506011963
+          1.986954927444458
         ],
         [
           0.0,
@@ -420,10 +569,67 @@
       ],
       "locked": false,
       "name": "CornellBox-Empty-Squashed",
-      "parent": 2557,
+      "parent": 2569,
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
       "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 0.3799999952316284,
+      "area_width": 0.4699999988079071,
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2575,
+      "light_casts_shadows": true,
+      "light_color": [
+        10.0,
+        10.0,
+        10.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          -1.0,
+          0.0,
+          0.0,
+          -0.004999995231628418
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          1.5800000429153442
+        ],
+        [
+          0.0,
+          1.0,
+          -0.0,
+          -0.030000001192092896
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "Rect Area Light 1",
+      "parent": 2574,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "rect_area_light",
       "visible": true
     },
     {
@@ -438,7 +644,7 @@
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
       "directional_angular_radius_radians": 0.004642575979232788,
-      "id": 2561,
+      "id": 2576,
       "light_casts_shadows": true,
       "light_color": [
         25.0,
@@ -454,13 +660,13 @@
           1.0,
           0.0,
           0.0,
-          2.152493715286255
+          4.214765548706055
         ],
         [
           0.0,
           1.0,
           0.0,
-          1.704115629196167
+          1.6054880619049072
         ],
         [
           0.0,
@@ -477,10 +683,67 @@
       ],
       "locked": false,
       "name": "CornellBox-Empty-White",
-      "parent": 2557,
+      "parent": 2569,
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
       "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 0.3799999952316284,
+      "area_width": 0.4699999988079071,
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2577,
+      "light_casts_shadows": true,
+      "light_color": [
+        10.0,
+        10.0,
+        10.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          -0.0,
+          -0.004999995231628418
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          1.9800000190734863
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          -0.030000001192092896
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "Rect Area Light 1",
+      "parent": 2576,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "rect_area_light",
       "visible": true
     },
     {
@@ -495,7 +758,7 @@
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
       "directional_angular_radius_radians": 0.004642575979232788,
-      "id": 2562,
+      "id": 2578,
       "light_casts_shadows": true,
       "light_color": [
         25.0,
@@ -511,13 +774,13 @@
           1.0,
           0.0,
           0.0,
-          -2.1740241050720215
+          1.988304853439331
         ],
         [
           0.0,
           1.0,
           0.0,
-          1.646606206893921
+          1.6128143072128296
         ],
         [
           0.0,
@@ -534,10 +797,67 @@
       ],
       "locked": false,
       "name": "CornellBox-Glossy-Floor",
-      "parent": 2557,
+      "parent": 2569,
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
       "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 0.3799999952316284,
+      "area_width": 0.4699999988079071,
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2579,
+      "light_casts_shadows": true,
+      "light_color": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          -1.0,
+          0.0,
+          0.0,
+          -0.004999995231628418
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          1.5800000429153442
+        ],
+        [
+          0.0,
+          1.0,
+          -0.0,
+          -0.030000001192092896
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "Rect Area Light 1",
+      "parent": 2578,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "rect_area_light",
       "visible": true
     },
     {
@@ -552,7 +872,7 @@
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
       "directional_angular_radius_radians": 0.004642575979232788,
-      "id": 2563,
+      "id": 2580,
       "light_casts_shadows": true,
       "light_color": [
         25.0,
@@ -568,13 +888,13 @@
           1.0,
           0.0,
           0.0,
-          -2.108254909515381
+          2.047308921813965
         ],
         [
           0.0,
           1.0,
           0.0,
-          0.0
+          0.005558852106332779
         ],
         [
           0.0,
@@ -591,10 +911,67 @@
       ],
       "locked": false,
       "name": "CornellBox-Glossy",
-      "parent": 2557,
+      "parent": 2569,
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
       "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 0.3799999952316284,
+      "area_width": 0.4699999988079071,
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2581,
+      "light_casts_shadows": true,
+      "light_color": [
+        10.0,
+        10.0,
+        10.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          -1.0,
+          0.0,
+          0.0,
+          -0.004999995231628418
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          1.5800000429153442
+        ],
+        [
+          0.0,
+          1.0,
+          -0.0,
+          -0.030000001192092896
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "Rect Area Light 1",
+      "parent": 2580,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "rect_area_light",
       "visible": true
     },
     {
@@ -609,7 +986,7 @@
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
       "directional_angular_radius_radians": 0.004642575979232788,
-      "id": 2564,
+      "id": 2582,
       "light_casts_shadows": true,
       "light_color": [
         25.0,
@@ -625,7 +1002,7 @@
           1.0,
           0.0,
           0.0,
-          4.180910587310791
+          -4.326566696166992
         ],
         [
           0.0,
@@ -648,10 +1025,67 @@
       ],
       "locked": false,
       "name": "CornellBox-Mirror",
-      "parent": 2557,
+      "parent": 2569,
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
       "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 0.3799999952316284,
+      "area_width": 0.4699999988079071,
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2583,
+      "light_casts_shadows": true,
+      "light_color": [
+        17.0,
+        12.0,
+        4.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          -0.0,
+          -0.004999995231628418
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          1.9800000190734863
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          -0.030000001192092896
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "Rect Area Light 1",
+      "parent": 2582,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "rect_area_light",
       "visible": true
     },
     {
@@ -666,7 +1100,7 @@
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
       "directional_angular_radius_radians": 0.004642575979232788,
-      "id": 2565,
+      "id": 2584,
       "light_casts_shadows": true,
       "light_color": [
         25.0,
@@ -682,7 +1116,7 @@
           1.0,
           0.0,
           0.0,
-          -4.184930324554443
+          -2.1437795162200928
         ],
         [
           0.0,
@@ -705,10 +1139,67 @@
       ],
       "locked": false,
       "name": "CornellBox-Original",
-      "parent": 2557,
+      "parent": 2569,
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
       "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 0.3799999952316284,
+      "area_width": 0.4699999988079071,
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2585,
+      "light_casts_shadows": true,
+      "light_color": [
+        17.0,
+        12.0,
+        4.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          -0.0,
+          -0.004999995231628418
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          1.9800000190734863
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          -0.030000001192092896
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "Rect Area Light 1",
+      "parent": 2584,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "rect_area_light",
       "visible": true
     },
     {
@@ -723,7 +1214,7 @@
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
       "directional_angular_radius_radians": 0.004642575979232788,
-      "id": 2566,
+      "id": 2586,
       "light_casts_shadows": true,
       "light_color": [
         25.0,
@@ -739,13 +1230,13 @@
           1.0,
           0.0,
           0.0,
-          0.029246807098388672
+          0.0
         ],
         [
           0.0,
           1.0,
           0.0,
-          2.067567825317383
+          2.062141180038452
         ],
         [
           0.0,
@@ -762,10 +1253,67 @@
       ],
       "locked": false,
       "name": "CornellBox-Sphere",
-      "parent": 2557,
+      "parent": 2569,
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
       "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 0.3799999952316284,
+      "area_width": 0.4699999988079071,
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2587,
+      "light_casts_shadows": true,
+      "light_color": [
+        10.0,
+        10.0,
+        10.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          -1.0,
+          0.0,
+          0.0,
+          -0.004999995231628418
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          1.5800000429153442
+        ],
+        [
+          0.0,
+          1.0,
+          -0.0,
+          -0.030000001192092896
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "Rect Area Light 1",
+      "parent": 2586,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "rect_area_light",
       "visible": true
     },
     {
@@ -780,7 +1328,7 @@
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
       "directional_angular_radius_radians": 0.004642575979232788,
-      "id": 2567,
+      "id": 2588,
       "light_casts_shadows": true,
       "light_color": [
         25.0,
@@ -796,7 +1344,7 @@
           1.0,
           0.0,
           0.0,
-          2.1160004138946533
+          4.215009689331055
         ],
         [
           0.0,
@@ -819,10 +1367,67 @@
       ],
       "locked": false,
       "name": "CornellBox-Water",
-      "parent": 2557,
+      "parent": 2569,
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
       "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 0.3799999952316284,
+      "area_width": 0.4699999988079071,
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 2589,
+      "light_casts_shadows": true,
+      "light_color": [
+        10.0,
+        10.0,
+        10.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          -1.0,
+          0.0,
+          0.0,
+          -0.004999995231628418
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          1.5800000429153442
+        ],
+        [
+          0.0,
+          1.0,
+          -0.0,
+          -0.030000001192092896
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "Rect Area Light 1",
+      "parent": 2588,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "rect_area_light",
       "visible": true
     },
     {
@@ -837,7 +1442,7 @@
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
       "directional_angular_radius_radians": 0.004642575979232788,
-      "id": 2568,
+      "id": 2590,
       "light_casts_shadows": true,
       "light_color": [
         25.0,
@@ -876,7 +1481,7 @@
       ],
       "locked": false,
       "name": "water",
-      "parent": 2557,
+      "parent": 2569,
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
       "type": "mesh",

@@ -210,6 +210,35 @@ RENDER_TEST(test_open_gl_ssr_depth_hit_and_ggx_cone_lod) {
     RENDER_CHECK(std::isfinite(
         renderer::open_gl_ssr_ggx_cone_tangent(1.0f)));
 
+    const renderer::OpenGlSsrLobeRadii normal_lobe =
+        renderer::open_gl_ssr_lobe_radii(0.5f, 2.0f, 1.0f);
+    const renderer::OpenGlSsrLobeRadii grazing_lobe =
+        renderer::open_gl_ssr_lobe_radii(0.5f, 2.0f, 0.05f);
+    RENDER_CHECK(nearly_equal(normal_lobe.major, normal_lobe.minor));
+    RENDER_CHECK(grazing_lobe.major > grazing_lobe.minor);
+    RENDER_CHECK(nearly_equal(
+        grazing_lobe.major / grazing_lobe.minor,
+        renderer::kOpenGlSsrMaxAnisotropy));
+
+    // The footprint grows away from the reflector (contact hardening) and
+    // with per-pixel roughness, while grazing N.V only contracts its minor
+    // axis to create the elongated specular footprint.
+    const renderer::OpenGlSsrLobeRadii close_lobe =
+        renderer::open_gl_ssr_lobe_radii(0.5f, 0.25f, 0.25f);
+    const renderer::OpenGlSsrLobeRadii distant_lobe =
+        renderer::open_gl_ssr_lobe_radii(0.5f, 2.0f, 0.25f);
+    const renderer::OpenGlSsrLobeRadii rough_lobe =
+        renderer::open_gl_ssr_lobe_radii(0.8f, 2.0f, 0.25f);
+    RENDER_CHECK(distant_lobe.major > close_lobe.major);
+    RENDER_CHECK(distant_lobe.minor > close_lobe.minor);
+    RENDER_CHECK(rough_lobe.major > distant_lobe.major);
+    RENDER_CHECK(rough_lobe.minor > distant_lobe.minor);
+    RENDER_CHECK(renderer::open_gl_ssr_filter_tap_count(32.0f, 32.0f) == 1);
+    const int elongated_taps =
+        renderer::open_gl_ssr_filter_tap_count(80.0f, 10.0f);
+    RENDER_CHECK(elongated_taps == renderer::kOpenGlSsrMaxFilterTaps);
+    RENDER_CHECK((elongated_taps & 1) == 1);
+
     const float mirror_lod = renderer::open_gl_ssr_reflection_lod(
         0.0f, 2.0f, 4.0f, 2.0f, 1.0f, 800, 400, 10);
     const float glossy_lod = renderer::open_gl_ssr_reflection_lod(
