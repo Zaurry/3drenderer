@@ -1033,6 +1033,8 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                             OpenGlAmbientOcclusionDebugView::Final;
                         render_settings.opengl.ssr.debug_view =
                             OpenGlSsrDebugView::Final;
+                        render_settings.opengl.ssgi.debug_view =
+                            OpenGlSsgiDebugView::Final;
                     }
                 }
                 ImGui::InputInt(
@@ -1327,6 +1329,8 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                             OpenGlShadowDebugView::Final;
                         render_settings.opengl.ssr.debug_view =
                             OpenGlSsrDebugView::Final;
+                        render_settings.opengl.ssgi.debug_view =
+                            OpenGlSsgiDebugView::Final;
                     }
                 }
                 ImGui::EndDisabled();
@@ -1346,6 +1350,148 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 if (!open_gl_mode) {
                     ImGui::TextDisabled(
                         "Path mode uses ray visibility and does not run screen-space AO.");
+                }
+            }
+
+            if (ImGui::CollapsingHeader(
+                    "Screen Space Global Illumination",
+                    ImGuiTreeNodeFlags_DefaultOpen)) {
+                const bool open_gl_mode =
+                    state.mode == InteractiveRenderMode::OpenGl;
+                auto& ssgi = render_settings.opengl.ssgi;
+                ImGui::BeginDisabled(!open_gl_mode);
+                ImGui::Checkbox("Enable SSGI", &ssgi.enabled);
+                ImGui::BeginDisabled(!ssgi.enabled);
+                ImGui::SliderInt(
+                    "Rays per pixel##SSGI",
+                    &ssgi.rays_per_pixel,
+                    1,
+                    kOpenGlMaxSsgiRays);
+                ImGui::SliderInt(
+                    "Hi-Z cell visits##SSGI",
+                    &ssgi.max_steps,
+                    8,
+                    kOpenGlMaxSsgiSteps);
+                ImGui::SliderInt(
+                    "Refinement steps##SSGI",
+                    &ssgi.refinement_steps,
+                    0,
+                    kOpenGlMaxSsgiRefinementSteps);
+                ImGui::SliderFloat(
+                    "Max distance / scene radius##SSGI",
+                    &ssgi.max_distance_scale,
+                    0.05f,
+                    4.0f,
+                    "%.3f",
+                    ImGuiSliderFlags_Logarithmic);
+                ImGui::SliderFloat(
+                    "Thickness / distance##SSGI",
+                    &ssgi.thickness_scale,
+                    0.0005f,
+                    0.1f,
+                    "%.5f",
+                    ImGuiSliderFlags_Logarithmic);
+                ImGui::SliderFloat(
+                    "Edge fade##SSGI",
+                    &ssgi.edge_fade,
+                    0.0f,
+                    0.5f,
+                    "%.3f");
+                ImGui::SliderFloat(
+                    "Strength##SSGI", &ssgi.strength, 0.0f, 1.0f, "%.2f");
+                ImGui::SliderInt(
+                    "History frames##SSGI",
+                    &ssgi.max_history_frames,
+                    1,
+                    64);
+                ImGui::SliderInt(
+                    "A-trous passes##SSGI",
+                    &ssgi.denoise_passes,
+                    0,
+                    kOpenGlMaxSsgiDenoisePasses);
+                ImGui::SliderFloat(
+                    "Depth sigma / distance##SSGI",
+                    &ssgi.denoise_depth_sigma_fraction,
+                    0.005f,
+                    0.5f,
+                    "%.3f",
+                    ImGuiSliderFlags_Logarithmic);
+                ImGui::SliderFloat(
+                    "Normal power##SSGI",
+                    &ssgi.denoise_normal_power,
+                    1.0f,
+                    64.0f,
+                    "%.1f",
+                    ImGuiSliderFlags_Logarithmic);
+                ImGui::EndDisabled();
+
+                ssgi.rays_per_pixel = std::clamp(
+                    ssgi.rays_per_pixel, 1, kOpenGlMaxSsgiRays);
+                ssgi.max_steps = std::clamp(
+                    ssgi.max_steps, 8, kOpenGlMaxSsgiSteps);
+                ssgi.refinement_steps = std::clamp(
+                    ssgi.refinement_steps,
+                    0,
+                    kOpenGlMaxSsgiRefinementSteps);
+                ssgi.max_distance_scale = std::clamp(
+                    ssgi.max_distance_scale, 0.05f, 4.0f);
+                ssgi.thickness_scale = std::clamp(
+                    ssgi.thickness_scale, 0.0005f, 0.1f);
+                ssgi.edge_fade = std::clamp(ssgi.edge_fade, 0.0f, 0.5f);
+                ssgi.strength = std::clamp(ssgi.strength, 0.0f, 1.0f);
+                ssgi.max_history_frames = std::clamp(
+                    ssgi.max_history_frames, 1, 64);
+                ssgi.denoise_passes = std::clamp(
+                    ssgi.denoise_passes,
+                    0,
+                    kOpenGlMaxSsgiDenoisePasses);
+                ssgi.denoise_depth_sigma_fraction = std::clamp(
+                    ssgi.denoise_depth_sigma_fraction, 0.005f, 0.5f);
+                ssgi.denoise_normal_power = std::clamp(
+                    ssgi.denoise_normal_power, 1.0f, 64.0f);
+
+                constexpr const char* debug_views[] = {
+                    "Final image",
+                    "Raw indirect",
+                    "Hit confidence",
+                    "Temporal indirect",
+                    "Filtered indirect",
+                    "History length"};
+                int debug_view = static_cast<int>(ssgi.debug_view);
+                if (ImGui::Combo(
+                        "SSGI debug view",
+                        &debug_view,
+                        debug_views,
+                        static_cast<int>(std::size(debug_views)))) {
+                    ssgi.debug_view = static_cast<OpenGlSsgiDebugView>(
+                        debug_view);
+                    if (ssgi.debug_view != OpenGlSsgiDebugView::Final) {
+                        render_settings.opengl.shadow_map.debug_view =
+                            OpenGlShadowDebugView::Final;
+                        render_settings.opengl.ambient_occlusion.debug_view =
+                            OpenGlAmbientOcclusionDebugView::Final;
+                        render_settings.opengl.ssr.debug_view =
+                            OpenGlSsrDebugView::Final;
+                    }
+                }
+                ImGui::EndDisabled();
+                ImGui::Text(
+                    "Trace resolution: %d x %d  |  max distance: %.4g",
+                    (render_settings.width + 1) / 2,
+                    (render_settings.height + 1) / 2,
+                    scene_radius(bounds) * ssgi.max_distance_scale);
+                ImGui::TextDisabled(
+                    "One diffuse bounce on opaque/masked surfaces; diffuse IBL remains the baseline.");
+                ImGui::TextDisabled(
+                    "GTAO occludes IBL; only the signed SSGI residual is denoised and upsampled.");
+                if (!render_settings.opengl.ibl_enabled) {
+                    ImGui::TextColored(
+                        ImVec4(1.0f, 0.72f, 0.28f, 1.0f),
+                        "IBL is disabled: off-screen and missed-ray fallback is black.");
+                }
+                if (!open_gl_mode) {
+                    ImGui::TextDisabled(
+                        "Path mode uses traced indirect lighting and does not run SSGI.");
                 }
             }
 
@@ -1437,6 +1583,8 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                             OpenGlShadowDebugView::Final;
                         render_settings.opengl.ambient_occlusion.debug_view =
                             OpenGlAmbientOcclusionDebugView::Final;
+                        render_settings.opengl.ssgi.debug_view =
+                            OpenGlSsgiDebugView::Final;
                     }
                 }
                 ImGui::EndDisabled();

@@ -14,9 +14,10 @@
 namespace renderer {
 
 // Current viewer session schema version. Load applies version-gated
-// upgrades oldest-first (v1 legacy backend note, v3 OpenGL techniques);
+// upgrades oldest-first (v1 legacy backend note, v3 OpenGL techniques,
+// v5 temporal SSGI);
 // save() always writes this version.
-constexpr int kViewerSessionVersion = 4;
+constexpr int kViewerSessionVersion = 5;
 
 namespace {
 
@@ -130,6 +131,37 @@ float finite_value_or_default_clamped(
         : std::clamp(fallback, minimum, maximum);
 }
 
+int integer_value_or_default_clamped(
+    const nlohmann::json& object,
+    const char* field,
+    int fallback,
+    int minimum,
+    int maximum) {
+    const auto iterator = object.find(field);
+    if (iterator == object.end() || !iterator->is_number()) {
+        return std::clamp(fallback, minimum, maximum);
+    }
+    const double value = iterator->get<double>();
+    if (!std::isfinite(value)) {
+        return std::clamp(fallback, minimum, maximum);
+    }
+    const double clamped = std::clamp(
+        value,
+        static_cast<double>(minimum),
+        static_cast<double>(maximum));
+    return static_cast<int>(clamped);
+}
+
+bool boolean_value_or_default(
+    const nlohmann::json& object,
+    const char* field,
+    bool fallback) {
+    const auto iterator = object.find(field);
+    return iterator != object.end() && iterator->is_boolean()
+        ? iterator->get<bool>()
+        : fallback;
+}
+
 // v3 upgrade: restores the OpenGL techniques subtree introduced in session
 // version 3. Sessions older than v3 keep the defaults in RenderSettings.
 void restore_opengl_settings(
@@ -237,6 +269,7 @@ void restore_opengl_settings(
                 settings.shadow_map.debug_view =
                     OpenGlShadowDebugView::Final;
                 settings.ssr.debug_view = OpenGlSsrDebugView::Final;
+                settings.ssgi.debug_view = OpenGlSsgiDebugView::Final;
             }
         }
         if (opengl.contains("ssr")) {
@@ -265,8 +298,57 @@ void restore_opengl_settings(
                     OpenGlShadowDebugView::Final;
                 settings.ambient_occlusion.debug_view =
                     OpenGlAmbientOcclusionDebugView::Final;
+                settings.ssgi.debug_view = OpenGlSsgiDebugView::Final;
             }
         }
+}
+
+void restore_ssgi_settings(
+    OpenGlRenderSettings& settings,
+    const nlohmann::json& render) {
+    const auto& opengl = render.at("opengl");
+    if (!opengl.contains("ssgi")) {
+        return;
+    }
+    const auto& ssgi = opengl.at("ssgi");
+    auto& target = settings.ssgi;
+    target.enabled = boolean_value_or_default(ssgi, "enabled", true);
+    target.rays_per_pixel = integer_value_or_default_clamped(
+        ssgi, "rays_per_pixel", 2, 1, 8);
+    target.max_steps = integer_value_or_default_clamped(
+        ssgi, "max_steps", 64, 8, 256);
+    target.refinement_steps = integer_value_or_default_clamped(
+        ssgi, "refinement_steps", 4, 0, 16);
+    target.max_distance_scale = finite_value_or_default_clamped(
+        ssgi, "max_distance_scale", 1.0f, 0.05f, 4.0f);
+    target.thickness_scale = finite_value_or_default_clamped(
+        ssgi, "thickness_scale", 0.01f, 0.0005f, 0.1f);
+    target.edge_fade = finite_value_or_default_clamped(
+        ssgi, "edge_fade", 0.15f, 0.0f, 0.5f);
+    target.strength = finite_value_or_default_clamped(
+        ssgi, "strength", 1.0f, 0.0f, 1.0f);
+    target.max_history_frames = integer_value_or_default_clamped(
+        ssgi, "max_history_frames", 32, 1, 64);
+    target.denoise_passes = integer_value_or_default_clamped(
+        ssgi, "denoise_passes", 3, 0, 4);
+    target.denoise_depth_sigma_fraction =
+        finite_value_or_default_clamped(
+            ssgi,
+            "denoise_depth_sigma_fraction",
+            0.05f,
+            0.005f,
+            0.5f);
+    target.denoise_normal_power = finite_value_or_default_clamped(
+        ssgi, "denoise_normal_power", 16.0f, 1.0f, 64.0f);
+    target.debug_view = static_cast<OpenGlSsgiDebugView>(
+        integer_value_or_default_clamped(
+            ssgi, "debug_view", 0, 0, 5));
+    if (target.debug_view != OpenGlSsgiDebugView::Final) {
+        settings.shadow_map.debug_view = OpenGlShadowDebugView::Final;
+        settings.ambient_occlusion.debug_view =
+            OpenGlAmbientOcclusionDebugView::Final;
+        settings.ssr.debug_view = OpenGlSsrDebugView::Final;
+    }
 }
 
 }  // namespace
@@ -386,6 +468,11 @@ ViewerSessionState ViewerSessionStore::load(
         restore_opengl_settings(
             state.render_settings.opengl,
             render);
+        if (version >= 5) {
+            restore_ssgi_settings(
+                state.render_settings.opengl,
+                render);
+        }
     }
     if (state.ui.mode == InteractiveRenderMode::Path) {
         std::string reason;
@@ -537,6 +624,21 @@ void ViewerSessionStore::save(
                 {"depth_sigma_fraction", state.render_settings.opengl.ambient_occlusion.denoise.depth_sigma_fraction},
                 {"normal_power", state.render_settings.opengl.ambient_occlusion.denoise.normal_power},
             }},
+        }},
+        {"ssgi", {
+            {"enabled", state.render_settings.opengl.ssgi.enabled},
+            {"rays_per_pixel", state.render_settings.opengl.ssgi.rays_per_pixel},
+            {"max_steps", state.render_settings.opengl.ssgi.max_steps},
+            {"refinement_steps", state.render_settings.opengl.ssgi.refinement_steps},
+            {"max_distance_scale", state.render_settings.opengl.ssgi.max_distance_scale},
+            {"thickness_scale", state.render_settings.opengl.ssgi.thickness_scale},
+            {"edge_fade", state.render_settings.opengl.ssgi.edge_fade},
+            {"strength", state.render_settings.opengl.ssgi.strength},
+            {"max_history_frames", state.render_settings.opengl.ssgi.max_history_frames},
+            {"denoise_passes", state.render_settings.opengl.ssgi.denoise_passes},
+            {"denoise_depth_sigma_fraction", state.render_settings.opengl.ssgi.denoise_depth_sigma_fraction},
+            {"denoise_normal_power", state.render_settings.opengl.ssgi.denoise_normal_power},
+            {"debug_view", static_cast<int>(state.render_settings.opengl.ssgi.debug_view)},
         }},
         {"ssr", {
             {"enabled", state.render_settings.opengl.ssr.enabled},

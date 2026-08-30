@@ -186,7 +186,8 @@ void import_session_as_case(
             {"exposure_ev", state.ui.display.exposure_ev},
             {"tone_mapper", tone_mapper_name(state.ui.display.tone_mapper)},
         }},
-        {"render_settings", {{"path", {
+        {"render_settings", {
+            {"path", {
             {"samples_per_pixel", 1},
             {"cuda_device", state.render_settings.path.cuda_device},
             {"rr_start_bounce", state.render_settings.path.russian_roulette_start_bounce},
@@ -194,7 +195,22 @@ void import_session_as_case(
             {"rr_max_probability", state.render_settings.path.russian_roulette_max_probability},
             {"sample_seed_offset", state.render_settings.path.sample_seed_offset},
             {"backend", "cuda"},
-        }}}},
+            }},
+            {"opengl", {{"ssgi", {
+                {"enabled", state.render_settings.opengl.ssgi.enabled},
+                {"rays_per_pixel", state.render_settings.opengl.ssgi.rays_per_pixel},
+                {"max_steps", state.render_settings.opengl.ssgi.max_steps},
+                {"refinement_steps", state.render_settings.opengl.ssgi.refinement_steps},
+                {"max_distance_scale", state.render_settings.opengl.ssgi.max_distance_scale},
+                {"thickness_scale", state.render_settings.opengl.ssgi.thickness_scale},
+                {"edge_fade", state.render_settings.opengl.ssgi.edge_fade},
+                {"strength", state.render_settings.opengl.ssgi.strength},
+                {"max_history_frames", state.render_settings.opengl.ssgi.max_history_frames},
+                {"denoise_passes", state.render_settings.opengl.ssgi.denoise_passes},
+                {"denoise_depth_sigma_fraction", state.render_settings.opengl.ssgi.denoise_depth_sigma_fraction},
+                {"denoise_normal_power", state.render_settings.opengl.ssgi.denoise_normal_power},
+            }}}},
+        }},
         {"phases", {
             {"opengl_warmup_frames", 60},
             {"opengl_measure_frames", 300},

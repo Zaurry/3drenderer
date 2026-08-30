@@ -51,6 +51,10 @@ RENDER_TEST(test_benchmark_case_contract) {
     RENDER_CHECK(near(
         config.render_settings.path.russian_roulette_max_probability,
         0.95));
+    RENDER_CHECK(config.render_settings.opengl.ssgi.enabled);
+    RENDER_CHECK(config.render_settings.opengl.ssgi.rays_per_pixel == 2);
+    RENDER_CHECK(config.render_settings.opengl.ssgi.max_steps == 64);
+    RENDER_CHECK(config.render_settings.opengl.ssgi.denoise_passes == 3);
     RENDER_CHECK(std::filesystem::is_regular_file(config.scene_path));
 }
 

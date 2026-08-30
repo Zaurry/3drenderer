@@ -2,7 +2,7 @@
 
 一个 C++20 教学型 3D 渲染器，提供两条产品渲染链路：
 
-- `OpenGL`：OpenGL 4.5 Core 实时预览，支持可热重载 GLSL、PBR、IBL、SSAO、GTAO + Bent Normal、Shadow Map/PCSS、环境主光提取、LTC 矩形面光和 weighted blended OIT。
+- `OpenGL`：OpenGL 4.5 Core 实时预览，支持可热重载 GLSL、PBR、IBL、SSAO、GTAO + Bent Normal、时域 Hi-Z SSGI、SSR、Shadow Map/PCSS、环境主光提取、LTC 矩形面光和 weighted blended OIT。
 - `Path`：CUDA Wavefront 路径追踪，支持渐进累积、环境/发光几何 NEE + MIS、矩形面光，以及 CUDA/OpenGL interop。
 
 CPU Path 已从产品、CLI 和交互会话中删除。没有 CUDA 时仍可构建场景/文档系统、测试和 OpenGL Viewer；Path 模式会明确显示不可用原因，并回退到 OpenGL。
@@ -106,9 +106,9 @@ Viewer 只有两种模式：
 - `F5`：仅在 OpenGL 模式重载 shader。
 - `Tab`：显示或隐藏编辑器界面。
 
-Viewer 会把会话 v4 保存到 `%APPDATA%\Zaurry\3D Renderer\last-session.json`。不带参数启动时可恢复上次会话；`--no-restore-last` 禁用恢复。旧会话 v1–v3 可只读迁移：新增 OpenGL 技术参数使用默认值，CPU/Auto Path 字段会被忽略；CUDA 不可用时自动转到 OpenGL，并显示迁移警告。
+Viewer 会把会话 v5 保存到 `%APPDATA%\Zaurry\3D Renderer\last-session.json`。不带参数启动时可恢复上次会话；`--no-restore-last` 禁用恢复。旧会话 v1–v4 可只读迁移：SSGI 等新增 OpenGL 技术参数使用默认值，CPU/Auto Path 字段会被忽略；CUDA 不可用时自动转到 OpenGL，并显示迁移警告。
 
-默认可见的 `Techniques` 面板把 IBL、Shadow Map、PCSS、Dominant Light Extraction 和 LTC Area Lights 集中在 `Direct Lighting`，并提供独立的 `Ambient Occlusion` 区域切换 SSAO/GTAO、Bent Normal、空间滤波和调试视图。阴影默认使用 1024 分辨率、最多 8 盏灯；AO 默认使用全分辨率 GTAO。OpenGL 技术控件在 Path 模式中禁用，Path 始终使用完整环境和真实光线可见性。
+默认可见的 `Techniques` 面板把 IBL、Shadow Map、PCSS、Dominant Light Extraction 和 LTC Area Lights 集中在 `Direct Lighting`，并提供独立的 AO、SSGI 与 SSR 区域。SSGI 默认开启，以半分辨率 2 rays/pixel 做单次漫反射反弹，使用 RG32F min/max Hi-Z、深度/世界法线历史验证、时域方差裁剪、三轮双边 à-trous 和全分辨率双边上采样；它始终保留清晰的全分辨率 raster diffuse IBL，只对“命中辐射－同方向环境辐射”的有符号残差执行半分辨率时域与空间滤波，再把残差加回 Opaque HDR。GTAO/Bent Normal 负责 IBL 的近场遮蔽，SSR 随后反射合成过 SSGI 的 Opaque HDR，Blend 最后合成。OpenGL 技术控件在 Path 模式中禁用，Path 始终使用完整环境和真实光线可见性。
 
 ## 场景与后端边界
 

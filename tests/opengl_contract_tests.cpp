@@ -3,7 +3,10 @@
 #include "render/opengl/opengl_raster_renderer.h"
 #include "render/opengl/opengl_ao_math.h"
 #include "render/opengl/opengl_shadow_math.h"
+#include "render/opengl/opengl_ssgi_math.h"
 #include "render/opengl/opengl_ssr_math.h"
+
+#include <array>
 
 RENDER_TEST(test_open_gl_geometry_upload_predicate) {
     RENDER_CHECK(renderer::open_gl_requires_geometry_upload(
@@ -148,6 +151,114 @@ RENDER_TEST(test_open_gl_gtso_visibility_range) {
             alignment, 0.25f, 0.5f, 0.75f);
         RENDER_CHECK(visibility >= 0.0f && visibility <= 1.0f);
     }
+}
+
+RENDER_TEST(test_open_gl_ssgi_resolution_hiz_and_sampling_math) {
+    RENDER_CHECK(renderer::open_gl_ssgi_half_resolution_dimension(1) == 1);
+    RENDER_CHECK(renderer::open_gl_ssgi_half_resolution_dimension(2) == 1);
+    RENDER_CHECK(renderer::open_gl_ssgi_half_resolution_dimension(3) == 2);
+    RENDER_CHECK(renderer::open_gl_ssgi_half_resolution_dimension(513) == 257);
+    RENDER_CHECK(renderer::open_gl_ssgi_hiz_level_count(1, 1) == 1);
+    RENDER_CHECK(renderer::open_gl_ssgi_hiz_level_count(8, 3) == 4);
+    RENDER_CHECK(renderer::open_gl_ssgi_hiz_level_count(513, 257) == 10);
+    const auto first_odd_coverage =
+        renderer::open_gl_ssgi_reduction_coverage(0, 513, 256);
+    const auto last_odd_coverage =
+        renderer::open_gl_ssgi_reduction_coverage(255, 513, 256);
+    RENDER_CHECK(first_odd_coverage.first == 0);
+    RENDER_CHECK(first_odd_coverage.last == 2);
+    RENDER_CHECK(last_odd_coverage.first == 510);
+    RENDER_CHECK(last_odd_coverage.last == 512);
+
+    const std::array<renderer::OpenGlSsgiDepthRange, 4> ranges{{
+        {3.0f, 4.0f},
+        {},
+        {1.5f, 2.0f},
+        {7.0f, 8.0f},
+    }};
+    const renderer::OpenGlSsgiDepthRange reduced =
+        renderer::open_gl_ssgi_reduce_depth_ranges(ranges);
+    RENDER_CHECK(nearly_equal(reduced.minimum, 1.5f));
+    RENDER_CHECK(nearly_equal(reduced.maximum, 8.0f));
+    RENDER_CHECK(renderer::open_gl_ssgi_hiz_intersects(
+        1.0f, 1.45f, reduced, 0.05f));
+    RENDER_CHECK(!renderer::open_gl_ssgi_hiz_intersects(
+        0.5f, 1.0f, reduced, 0.05f));
+    RENDER_CHECK(renderer::open_gl_ssgi_hiz_intersects(
+        8.1f, 7.9f, reduced, 0.1f));
+    RENDER_CHECK(
+        renderer::open_gl_ssgi_depth_interval_relation(
+            1.0f, 2.0f, {}, 0.1f) ==
+        renderer::OpenGlSsgiDepthIntervalRelation::Empty);
+    RENDER_CHECK(
+        renderer::open_gl_ssgi_depth_interval_relation(
+            0.5f, 1.0f, reduced, 0.05f) ==
+        renderer::OpenGlSsgiDepthIntervalRelation::InFront);
+    RENDER_CHECK(
+        renderer::open_gl_ssgi_depth_interval_relation(
+            2.0f, 1.0f, reduced, 0.05f) ==
+        renderer::OpenGlSsgiDepthIntervalRelation::Overlap);
+    RENDER_CHECK(
+        renderer::open_gl_ssgi_depth_interval_relation(
+            9.0f, 10.0f, reduced, 0.05f) ==
+        renderer::OpenGlSsgiDepthIntervalRelation::Behind);
+
+    const renderer::Vec3 center =
+        renderer::open_gl_ssgi_cosine_hemisphere_sample(
+            renderer::Vec2(0.0f, 0.25f));
+    const renderer::Vec3 rim =
+        renderer::open_gl_ssgi_cosine_hemisphere_sample(
+            renderer::Vec2(1.0f, 0.0f));
+    RENDER_CHECK(center.isApprox(renderer::Vec3::UnitZ(), 1.0e-6f));
+    RENDER_CHECK(nearly_equal(rim.norm(), 1.0f, 1.0e-6f));
+    RENDER_CHECK(rim.z() >= 0.0f);
+}
+
+RENDER_TEST(test_open_gl_ssgi_temporal_validation_and_projection_math) {
+    RENDER_CHECK(renderer::open_gl_ssgi_history_valid(
+        10.0f, 10.09f, 0.01f, 0.9f));
+    RENDER_CHECK(!renderer::open_gl_ssgi_history_valid(
+        10.0f, 10.11f, 0.01f, 0.9f));
+    RENDER_CHECK(!renderer::open_gl_ssgi_history_valid(
+        10.0f, 10.0f, 0.01f, 0.84f));
+    RENDER_CHECK(nearly_equal(
+        renderer::open_gl_ssgi_history_weight(0.0f, 32), 0.0f));
+    RENDER_CHECK(nearly_equal(
+        renderer::open_gl_ssgi_history_weight(1.0f, 32), 0.5f));
+    RENDER_CHECK(nearly_equal(
+        renderer::open_gl_ssgi_history_weight(100.0f, 32), 31.0f / 32.0f));
+
+    const float boundary_distance =
+        renderer::open_gl_ssgi_projected_boundary_distance(
+            renderer::Vec3(0.0f, 0.0f, -2.0f),
+            renderer::Vec3(1.0f, 0.0f, 0.0f),
+            0.75f,
+            2.0f,
+            true);
+    RENDER_CHECK(nearly_equal(boundary_distance, 1.0f));
+    RENDER_CHECK(std::isinf(
+        renderer::open_gl_ssgi_projected_boundary_distance(
+            renderer::Vec3(0.0f, 0.0f, -2.0f),
+            renderer::Vec3(-1.0f, 0.0f, 0.0f),
+            0.75f,
+            2.0f,
+            true)));
+    RENDER_CHECK(nearly_equal(
+        renderer::open_gl_ssgi_projected_boundary_distance(
+            renderer::Vec3(0.0f, 0.0f, -2.0f),
+            renderer::Vec3(-1.0f, 0.0f, 0.0f),
+            0.25f,
+            2.0f,
+            true),
+        1.0f));
+
+    renderer::OpenGlRenderSettings settings;
+    RENDER_CHECK(renderer::open_gl_ssgi_requested(settings));
+    settings.ssgi.enabled = false;
+    RENDER_CHECK(!renderer::open_gl_ssgi_requested(settings));
+    settings.ssgi.debug_view = renderer::OpenGlSsgiDebugView::RawIndirect;
+    RENDER_CHECK(renderer::open_gl_ssgi_requested(settings));
+    RENDER_CHECK(!renderer::open_gl_ssr_requested(settings));
 }
 
 RENDER_TEST(test_open_gl_ssr_edge_fade) {

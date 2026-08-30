@@ -13,6 +13,10 @@ inline constexpr int kOpenGlShadowResolutionMin = 128;
 inline constexpr int kOpenGlShadowResolutionMax = 4096;
 inline constexpr int kOpenGlMaxSsrSteps = 256;
 inline constexpr int kOpenGlMaxSsrRefinementSteps = 16;
+inline constexpr int kOpenGlMaxSsgiRays = 8;
+inline constexpr int kOpenGlMaxSsgiSteps = 256;
+inline constexpr int kOpenGlMaxSsgiRefinementSteps = 16;
+inline constexpr int kOpenGlMaxSsgiDenoisePasses = 4;
 
 struct OpenGlShaderBinding {
     int location = -1;

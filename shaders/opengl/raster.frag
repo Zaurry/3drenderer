@@ -114,8 +114,9 @@ in VS_OUT {
 layout(location = 0) out vec4 out_linear_color;
 layout(location = 1) out vec4 out_transparency_accum;
 layout(location = 2) out float out_transparency_reveal;
+layout(location = 3) out vec3 out_diffuse_ibl;
 
-void write_fragment(vec3 color, float opacity) {
+void write_fragment(vec3 color, float opacity, vec3 diffuse_ibl) {
     if (u_transparent_pass != 0) {
         float alpha = clamp(opacity, 0.0, 1.0);
         float depth_weight = pow(max(0.01, 1.0 - gl_FragCoord.z * 0.9), 3.0);
@@ -123,10 +124,12 @@ void write_fragment(vec3 color, float opacity) {
         out_linear_color = vec4(0.0);
         out_transparency_accum = vec4(color * alpha, alpha) * weight;
         out_transparency_reveal = alpha;
+        out_diffuse_ibl = vec3(0.0);
     } else {
         out_linear_color = vec4(color, 1.0);
         out_transparency_accum = vec4(0.0);
         out_transparency_reveal = 0.0;
+        out_diffuse_ibl = diffuse_ibl;
     }
 }
 
@@ -672,7 +675,7 @@ void main() {
         emission *= texture(u_emissive_texture, material_uv(5)).rgb;
     }
     if (u_material_type == 3) {
-        write_fragment(emission, opacity);
+        write_fragment(emission, opacity, vec3(0.0));
         return;
     }
 
@@ -736,6 +739,7 @@ void main() {
     vec3 normal = surface_normal();
     vec3 view_direction = normalize(u_camera_position - fragment_in.world_position);
     vec3 color = emission;
+    vec3 applied_diffuse_ibl = vec3(0.0);
     bool debug_shadow_matched = false;
     float debug_visibility = 1.0;
     float debug_blocker_depth = 1.0;
@@ -944,7 +948,8 @@ void main() {
                 screen_ao,
                 n_dot_v);
         }
-        color += diffuse_ibl * (occlusion * screen_ao) +
+        applied_diffuse_ibl = diffuse_ibl * (occlusion * screen_ao);
+        color += applied_diffuse_ibl +
             specular_ibl * (occlusion * specular_visibility);
     }
     if (u_shadow_debug_view != 0) {
@@ -959,8 +964,9 @@ void main() {
                     max(u_pcss_max_penumbra_texels, 1.0);
             }
         }
-        write_fragment(vec3(clamp(debug_value, 0.0, 1.0)), opacity);
+        write_fragment(
+            vec3(clamp(debug_value, 0.0, 1.0)), opacity, vec3(0.0));
         return;
     }
-    write_fragment(color, opacity);
+    write_fragment(color, opacity, applied_diffuse_ibl);
 }

@@ -6,6 +6,7 @@ layout(binding = 3) uniform sampler2D u_ao_bent_normal;
 layout(binding = 4) uniform sampler2D u_view_normal;
 layout(binding = 5) uniform sampler2D u_linear_depth;
 uniform int u_ao_debug_view;
+uniform int u_skip_transparency;
 uniform float u_scene_radius;
 in vec2 v_ndc;
 layout(location = 0) out vec4 out_linear_color;
@@ -36,6 +37,10 @@ void main() {
         return;
     }
     vec3 opaque = texture(u_opaque, uv).rgb;
+    if (u_skip_transparency != 0) {
+        out_linear_color = vec4(opaque, 1.0);
+        return;
+    }
     vec4 accum = texture(u_accum, uv);
     float reveal = clamp(texture(u_reveal, uv).r, 0.0, 1.0);
     vec3 transparent = accum.rgb / max(accum.a, 1.0e-5);

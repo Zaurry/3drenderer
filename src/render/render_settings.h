@@ -129,6 +129,33 @@ struct SsrRenderSettings {
     bool operator==(const SsrRenderSettings&) const = default;
 };
 
+enum class OpenGlSsgiDebugView : std::uint8_t {
+    Final = 0,
+    RawIndirect,
+    HitConfidence,
+    TemporalIndirect,
+    FilteredIndirect,
+    HistoryLength,
+};
+
+struct SsgiRenderSettings {
+    bool enabled = true;
+    int rays_per_pixel = 2;
+    int max_steps = 64;
+    int refinement_steps = 4;
+    float max_distance_scale = 1.0f;
+    float thickness_scale = 0.01f;
+    float edge_fade = 0.15f;
+    float strength = 1.0f;
+    int max_history_frames = 32;
+    int denoise_passes = 3;
+    float denoise_depth_sigma_fraction = 0.05f;
+    float denoise_normal_power = 16.0f;
+    OpenGlSsgiDebugView debug_view = OpenGlSsgiDebugView::Final;
+
+    bool operator==(const SsgiRenderSettings&) const = default;
+};
+
 struct OpenGlRenderSettings {
     bool ibl_enabled = true;
     bool ltc_area_lights_enabled = true;
@@ -136,6 +163,7 @@ struct OpenGlRenderSettings {
     PcssRenderSettings pcss;
     DominantLightExtractionRenderSettings dominant_light;
     AmbientOcclusionRenderSettings ambient_occlusion;
+    SsgiRenderSettings ssgi;
     SsrRenderSettings ssr;
 
     bool operator==(const OpenGlRenderSettings&) const = default;

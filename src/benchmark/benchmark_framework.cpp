@@ -434,6 +434,37 @@ CaseConfig load_case(
         path.value("sample_seed_offset", std::uint64_t{0});
     config.render_settings.path.cuda_device =
         std::max(0, path.value("cuda_device", 0));
+    const auto& render_settings = root.at("render_settings");
+    if (render_settings.contains("opengl") &&
+        render_settings.at("opengl").contains("ssgi")) {
+        const auto& ssgi = render_settings.at("opengl").at("ssgi");
+        auto& target = config.render_settings.opengl.ssgi;
+        target.enabled = ssgi.value("enabled", true);
+        target.rays_per_pixel = std::clamp(
+            ssgi.value("rays_per_pixel", 2), 1, 8);
+        target.max_steps = std::clamp(
+            ssgi.value("max_steps", 64), 8, 256);
+        target.refinement_steps = std::clamp(
+            ssgi.value("refinement_steps", 4), 0, 16);
+        target.max_distance_scale = std::clamp(
+            ssgi.value("max_distance_scale", 1.0f), 0.05f, 4.0f);
+        target.thickness_scale = std::clamp(
+            ssgi.value("thickness_scale", 0.01f), 0.0005f, 0.1f);
+        target.edge_fade = std::clamp(
+            ssgi.value("edge_fade", 0.15f), 0.0f, 0.5f);
+        target.strength = std::clamp(
+            ssgi.value("strength", 1.0f), 0.0f, 1.0f);
+        target.max_history_frames = std::clamp(
+            ssgi.value("max_history_frames", 32), 1, 64);
+        target.denoise_passes = std::clamp(
+            ssgi.value("denoise_passes", 3), 0, 4);
+        target.denoise_depth_sigma_fraction = std::clamp(
+            ssgi.value("denoise_depth_sigma_fraction", 0.05f),
+            0.005f,
+            0.5f);
+        target.denoise_normal_power = std::clamp(
+            ssgi.value("denoise_normal_power", 16.0f), 1.0f, 64.0f);
+    }
 
     const auto& phases = root.at("phases");
     config.opengl_warmup_frames = phases.value("opengl_warmup_frames", 60);

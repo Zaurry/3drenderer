@@ -58,9 +58,15 @@ layout(location = 1) out float out_linear_depth;
 layout(location = 2) out vec4 out_ssr_pbr;
 // Screen-space reflection material data: RGB = specular f90, A = occlusion.
 layout(location = 3) out vec4 out_ssr_pbr_aux;
+// SSGI receiver data: RGB = view-dependent diffuse response, A = occlusion.
+layout(location = 4) out vec4 out_ssgi_material;
 
 float luminance(vec3 color) {
     return dot(color, vec3(0.2126, 0.7152, 0.0722));
+}
+
+vec3 fresnel_schlick(float cosine, vec3 f0, vec3 f90) {
+    return f0 + (f90 - f0) * pow(1.0 - clamp(cosine, 0.0, 1.0), 5.0);
 }
 
 vec2 material_uv(int slot) {
@@ -211,4 +217,65 @@ void main() {
     }
     out_ssr_pbr = vec4(specular_f0, roughness);
     out_ssr_pbr_aux = vec4(specular_f90, occlusion);
+
+    vec3 diffuse_response = vec3(0.0);
+    if (u_material_type != 3) {
+        vec3 view_direction = normalize(
+            u_camera_position - fragment_in.world_position);
+        float n_dot_v = max(dot(world_normal, view_direction), 0.0);
+        float metallic = u_material_type == 1
+            ? 1.0
+            : clamp(u_metallic, 0.0, 1.0);
+        vec3 diffuse_color;
+        vec3 diffuse_fresnel;
+        if (u_material_type == 4 && u_pbr_workflow == 1) {
+            vec3 specular = max(u_specular_color, vec3(0.0));
+            if (u_has_specular_glossiness_texture != 0) {
+                specular *= texture(
+                    u_specular_glossiness_texture,
+                    material_uv(8)).rgb;
+            }
+            specular = clamp(specular, vec3(0.0), vec3(1.0));
+            diffuse_color = base_color *
+                (1.0 - max(max(specular.r, specular.g), specular.b));
+            diffuse_fresnel = fresnel_schlick(
+                n_dot_v, specular, vec3(1.0));
+            diffuse_response =
+                (vec3(1.0) - diffuse_fresnel) * diffuse_color;
+        } else {
+            if (u_has_metallic_roughness_texture != 0) {
+                metallic = clamp(
+                    metallic * texture(
+                        u_metallic_roughness_texture,
+                        material_uv(3)).b,
+                    0.0,
+                    1.0);
+            }
+            float specular_strength = clamp(u_specular_factor, 0.0, 1.0);
+            if (u_has_specular_texture != 0) {
+                specular_strength *= texture(
+                    u_specular_texture, material_uv(6)).a;
+            }
+            vec3 material_specular_color = max(
+                u_specular_color, vec3(0.0));
+            if (u_has_specular_color_texture != 0) {
+                material_specular_color *= texture(
+                    u_specular_color_texture,
+                    material_uv(7)).rgb;
+            }
+            float ior_ratio = (max(u_ior, 1.0) - 1.0) /
+                (max(u_ior, 1.0) + 1.0);
+            vec3 dielectric_f0 = min(
+                vec3(1.0),
+                material_specular_color * (ior_ratio * ior_ratio)) *
+                specular_strength;
+            diffuse_color = base_color * (1.0 - metallic);
+            diffuse_fresnel = fresnel_schlick(
+                n_dot_v, dielectric_f0, vec3(specular_strength));
+            diffuse_response = vec3(
+                1.0 - max(max(diffuse_fresnel.r, diffuse_fresnel.g),
+                          diffuse_fresnel.b)) * diffuse_color;
+        }
+    }
+    out_ssgi_material = vec4(max(diffuse_response, vec3(0.0)), occlusion);
 }
