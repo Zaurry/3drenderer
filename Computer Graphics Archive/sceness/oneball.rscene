@@ -1,0 +1,205 @@
+{
+  "assets": [
+    {
+      "id": 2,
+      "kind": "obj",
+      "mesh_index": -1,
+      "path": "../sphere/sphere-cylcoords-1k.obj"
+    }
+  ],
+  "environment": {
+    "background_visible": true,
+    "color": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "intensity": 1.5240000486373901,
+    "rotation_degrees": 3.5
+  },
+  "objects": [
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 39,
+      "light_casts_shadows": true,
+      "light_color": [
+        1.7369999885559082,
+        1.7369999885559082,
+        1.7369999885559082
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          0.6411685943603516,
+          -0.2376636415719986,
+          0.3316907584667206,
+          0.0
+        ],
+        [
+          -0.2376614660024643,
+          0.2846750319004059,
+          0.6633831262588501,
+          0.0
+        ],
+        [
+          -0.33169224858283997,
+          -0.6633822321891785,
+          0.16584369540214539,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "Sun",
+      "parent": 0,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "directional_light",
+      "visible": false
+    },
+    {
+      "area_height": 1.0,
+      "area_width": 1.0,
+      "asset": 2,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 41,
+      "light_casts_shadows": true,
+      "light_color": [
+        25.0,
+        25.0,
+        25.0
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          0.07920002937316895,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.07920002937316895,
+          0.0,
+          8.663517951965332
+        ],
+        [
+          0.0,
+          0.0,
+          0.07920002937316895,
+          -8.865703582763672
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "material_overrides": [
+        {
+          "alpha_cutoff": 0.5,
+          "alpha_mode": "opaque",
+          "base_color": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "bump_scale": 1.0,
+          "emission": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "ior": 1.5,
+          "metallic": 0.0,
+          "name": "default",
+          "normal_scale": 1.0,
+          "occlusion_strength": 1.0,
+          "opacity": 1.0,
+          "roughness": 0.07100000232458115,
+          "slot": 0,
+          "two_sided": true,
+          "type": "metal",
+          "use_base_color_texture": false,
+          "use_bump_texture": false,
+          "use_diffuse_texture": true,
+          "use_emissive_texture": false,
+          "use_metallic_roughness_texture": false,
+          "use_normal_texture": false,
+          "use_occlusion_texture": false,
+          "use_opacity_texture": false
+        },
+        {
+          "alpha_cutoff": 0.5,
+          "alpha_mode": "opaque",
+          "base_color": [
+            0.5178571343421936,
+            0.5055271983146667,
+            0.5178571343421936
+          ],
+          "bump_scale": 1.0,
+          "emission": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "ior": 1.5,
+          "metallic": 0.0,
+          "name": "<default>",
+          "normal_scale": 1.0,
+          "occlusion_strength": 1.0,
+          "opacity": 1.0,
+          "roughness": 0.0,
+          "slot": 1,
+          "two_sided": true,
+          "type": "metal",
+          "use_base_color_texture": false,
+          "use_bump_texture": false,
+          "use_diffuse_texture": false,
+          "use_emissive_texture": false,
+          "use_metallic_roughness_texture": false,
+          "use_normal_texture": false,
+          "use_occlusion_texture": false,
+          "use_opacity_texture": false
+        }
+      ],
+      "name": "sphere-cylcoords-1k",
+      "parent": 0,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "mesh",
+      "visible": true
+    }
+  ],
+  "version": 5
+}

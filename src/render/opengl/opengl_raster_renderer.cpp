@@ -1,5 +1,6 @@
 #include "render/opengl/opengl_raster_renderer.h"
 
+#include "render/ggx_energy_compensation.h"
 #include "render/opengl/opengl_shader_contract.h"
 #include "render/opengl/opengl_shadow_math.h"
 #include "render/opengl/opengl_ssgi_math.h"
@@ -607,16 +608,24 @@ std::vector<float> prefilter_environment_face(
     return pixels;
 }
 
-float smith_g1_lut(float cosine, float roughness) {
+float smith_lambda_lut(float cosine, float roughness) {
     const float alpha = roughness * roughness;
     const float tangent_squared =
-        std::max(0.0f, (1.0f - cosine * cosine) / std::max(cosine * cosine, 1.0e-8f));
-    return 2.0f / (1.0f + std::sqrt(1.0f + alpha * alpha * tangent_squared));
+        std::max(0.0f, (1.0f - cosine * cosine) /
+            std::max(cosine * cosine, 1.0e-8f));
+    return 0.5f *
+        (std::sqrt(1.0f + alpha * alpha * tangent_squared) - 1.0f);
+}
+
+float smith_g2_lut(float n_dot_v, float n_dot_l, float roughness) {
+    return 1.0f /
+        (1.0f + smith_lambda_lut(n_dot_v, roughness) +
+         smith_lambda_lut(n_dot_l, roughness));
 }
 
 std::vector<float> integrate_brdf_lut(int size) {
     constexpr std::uint32_t sample_count = 128U;
-    std::vector<float> pixels(static_cast<std::size_t>(size * size * 2), 0.0f);
+    std::vector<float> pixels(static_cast<std::size_t>(size * size * 4), 0.0f);
     for (int y = 0; y < size; ++y) {
         const float roughness = (static_cast<float>(y) + 0.5f) / static_cast<float>(size);
         for (int x = 0; x < size; ++x) {
@@ -639,17 +648,18 @@ std::vector<float> integrate_brdf_lut(int size) {
                 if (n_dot_l <= 0.0f || n_dot_h <= 0.0f) {
                     continue;
                 }
-                const float geometry =
-                    smith_g1_lut(n_dot_v, roughness) * smith_g1_lut(n_dot_l, roughness);
+                const float geometry = smith_g2_lut(n_dot_v, n_dot_l, roughness);
                 const float visibility = geometry * v_dot_h /
                     std::max(n_dot_h * n_dot_v, 1.0e-8f);
                 const float fresnel = std::pow(1.0f - v_dot_h, 5.0f);
                 scale += (1.0f - fresnel) * visibility;
                 bias += fresnel * visibility;
             }
-            const std::size_t base = static_cast<std::size_t>((y * size + x) * 2);
+            const std::size_t base = static_cast<std::size_t>((y * size + x) * 4);
             pixels[base] = scale / static_cast<float>(sample_count);
             pixels[base + 1U] = bias / static_cast<float>(sample_count);
+            pixels[base + 2U] = ggx_directional_albedo(n_dot_v, roughness);
+            pixels[base + 3U] = ggx_average_albedo(roughness);
         }
     }
     return pixels;
@@ -1705,11 +1715,11 @@ private:
         glTexImage2D(
             GL_TEXTURE_2D,
             0,
-            GL_RG16F,
+            GL_RGBA16F,
             size,
             size,
             0,
-            GL_RG,
+            GL_RGBA,
             GL_FLOAT,
             pixels.data());
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);

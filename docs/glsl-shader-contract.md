@@ -118,7 +118,11 @@ Alpha 语义：
 
 Shadow pass 只绘制 Opaque/Mask 批次。Mask 必须复用 UV0/UV1、base-color/opacity alpha、`KHR_texture_transform` 和 alpha cutoff；Blend 不投影。该 pass 的 shader 内置于 OpenGL renderer，契约测试会校验 `R32F` 资源和 alpha 输入。
 
-矩形面光的漫反射和 GGX 高光使用 64×64 LTC matrix/amplitude LUT。LUT 及 BSD 许可位于 `shaders/opengl/ltc_1.dds`、`ltc_2.dds` 和 `LTC_LICENSE.txt`。
+矩形面光的漫反射和 GGX 单次散射高光使用 64×64 LTC matrix/amplitude LUT；
+Kulla–Conty 多次散射波瓣另以 2×2 面积中点积分计算，避免错误复用单次散射 LTC
+幅值。环境 BRDF LUT 为 `RGBA16F`：RG 是 split-sum Fresnel scale/bias，BA 是
+`E(N·V, roughness)` 与 `Eavg(roughness)`。LUT 及 BSD 许可位于
+`shaders/opengl/ltc_1.dds`、`ltc_2.dds` 和 `LTC_LICENSE.txt`。
 
 ## Screen-space techniques
 

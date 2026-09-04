@@ -34,6 +34,15 @@ constexpr int kThreadsPerBlock = 128;
 constexpr int kMaxPathBounces = 64;
 constexpr int kBvhStackCapacity = 64;
 constexpr float kPi = 3.14159265358979323846f;
+constexpr int kGgxEnergyLutSize = 32;
+
+__device__ __constant__ float
+    kGgxDirectionalAlbedoLut[kGgxEnergyLutSize * kGgxEnergyLutSize] = {
+#include "render/generated/ggx_directional_albedo_lut.inc"
+};
+__device__ __constant__ float kGgxAverageAlbedoLut[kGgxEnergyLutSize] = {
+#include "render/generated/ggx_average_albedo_lut.inc"
+};
 
 #if defined(RENDERER_BENCHMARK_DIAGNOSTICS)
 constexpr int kDiagnosticPrimaryRays = 0;
@@ -2960,11 +2969,107 @@ __device__ float smith_g1(float n_dot_v, float alpha) {
     return 2.0f / (1.0f + sqrtf(1.0f + alpha * alpha * tangent_squared));
 }
 
+__device__ float smith_lambda(float n_dot_v, float alpha) {
+    if (n_dot_v <= 0.0f) {
+        return FLT_MAX;
+    }
+    const float tangent_squared = fmaxf(
+        0.0f,
+        (1.0f - n_dot_v * n_dot_v) / fmaxf(n_dot_v * n_dot_v, 1.0e-12f));
+    return 0.5f * (sqrtf(1.0f + alpha * alpha * tangent_squared) - 1.0f);
+}
+
+__device__ float smith_g2(float n_dot_v, float n_dot_l, float alpha) {
+    return 1.0f /
+        (1.0f + smith_lambda(n_dot_v, alpha) + smith_lambda(n_dot_l, alpha));
+}
+
+__device__ float ggx_directional_albedo(float n_dot_v, float roughness) {
+    const float x = saturate(n_dot_v) * static_cast<float>(kGgxEnergyLutSize - 1);
+    const float y = saturate(roughness) * static_cast<float>(kGgxEnergyLutSize - 1);
+    const int x0 = min(static_cast<int>(x), kGgxEnergyLutSize - 2);
+    const int y0 = min(static_cast<int>(y), kGgxEnergyLutSize - 2);
+    const int x1 = x0 + 1;
+    const int y1 = y0 + 1;
+    const float tx = x - static_cast<float>(x0);
+    const float ty = y - static_cast<float>(y0);
+    const float lower_left =
+        kGgxDirectionalAlbedoLut[y0 * kGgxEnergyLutSize + x0];
+    const float lower_right =
+        kGgxDirectionalAlbedoLut[y0 * kGgxEnergyLutSize + x1];
+    const float upper_left =
+        kGgxDirectionalAlbedoLut[y1 * kGgxEnergyLutSize + x0];
+    const float upper_right =
+        kGgxDirectionalAlbedoLut[y1 * kGgxEnergyLutSize + x1];
+    const float lower = lower_left + (lower_right - lower_left) * tx;
+    const float upper = upper_left + (upper_right - upper_left) * tx;
+    return saturate(lower + (upper - lower) * ty);
+}
+
+__device__ float ggx_average_albedo(float roughness) {
+    const float position =
+        saturate(roughness) * static_cast<float>(kGgxEnergyLutSize - 1);
+    const int lower = min(
+        static_cast<int>(position),
+        kGgxEnergyLutSize - 2);
+    const float blend = position - static_cast<float>(lower);
+    return saturate(
+        kGgxAverageAlbedoLut[lower] +
+        (kGgxAverageAlbedoLut[lower + 1] - kGgxAverageAlbedoLut[lower]) *
+            blend);
+}
+
+__device__ DVec3 ggx_multiscatter_brdf(
+    const DSurface& surface,
+    float n_dot_v,
+    float n_dot_l,
+    float roughness) {
+    const float energy_v = ggx_directional_albedo(n_dot_v, roughness);
+    const float energy_l = ggx_directional_albedo(n_dot_l, roughness);
+    const float average_energy = ggx_average_albedo(roughness);
+    const float missing_average = 1.0f - average_energy;
+    if (missing_average <= 1.0e-6f) {
+        return v3(0.0f, 0.0f, 0.0f);
+    }
+    const DVec3 average_fresnel = add(
+        surface.specular_f0,
+        mul(sub(surface.specular_f90, surface.specular_f0), 1.0f / 21.0f));
+    const DVec3 denominator = sub(
+        v3(1.0f, 1.0f, 1.0f),
+        mul(average_fresnel, missing_average));
+    const DVec3 numerator = mul(
+        product(average_fresnel, average_fresnel),
+        average_energy * (1.0f - energy_v) * (1.0f - energy_l) /
+            (kPi * missing_average));
+    return v3(
+        numerator.x / fmaxf(denominator.x, 1.0e-6f),
+        numerator.y / fmaxf(denominator.y, 1.0e-6f),
+        numerator.z / fmaxf(denominator.z, 1.0e-6f));
+}
+
 __device__ float pbr_specular_probability(const DSurface& surface) {
     const DVec3 weights = v3(0.2126f, 0.7152f, 0.0722f);
     const float diffuse_energy = fmaxf(0.0f, dot(surface.diffuse_color, weights));
-    const float specular_energy = fmaxf(0.0f, dot(surface.specular_f0, weights));
-    const float total = diffuse_energy + specular_energy;
+    const float average_energy = ggx_average_albedo(surface.roughness);
+    const float missing_average = 1.0f - average_energy;
+    const DVec3 average_fresnel = add(
+        surface.specular_f0,
+        mul(sub(surface.specular_f90, surface.specular_f0), 1.0f / 21.0f));
+    const DVec3 single_scatter = mul(average_fresnel, average_energy);
+    const DVec3 multiple_numerator = mul(
+        product(average_fresnel, average_fresnel),
+        average_energy * missing_average);
+    const DVec3 multiple_denominator = sub(
+        v3(1.0f, 1.0f, 1.0f),
+        mul(average_fresnel, missing_average));
+    const DVec3 multiple_scatter = v3(
+        multiple_numerator.x / fmaxf(multiple_denominator.x, 1.0e-6f),
+        multiple_numerator.y / fmaxf(multiple_denominator.y, 1.0e-6f),
+        multiple_numerator.z / fmaxf(multiple_denominator.z, 1.0e-6f));
+    const float specular_energy = fmaxf(0.0f, dot(single_scatter, weights));
+    const float broad_energy = diffuse_energy +
+        fmaxf(0.0f, dot(multiple_scatter, weights));
+    const float total = broad_energy + specular_energy;
     if (!(total > 0.0f)) {
         return 0.5f;
     }
@@ -2991,7 +3096,7 @@ __device__ DPbrEvaluation evaluate_pbr(
     const float roughness = fminf(fmaxf(surface.roughness, 0.02f), 1.0f);
     const float alpha = roughness * roughness;
     const float distribution = ggx_distribution(n_dot_h, alpha);
-    const float geometry = smith_g1(n_dot_v, alpha) * smith_g1(n_dot_l, alpha);
+    const float geometry = smith_g2(n_dot_v, n_dot_l, alpha);
     const DVec3 fresnel = fresnel_schlick(
         v_dot_h,
         surface.specular_f0,
@@ -3000,9 +3105,12 @@ __device__ DPbrEvaluation evaluate_pbr(
         v_dot_h,
         surface.diffuse_fresnel_f0,
         surface.diffuse_fresnel_f90);
-    const DVec3 specular = mul(
+    const DVec3 specular_single_scatter = mul(
         fresnel,
         distribution * geometry / fmaxf(4.0f * n_dot_v * n_dot_l, 1.0e-12f));
+    const DVec3 specular = add(
+        specular_single_scatter,
+        ggx_multiscatter_brdf(surface, n_dot_v, n_dot_l, roughness));
     const DVec3 diffuse_weight = surface.diffuse_fresnel_uses_max != 0
         ? v3(
               1.0f - max_component(diffuse_fresnel),

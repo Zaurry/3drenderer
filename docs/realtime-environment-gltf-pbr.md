@@ -34,16 +34,23 @@
 
 - SH9 漫反射辐照度；
 - 按 GGX roughness 预过滤的 specular mip chain；
-- Split-Sum BRDF LUT。
+- Split-Sum / Kulla–Conty BRDF LUT：RG 保存 Fresnel scale/bias，BA 保存单位
+  Fresnel GGX 的方向反照率 `E(N·V, roughness)` 与余弦加权平均 `Eavg`。
 
-材质使用 GGX/Trowbridge-Reitz NDF、Smith masking-shadowing 和 Fresnel-Schlick。
+材质使用 GGX/Trowbridge-Reitz NDF、height-correlated Smith masking-shadowing 和
+Fresnel-Schlick。单次散射项额外叠加 Kulla–Conty 多次散射补偿；方向反照率来自
+32×32、4 KiB 的共享表，生成器为 `tools/generate_ggx_energy_lut.py`。点光/方向光直接
+求值补偿 BRDF；矩形面光对宽而平滑的补偿波瓣做 2×2 面积积分，原 GGX 单次散射仍
+由 LTC 计算；IBL 以 SH 漫反射辐照度近似积分补偿波瓣，该近似在白炉环境下精确闭合。
 alpha BLEND 使用 weighted blended OIT 的 accumulation/revealage 缓冲，避免按对象排序。
 
 ### CUDA Path
 
 CUDA Wavefront 保留持久化资源与 CUDA/OpenGL interop；环境 texel、PMF、CDF 只在
 `environment` revision 变化时上传。环境 NEE 与 emissive triangle NEE 组成
-混合策略，并与 visible-GGX BSDF 样本做 MIS。interop 活跃时仍直接写 GL texture，
+混合策略，并与 visible-GGX BSDF 样本做 MIS。CUDA 与 CPU 参考实现读取同一份
+Kulla–Conty LUT；宽多次散射波瓣由余弦分布提供采样支撑，采样混合概率同时考虑
+单次散射与多次散射平均能量。interop 活跃时仍直接写 GL texture，
 不会引入逐帧 framebuffer 下载。
 
 ## 命令行

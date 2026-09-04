@@ -1,10 +1,12 @@
 #include "render/pbr.h"
 
+#include "render/ggx_energy_compensation.h"
 #include "render/mis_weight.h"
 #include "render/shading_constants.h"
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace renderer {
 
@@ -36,9 +38,59 @@ float smith_g1(float n_dot_v, float alpha) {
     }
     const float alpha_squared = alpha * alpha;
     const float tangent_squared =
-        std::max(0.0f, (1.0f - n_dot_v * n_dot_v) / (n_dot_v * n_dot_v));
+        std::max(
+            0.0f,
+            (1.0f - n_dot_v * n_dot_v) /
+                std::max(n_dot_v * n_dot_v, 1.0e-12f));
     return 2.0f /
         (1.0f + std::sqrt(1.0f + alpha_squared * tangent_squared));
+}
+
+float smith_lambda(float n_dot_v, float alpha) {
+    if (n_dot_v <= 0.0f) {
+        return std::numeric_limits<float>::infinity();
+    }
+    const float tangent_squared =
+        std::max(
+            0.0f,
+            (1.0f - n_dot_v * n_dot_v) /
+                std::max(n_dot_v * n_dot_v, 1.0e-12f));
+    return 0.5f *
+        (std::sqrt(1.0f + alpha * alpha * tangent_squared) - 1.0f);
+}
+
+float smith_g2(float n_dot_v, float n_dot_l, float alpha) {
+    return 1.0f /
+        (1.0f + smith_lambda(n_dot_v, alpha) + smith_lambda(n_dot_l, alpha));
+}
+
+Color average_schlick_fresnel(const PbrSurface& surface) {
+    return surface.specular_f0 +
+        (surface.specular_f90 - surface.specular_f0) * (1.0f / 21.0f);
+}
+
+Color ggx_multiscatter_brdf(
+    const PbrSurface& surface,
+    float n_dot_v,
+    float n_dot_l) {
+    const float energy_v = ggx_directional_albedo(n_dot_v, surface.roughness);
+    const float energy_l = ggx_directional_albedo(n_dot_l, surface.roughness);
+    const float average_energy = ggx_average_albedo(surface.roughness);
+    const float missing_average = 1.0f - average_energy;
+    if (missing_average <= 1.0e-6f) {
+        return Color::Zero();
+    }
+    const Color average_fresnel = average_schlick_fresnel(surface);
+    const Color denominator =
+        Color::Ones() - average_fresnel * missing_average;
+    const Color fresnel_multiple_scatter =
+        average_fresnel.cwiseProduct(average_fresnel) * average_energy;
+    const float directional_missing =
+        (1.0f - energy_v) * (1.0f - energy_l);
+    return fresnel_multiple_scatter.cwiseQuotient(
+               denominator.cwiseMax(Color::Constant(1.0e-6f))) *
+        (directional_missing /
+         (kPi * missing_average));
 }
 
 float specular_probability(const PbrSurface& surface) {
@@ -46,9 +98,22 @@ float specular_probability(const PbrSurface& surface) {
         kLuminanceWeights[0],
         kLuminanceWeights[1],
         kLuminanceWeights[2]);
-    const float diffuse_energy = std::max(0.0f, surface.diffuse_color.dot(luminance_weights));
-    const float specular_energy = std::max(0.0f, surface.specular_f0.dot(luminance_weights));
-    const float total = diffuse_energy + specular_energy;
+    const float diffuse_energy =
+        std::max(0.0f, surface.diffuse_color.dot(luminance_weights));
+    const float average_energy = ggx_average_albedo(surface.roughness);
+    const float missing_average = 1.0f - average_energy;
+    const Color average_fresnel = average_schlick_fresnel(surface);
+    const Color single_scatter = average_fresnel * average_energy;
+    const Color multiple_scatter =
+        (average_fresnel.cwiseProduct(average_fresnel) *
+         (average_energy * missing_average))
+            .cwiseQuotient(
+                Color::Ones() - average_fresnel * missing_average);
+    const float specular_energy =
+        std::max(0.0f, single_scatter.dot(luminance_weights));
+    const float broad_energy = diffuse_energy +
+        std::max(0.0f, multiple_scatter.dot(luminance_weights));
+    const float total = broad_energy + specular_energy;
     if (!(total > 0.0f)) {
         return 0.5f;
     }
@@ -130,7 +195,7 @@ PbrEvaluation evaluate_pbr(
     const float v_dot_h = saturate(outgoing.dot(half_vector));
     const float alpha = surface.roughness * surface.roughness;
     const float distribution = ggx_distribution(n_dot_h, alpha);
-    const float geometry = smith_g1(n_dot_v, alpha) * smith_g1(n_dot_l, alpha);
+    const float geometry = smith_g2(n_dot_v, n_dot_l, alpha);
     const Color fresnel = fresnel_schlick(
         v_dot_h,
         surface.specular_f0,
@@ -139,8 +204,10 @@ PbrEvaluation evaluate_pbr(
         v_dot_h,
         surface.diffuse_fresnel_f0,
         surface.diffuse_fresnel_f90);
-    const Color specular = fresnel *
+    const Color specular_single_scatter = fresnel *
         (distribution * geometry / std::max(4.0f * n_dot_v * n_dot_l, 1.0e-12f));
+    const Color specular = specular_single_scatter +
+        ggx_multiscatter_brdf(surface, n_dot_v, n_dot_l);
     Color diffuse_weight;
     if (surface.diffuse_fresnel_uses_max) {
         diffuse_weight = Color::Constant(1.0f - diffuse_fresnel.maxCoeff());

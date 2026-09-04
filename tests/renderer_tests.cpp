@@ -20,6 +20,7 @@
 #include "render/renderer.h"
 #include "render/render_settings.h"
 #include "render/framebuffer.h"
+#include "render/ggx_energy_compensation.h"
 #include "render/interactive/interactive_render_session.h"
 #include "render/interactive/path_interactive_session.h"
 #include "render/pathtracer/cuda_pathtracer.h"
@@ -3565,8 +3566,11 @@ RENDER_TEST(test_cuda_pathtracer_emissive_nee_and_mis_when_available) {
         make_cuda_rect_area_light_scene(true, false, true),
         256);
     RENDER_CHECK(blocked_rectangle.allFinite());
+    // The blocker receives light and legitimately returns some of it after a
+    // diffuse/microfacet bounce. Energy-preserving GGX makes that indirect
+    // component slightly stronger than the old single-scatter model.
     RENDER_CHECK(
-        blocked_rectangle.maxCoeff() < rectangle.maxCoeff() * 0.10f);
+        blocked_rectangle.maxCoeff() < rectangle.maxCoeff() * 0.15f);
     const renderer::Color rectangle_back = render_cuda_nee_test_scene(
         make_cuda_rect_area_light_scene(false, false),
         256);
@@ -5305,6 +5309,104 @@ RENDER_TEST(test_pbr_sampling_pdf_and_texture_sampler_contracts) {
     RENDER_CHECK(nearly_equal(
         renderer::sample_material_opacity(alpha_scene, alpha_material, alpha_hit),
         1.0f));
+}
+
+RENDER_TEST(test_kulla_conty_ggx_white_furnace_and_reciprocity) {
+    const renderer::Vec3 normal = renderer::Vec3::UnitZ();
+    const auto integrate_white_furnace = [&](float roughness, float n_dot_v) {
+        renderer::PbrSurface surface;
+        surface.diffuse_color = renderer::Color::Zero();
+        surface.specular_f0 = renderer::Color::Ones();
+        surface.specular_f90 = renderer::Color::Ones();
+        surface.roughness = roughness;
+        const renderer::Vec3 outgoing(
+            std::sqrt(std::max(0.0f, 1.0f - n_dot_v * n_dot_v)),
+            0.0f,
+            n_dot_v);
+        constexpr int cosine_samples = 192;
+        constexpr int azimuth_samples = 384;
+        constexpr float two_pi = 6.28318530717958647692f;
+        renderer::Color integrated = renderer::Color::Zero();
+        for (int cosine_index = 0; cosine_index < cosine_samples; ++cosine_index) {
+            const float n_dot_l =
+                (static_cast<float>(cosine_index) + 0.5f) /
+                static_cast<float>(cosine_samples);
+            const float sine = std::sqrt(std::max(0.0f, 1.0f - n_dot_l * n_dot_l));
+            for (int azimuth_index = 0; azimuth_index < azimuth_samples;
+                 ++azimuth_index) {
+                const float azimuth = two_pi *
+                    (static_cast<float>(azimuth_index) + 0.5f) /
+                    static_cast<float>(azimuth_samples);
+                const renderer::Vec3 incoming(
+                    sine * std::cos(azimuth),
+                    sine * std::sin(azimuth),
+                    n_dot_l);
+                integrated += renderer::evaluate_pbr(
+                                  surface,
+                                  normal,
+                                  outgoing,
+                                  incoming)
+                                  .brdf *
+                    n_dot_l;
+            }
+        }
+        return integrated *
+            (two_pi /
+             static_cast<float>(cosine_samples * azimuth_samples));
+    };
+
+    RENDER_CHECK(nearly_equal(
+        renderer::ggx_directional_albedo(1.0f, 1.0f),
+        1.0f - std::log(2.0f),
+        2.0e-3f));
+    for (const std::pair<float, float> parameters : {
+             std::pair{1.0f, 1.0f},
+             std::pair{0.75f, 1.0f},
+             std::pair{1.0f, 0.4f}}) {
+        const renderer::Color reflected = integrate_white_furnace(
+            parameters.first,
+            parameters.second);
+        RENDER_CHECK((reflected - renderer::Color::Ones()).cwiseAbs().maxCoeff() <
+            1.5e-2f);
+    }
+
+    renderer::PbrSurface sampled_surface;
+    sampled_surface.diffuse_color = renderer::Color::Zero();
+    sampled_surface.specular_f0 = renderer::Color::Ones();
+    sampled_surface.specular_f90 = renderer::Color::Ones();
+    sampled_surface.roughness = 1.0f;
+    renderer::PcgRandom rng(1729);
+    renderer::Color sampled_reflectance = renderer::Color::Zero();
+    constexpr int bsdf_sample_count = 65536;
+    for (int sample_index = 0; sample_index < bsdf_sample_count; ++sample_index) {
+        const renderer::PbrSample sample = renderer::sample_pbr(
+            sampled_surface,
+            normal,
+            normal,
+            rng.next_float(),
+            rng.next_float(),
+            rng.next_float());
+        if (sample.valid) {
+            sampled_reflectance += sample.weight;
+        }
+    }
+    sampled_reflectance /= static_cast<float>(bsdf_sample_count);
+    RENDER_CHECK(
+        (sampled_reflectance - renderer::Color::Ones()).cwiseAbs().maxCoeff() <
+        2.0e-2f);
+
+    renderer::PbrSurface reciprocal_surface;
+    reciprocal_surface.diffuse_color = renderer::Color(0.3f, 0.15f, 0.05f);
+    reciprocal_surface.specular_f0 = renderer::Color(0.7f, 0.45f, 0.2f);
+    reciprocal_surface.specular_f90 = renderer::Color::Ones();
+    reciprocal_surface.roughness = 0.82f;
+    const renderer::Vec3 outgoing = renderer::Vec3(0.6f, 0.0f, 0.8f).normalized();
+    const renderer::Vec3 incoming = renderer::Vec3(-0.2f, 0.7f, 0.68f).normalized();
+    const renderer::Color forward = renderer::evaluate_pbr(
+        reciprocal_surface, normal, outgoing, incoming).brdf;
+    const renderer::Color reverse = renderer::evaluate_pbr(
+        reciprocal_surface, normal, incoming, outgoing).brdf;
+    RENDER_CHECK((forward - reverse).cwiseAbs().maxCoeff() < 1.0e-6f);
 }
 
 RENDER_TEST(test_gltf_static_scene_import_and_flattening) {

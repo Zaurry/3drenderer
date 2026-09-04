@@ -8,7 +8,8 @@
 - glTF 2.0/GLB 静态默认场景、层级、共享 mesh 实例、camera 与 punctual lights；
 - base color、metallic-roughness、normal、occlusion、emissive、alpha、double-sided；
 - 双 UV、glTF tangent、vertex color、sampler wrap/filter、`KHR_texture_transform`；
-- OpenGL / CUDA Path 统一 GGX、Smith 与 Fresnel-Schlick；
+- OpenGL / CUDA Path 统一 GGX、height-correlated Smith、Fresnel-Schlick 与
+  Kulla–Conty 多次散射能量补偿；
 - HDRI 重要性采样、Path NEE/MIS、OpenGL Split-Sum IBL；
 - OpenGL Shadow Map/PCSS、环境高亮区域主光提取与残余 IBL；
 - 可编辑 LTC 矩形面光；CUDA Path 复用发光三角形 NEE/MIS；

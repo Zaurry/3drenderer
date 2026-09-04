@@ -69,6 +69,12 @@ RENDER_TEST(test_opengl_shader_source_contract_lint) {
     }
     RENDER_CHECK(fragment.find("vogel_disk") != std::string::npos);
     RENDER_CHECK(fragment.find("ltc_evaluate") != std::string::npos);
+    RENDER_CHECK(fragment.find("geometry_smith_g2") != std::string::npos);
+    RENDER_CHECK(fragment.find("ggx_multiscatter_brdf") != std::string::npos);
+    RENDER_CHECK(fragment.find("integrate_rect_multiscatter") !=
+        std::string::npos);
+    RENDER_CHECK(fragment.find("specular_multiscatter_ibl") !=
+        std::string::npos);
     RENDER_CHECK(fragment.find(
         "dot(position - points[0], light_normal) < 0.0") !=
         std::string::npos);
@@ -235,6 +241,12 @@ RENDER_TEST(test_opengl_shader_source_contract_lint) {
     RENDER_CHECK(renderer_source.find("GL_RGB16F") != std::string::npos);
     RENDER_CHECK(renderer_source.find("GL_RGBA16F") != std::string::npos);
     RENDER_CHECK(renderer_source.find("GL_RG16F") != std::string::npos);
+    RENDER_CHECK(renderer_source.find(
+        "pixels[base + 2U] = ggx_directional_albedo") !=
+        std::string::npos);
+    RENDER_CHECK(renderer_source.find(
+        "pixels[base + 3U] = ggx_average_albedo") !=
+        std::string::npos);
     RENDER_CHECK(renderer_source.find("GL_COLOR_ATTACHMENT4") !=
         std::string::npos);
     RENDER_CHECK(renderer_source.find("glTextureBarrier();") !=

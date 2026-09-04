@@ -196,15 +196,55 @@ float distribution_ggx(vec3 normal, vec3 half_vector, float roughness) {
     return alpha2 / max(PI * denominator * denominator, 1.0e-8);
 }
 
-float geometry_smith_g1(float n_dot_v, float roughness) {
+float geometry_smith_lambda(float n_dot_v, float roughness) {
     float alpha = roughness * roughness;
     float alpha2 = alpha * alpha;
-    float tangent2 = max(0.0, (1.0 - n_dot_v * n_dot_v) / max(n_dot_v * n_dot_v, 1.0e-8));
-    return 2.0 / (1.0 + sqrt(1.0 + alpha2 * tangent2));
+    float tangent2 = max(
+        0.0,
+        (1.0 - n_dot_v * n_dot_v) / max(n_dot_v * n_dot_v, 1.0e-8));
+    return 0.5 * (sqrt(1.0 + alpha2 * tangent2) - 1.0);
+}
+
+float geometry_smith_g2(float n_dot_v, float n_dot_l, float roughness) {
+    return 1.0 /
+        (1.0 + geometry_smith_lambda(n_dot_v, roughness) +
+         geometry_smith_lambda(n_dot_l, roughness));
 }
 
 vec3 fresnel_schlick(float cosine, vec3 f0, vec3 f90) {
     return f0 + (f90 - f0) * pow(1.0 - clamp(cosine, 0.0, 1.0), 5.0);
+}
+
+vec3 ggx_multiscatter_directional_scale(
+    vec3 specular_f0,
+    vec3 specular_f90,
+    float roughness,
+    float n_dot_v) {
+    vec2 energy = texture(
+        u_environment_brdf_lut,
+        vec2(clamp(n_dot_v, 0.0, 1.0), clamp(roughness, 0.0, 1.0))).ba;
+    float missing_average = 1.0 - energy.y;
+    if (missing_average <= 1.0e-6) {
+        return vec3(0.0);
+    }
+    vec3 average_fresnel =
+        specular_f0 + (specular_f90 - specular_f0) / 21.0;
+    vec3 denominator = max(
+        vec3(1.0) - average_fresnel * missing_average,
+        vec3(1.0e-6));
+    return (1.0 - energy.x) *
+        average_fresnel * average_fresnel * energy.y /
+        (PI * missing_average * denominator);
+}
+
+vec3 ggx_multiscatter_brdf(
+    vec3 multiscatter_scale,
+    float roughness,
+    float n_dot_l) {
+    float energy_l = texture(
+        u_environment_brdf_lut,
+        vec2(clamp(n_dot_l, 0.0, 1.0), clamp(roughness, 0.0, 1.0))).b;
+    return multiscatter_scale * (1.0 - energy_l);
 }
 
 float punctual_range_attenuation(float distance, float range) {
@@ -223,6 +263,7 @@ vec3 evaluate_light(
     vec3 diffuse_fresnel_f0,
     vec3 diffuse_fresnel_f90,
     int diffuse_fresnel_uses_max,
+    vec3 multiscatter_scale,
     float roughness,
     vec3 normal,
     vec3 view_direction,
@@ -243,8 +284,11 @@ vec3 evaluate_light(
         diffuse_fresnel_f0,
         diffuse_fresnel_f90);
     float distribution = distribution_ggx(normal, half_vector, roughness);
-    float geometry = geometry_smith_g1(n_dot_v, roughness) * geometry_smith_g1(n_dot_l, roughness);
-    vec3 specular = fresnel * (distribution * geometry / max(4.0 * n_dot_v * n_dot_l, 1.0e-8));
+    float geometry = geometry_smith_g2(n_dot_v, n_dot_l, roughness);
+    vec3 specular = fresnel *
+        (distribution * geometry / max(4.0 * n_dot_v * n_dot_l, 1.0e-8));
+    specular += ggx_multiscatter_brdf(
+        multiscatter_scale, roughness, n_dot_l);
     vec3 diffuse_weight = diffuse_fresnel_uses_max != 0
         ? vec3(1.0 - max(max(diffuse_fresnel.r, diffuse_fresnel.g), diffuse_fresnel.b))
         : vec3(1.0) - diffuse_fresnel;
@@ -335,6 +379,54 @@ bool rect_area_light_emits_toward_receiver(
         emission_normal) > 0.0;
 }
 
+vec3 integrate_rect_multiscatter(
+    RectAreaLight light,
+    vec3 multiscatter_scale,
+    float roughness,
+    vec3 normal,
+    vec3 position) {
+    vec3 axis_u = light.axis_u.xyz;
+    vec3 axis_v = light.axis_v.xyz;
+    vec3 area_normal = cross(axis_v, axis_u);
+    float normal_length = length(area_normal);
+    if (normal_length <= 1.0e-8) {
+        return vec3(0.0);
+    }
+    area_normal /= normal_length;
+    vec3 integrated = vec3(0.0);
+    const int sample_axis_count = 2;
+    const float inverse_sample_count = 0.25;
+    for (int sample_y = 0; sample_y < sample_axis_count; ++sample_y) {
+        for (int sample_x = 0; sample_x < sample_axis_count; ++sample_x) {
+            vec2 sample_uv =
+                (vec2(sample_x, sample_y) + vec2(0.5)) /
+                    float(sample_axis_count) * 2.0 - vec2(1.0);
+            vec3 to_light = light.position_two_sided.xyz +
+                axis_u * sample_uv.x + axis_v * sample_uv.y - position;
+            float distance2 = dot(to_light, to_light);
+            if (distance2 <= 1.0e-10) {
+                continue;
+            }
+            vec3 light_direction = to_light * inversesqrt(distance2);
+            float receiver_cosine = max(dot(normal, light_direction), 0.0);
+            float emitter_cosine = dot(area_normal, -light_direction);
+            emitter_cosine = light.position_two_sided.w > 0.5
+                ? abs(emitter_cosine)
+                : max(emitter_cosine, 0.0);
+            if (receiver_cosine <= 0.0 || emitter_cosine <= 0.0) {
+                continue;
+            }
+            float energy_l = texture(
+                u_environment_brdf_lut,
+                vec2(receiver_cosine, roughness)).b;
+            integrated += multiscatter_scale * (1.0 - energy_l) *
+                (receiver_cosine * emitter_cosine / distance2);
+        }
+    }
+    float area = 4.0 * normal_length;
+    return integrated * (area * inverse_sample_count);
+}
+
 vec3 evaluate_rect_area_light(
     RectAreaLight light,
     vec3 diffuse_color,
@@ -343,6 +435,7 @@ vec3 evaluate_rect_area_light(
     vec3 diffuse_fresnel_f0,
     vec3 diffuse_fresnel_f90,
     int diffuse_fresnel_uses_max,
+    vec3 multiscatter_scale,
     float roughness,
     vec3 normal,
     vec3 view_direction,
@@ -393,9 +486,16 @@ vec3 evaluate_rect_area_light(
         : vec3(1.0) - diffuse_fresnel;
     vec3 specular_amplitude =
         specular_f0 * amplitude_sample.x + specular_f90 * amplitude_sample.y;
+    vec3 multiscatter_integral = integrate_rect_multiscatter(
+        light,
+        multiscatter_scale,
+        roughness,
+        normal,
+        position);
     return light.radiance.xyz *
         (diffuse_weight * diffuse_color * diffuse_integral +
-         specular_amplitude * specular_integral);
+         specular_amplitude * specular_integral +
+         multiscatter_integral);
 }
 
 float stable_shadow_rotation(vec3 position, int slot) {
@@ -738,6 +838,12 @@ void main() {
 
     vec3 normal = surface_normal();
     vec3 view_direction = normalize(u_camera_position - fragment_in.world_position);
+    float surface_n_dot_v = max(dot(normal, view_direction), 0.0);
+    vec3 multiscatter_scale = ggx_multiscatter_directional_scale(
+        specular_f0,
+        specular_f90,
+        roughness,
+        surface_n_dot_v);
     vec3 color = emission;
     vec3 applied_diffuse_ibl = vec3(0.0);
     bool debug_shadow_matched = false;
@@ -769,7 +875,7 @@ void main() {
             }
             color += visibility * evaluate_light(diffuse_color, specular_f0, specular_f90,
                 diffuse_fresnel_f0, diffuse_fresnel_f90, diffuse_fresnel_uses_max,
-                roughness, normal, view_direction,
+                multiscatter_scale, roughness, normal, view_direction,
                 light_direction, u_directional_lights[index].radiance.xyz);
         }
     }
@@ -802,7 +908,7 @@ void main() {
         }
         color += visibility * evaluate_light(diffuse_color, specular_f0, specular_f90,
             diffuse_fresnel_f0, diffuse_fresnel_f90, diffuse_fresnel_uses_max,
-            roughness, normal, view_direction,
+            multiscatter_scale, roughness, normal, view_direction,
             light_direction,
             u_point_lights[index].intensity.xyz * (range_attenuation / distance2));
     }
@@ -841,7 +947,7 @@ void main() {
         }
         color += visibility * evaluate_light(diffuse_color, specular_f0, specular_f90,
             diffuse_fresnel_f0, diffuse_fresnel_f90, diffuse_fresnel_uses_max,
-            roughness, normal, view_direction,
+            multiscatter_scale, roughness, normal, view_direction,
             light_direction,
             u_spot_lights[index].intensity_outer.xyz *
                 (cone * range_attenuation / distance2));
@@ -889,6 +995,7 @@ void main() {
                 diffuse_fresnel_f0,
                 diffuse_fresnel_f90,
                 diffuse_fresnel_uses_max,
+                multiscatter_scale,
                 roughness,
                 normal,
                 view_direction,
@@ -897,7 +1004,7 @@ void main() {
     }
 
     if (u_ibl_enabled != 0) {
-        float n_dot_v = max(dot(normal, view_direction), 0.0);
+        float n_dot_v = surface_n_dot_v;
         float screen_ao = 1.0;
         vec3 bent_normal = normal;
         vec3 ambient_normal = normal;
@@ -936,8 +1043,14 @@ void main() {
             ? textureLod(u_environment_prefilter, local_reflection, roughness * max(u_environment_mip_count - 1.0, 0.0)).rgb *
                 u_environment_color * u_environment_intensity
             : u_environment_color * u_environment_intensity;
-        vec2 brdf = texture(u_environment_brdf_lut, vec2(n_dot_v, roughness)).rg;
+        vec4 brdf_sample = texture(
+            u_environment_brdf_lut,
+            vec2(n_dot_v, roughness));
+        vec2 brdf = brdf_sample.rg;
         vec3 specular_ibl = specular_radiance * (specular_f0 * brdf.x + specular_f90 * brdf.y);
+        vec3 specular_multiscatter_ibl = diffuse_irradiance *
+            multiscatter_scale *
+            max(1.0 - brdf_sample.a, 0.0);
         float specular_visibility = screen_ao;
         if (u_ao_mode == 2 && u_ao_bent_normals_enabled != 0 &&
             u_transparent_pass == 0) {
@@ -950,7 +1063,8 @@ void main() {
         }
         applied_diffuse_ibl = diffuse_ibl * (occlusion * screen_ao);
         color += applied_diffuse_ibl +
-            specular_ibl * (occlusion * specular_visibility);
+            (specular_ibl + specular_multiscatter_ibl) *
+                (occlusion * specular_visibility);
     }
     if (u_shadow_debug_view != 0) {
         float debug_value = 0.0;
