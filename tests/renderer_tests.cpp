@@ -4450,6 +4450,13 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
     state.ui.gizmo_local = true;
     state.render_settings.path.cuda_device = 0;
     state.render_settings.path.max_bounces = 12;
+    state.render_settings.opengl.npr.style = renderer::OpenGlRenderStyle::Sketch;
+    state.render_settings.opengl.npr.toon_levels = 5;
+    state.render_settings.opengl.npr.outline_width = 2.5f;
+    state.render_settings.opengl.npr.outline_strength = 0.7f;
+    state.render_settings.opengl.npr.sketch_scale = 12.0f;
+    state.render_settings.opengl.npr.sketch_tone = 1.4f;
+    state.render_settings.opengl.npr.sketch_use_uv = true;
     state.render_settings.path.russian_roulette_start_bounce = 5;
     state.render_settings.path.russian_roulette_min_probability = 0.10f;
     state.render_settings.path.russian_roulette_max_probability = 0.90f;
@@ -4543,6 +4550,7 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
     renderer::ViewerSessionState loaded =
         renderer::ViewerSessionStore::load(session_path);
     RENDER_CHECK(loaded.window_width == 1400);
+    RENDER_CHECK(loaded.render_settings.opengl.npr == state.render_settings.opengl.npr);
     RENDER_CHECK(loaded.window_height == 900);
     RENDER_CHECK(loaded.document.file_path() == file_path_before);
     RENDER_CHECK(loaded.document.dirty());
@@ -4784,12 +4792,14 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
     nlohmann::json version_three_json = saved_json;
     version_three_json["version"] = 3;
     version_three_json["render"]["opengl"].erase("ambient_occlusion");
+    version_three_json["render"]["opengl"].erase("npr");
     {
         std::ofstream output(session_path);
         output << version_three_json.dump(2) << '\n';
     }
     const renderer::ViewerSessionState version_three =
         renderer::ViewerSessionStore::load(session_path);
+    RENDER_CHECK(version_three.render_settings.opengl.npr == renderer::NprRenderSettings{});
     RENDER_CHECK(
         version_three.render_settings.opengl.ambient_occlusion ==
         renderer::AmbientOcclusionRenderSettings{});

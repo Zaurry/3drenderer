@@ -5,8 +5,51 @@
 #include "render/opengl/opengl_shadow_math.h"
 #include "render/opengl/opengl_ssgi_math.h"
 #include "render/opengl/opengl_ssr_math.h"
+#include "render/opengl/tonal_art_map.h"
 
 #include <array>
+
+RENDER_TEST(test_tonal_art_map_nesting_and_mips) {
+    const auto map = renderer::make_tonal_art_map();
+    RENDER_CHECK(map.mips == renderer::make_tonal_art_map().mips);
+    int width = renderer::TonalArtMap::size;
+    for (const auto& mip : map.mips) {
+        const int area = width * width;
+        RENDER_CHECK(mip.size() == static_cast<std::size_t>(area * renderer::TonalArtMap::tones));
+        int previous_coverage = -1;
+        for (int tone = 0; tone < renderer::TonalArtMap::tones; ++tone) {
+            int coverage = 0;
+            for (int pixel = 0; pixel < area; ++pixel) {
+                const auto ink = mip[tone * area + pixel];
+                if (tone == 0) RENDER_CHECK(ink == 0);
+                else RENDER_CHECK(ink >= mip[(tone - 1) * area + pixel]);
+                coverage += ink;
+            }
+            RENDER_CHECK(coverage > previous_coverage);
+            previous_coverage = coverage;
+        }
+        width /= 2;
+    }
+    RENDER_CHECK(width == 0);
+}
+
+RENDER_TEST(test_npr_style_and_diagnostic_routing) {
+    renderer::OpenGlRenderSettings settings;
+    RENDER_CHECK(!renderer::open_gl_npr_active(settings));
+    for (const auto style : {renderer::OpenGlRenderStyle::Toon, renderer::OpenGlRenderStyle::Sketch}) {
+        settings.npr.style = style;
+        RENDER_CHECK(renderer::open_gl_npr_active(settings));
+        RENDER_CHECK(!renderer::open_gl_ssr_requested(settings));
+        RENDER_CHECK(!renderer::open_gl_ssgi_requested(settings));
+        settings.ssr.debug_view = renderer::OpenGlSsrDebugView::Reflection;
+        RENDER_CHECK(!renderer::open_gl_npr_active(settings));
+        RENDER_CHECK(renderer::open_gl_ssr_requested(settings));
+        settings.ssr.debug_view = renderer::OpenGlSsrDebugView::Final;
+    }
+    settings.npr.style = renderer::OpenGlRenderStyle::Realistic;
+    RENDER_CHECK(renderer::open_gl_ssr_requested(settings));
+    RENDER_CHECK(renderer::open_gl_ssgi_requested(settings));
+}
 
 RENDER_TEST(test_open_gl_geometry_upload_predicate) {
     RENDER_CHECK(renderer::open_gl_requires_geometry_upload(

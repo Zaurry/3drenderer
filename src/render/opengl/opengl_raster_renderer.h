@@ -26,7 +26,16 @@ constexpr bool open_gl_requires_geometry_upload(SceneChangeSet changes) {
         has_scene_change(changes, SceneChange::InstanceTransforms);
 }
 
+constexpr bool open_gl_npr_active(const OpenGlRenderSettings& settings) {
+    return settings.npr.style != OpenGlRenderStyle::Realistic &&
+        settings.shadow_map.debug_view == OpenGlShadowDebugView::Final &&
+        settings.ambient_occlusion.debug_view == OpenGlAmbientOcclusionDebugView::Final &&
+        settings.ssgi.debug_view == OpenGlSsgiDebugView::Final &&
+        settings.ssr.debug_view == OpenGlSsrDebugView::Final;
+}
+
 constexpr bool open_gl_ssr_requested(const OpenGlRenderSettings& settings) {
+    if (open_gl_npr_active(settings)) return false;
     return settings.shadow_map.debug_view == OpenGlShadowDebugView::Final &&
         settings.ambient_occlusion.debug_view ==
             OpenGlAmbientOcclusionDebugView::Final &&
@@ -36,6 +45,7 @@ constexpr bool open_gl_ssr_requested(const OpenGlRenderSettings& settings) {
 }
 
 constexpr bool open_gl_ssgi_requested(const OpenGlRenderSettings& settings) {
+    if (open_gl_npr_active(settings)) return false;
     return settings.shadow_map.debug_view == OpenGlShadowDebugView::Final &&
         settings.ambient_occlusion.debug_view ==
             OpenGlAmbientOcclusionDebugView::Final &&

@@ -705,6 +705,37 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     ImGui::EndCombo();
                 }
 
+                ImGui::BeginDisabled(state.mode != InteractiveRenderMode::OpenGl);
+                auto& npr = render_settings.opengl.npr;
+                int style = static_cast<int>(npr.style);
+                if (ImGui::Combo("Style", &style, "Realistic\0Toon\0Sketch\0")) {
+                    npr.style = static_cast<OpenGlRenderStyle>(style);
+                    // A style selection should immediately show the final image.
+                    render_settings.opengl.shadow_map.debug_view = OpenGlShadowDebugView::Final;
+                    render_settings.opengl.ambient_occlusion.debug_view = OpenGlAmbientOcclusionDebugView::Final;
+                    render_settings.opengl.ssgi.debug_view = OpenGlSsgiDebugView::Final;
+                    render_settings.opengl.ssr.debug_view = OpenGlSsrDebugView::Final;
+                }
+                if (npr.style != OpenGlRenderStyle::Realistic) {
+                    ImGui::SliderFloat("Outline width (px)", &npr.outline_width, 0.0f, 4.0f);
+                    ImGui::SliderFloat("Outline strength", &npr.outline_strength, 0.0f, 1.0f);
+                    if (npr.style == OpenGlRenderStyle::Toon) {
+                        ImGui::SliderInt("Diffuse bands", &npr.toon_levels, 2, 6);
+                    } else {
+                        ImGui::SliderFloat("Hatching scale", &npr.sketch_scale, 0.5f, 32.0f);
+                        ImGui::SliderFloat("Pencil darkness", &npr.sketch_tone, 0.25f, 2.0f);
+                        ImGui::Checkbox("Use mesh UV for strokes", &npr.sketch_use_uv);
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip("UV strokes follow object motion; requires usable UVs.\n"
+                                "Otherwise world triplanar mapping supports meshes without UVs.");
+                        }
+                    }
+                    ImGui::TextWrapped("NPR uses direct light, IBL and AO. SSGI / SSR resume in Realistic style.");
+                }
+                ImGui::EndDisabled();
+                if (state.mode != InteractiveRenderMode::OpenGl)
+                    ImGui::TextDisabled("Styles are available in OpenGL mode.");
+
                 if (has_capability(
                         active_capabilities,
                         RenderModeCapability::Progressive) &&

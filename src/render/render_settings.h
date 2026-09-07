@@ -156,7 +156,26 @@ struct SsgiRenderSettings {
     bool operator==(const SsgiRenderSettings&) const = default;
 };
 
+enum class OpenGlRenderStyle : std::uint8_t {
+    Realistic = 0,
+    Toon,
+    Sketch,
+};
+
+struct NprRenderSettings {
+    OpenGlRenderStyle style = OpenGlRenderStyle::Realistic;
+    int toon_levels = 3;
+    float outline_width = 1.5f;
+    float outline_strength = 0.85f;
+    float sketch_scale = 8.0f;
+    float sketch_tone = 1.0f;
+    bool sketch_use_uv = false;
+
+    bool operator==(const NprRenderSettings&) const = default;
+};
+
 struct OpenGlRenderSettings {
+    NprRenderSettings npr;
     bool ibl_enabled = true;
     bool ltc_area_lights_enabled = true;
     ShadowMapRenderSettings shadow_map;

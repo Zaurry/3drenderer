@@ -352,6 +352,12 @@ if(RENDERER_BUILD_VIEWER)
         src/platform/sdl/sdl_display_backend.cpp
         src/viewer_main.cpp
     )
+    # Explicit GPU integration check; excluded from portable CPU-only CTest runs.
+    add_executable(opengl_npr_smoke EXCLUDE_FROM_ALL tests/opengl_npr_smoke.cpp)
+    target_link_libraries(opengl_npr_smoke PRIVATE
+        renderer_core renderer_opengl renderer_glad ${RENDERER_SDL_TARGET})
+    target_compile_definitions(opengl_npr_smoke PRIVATE
+        RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(viewer PRIVATE
         renderer_core
         renderer_opengl
@@ -540,7 +546,7 @@ set(RENDERER_NATIVE_TARGETS
     renderer
     ${RENDERER_TEST_TARGETS})
 if(RENDERER_BUILD_VIEWER)
-    list(APPEND RENDERER_NATIVE_TARGETS renderer_opengl viewer)
+    list(APPEND RENDERER_NATIVE_TARGETS renderer_opengl viewer opengl_npr_smoke)
 endif()
 if(RENDERER_BUILD_BENCHMARKS)
     list(APPEND RENDERER_NATIVE_TARGETS
@@ -610,6 +616,7 @@ endif()
 if(RENDERER_BUILD_VIEWER)
     target_enable_warnings(renderer_opengl)
     target_enable_warnings(viewer)
+    target_enable_warnings(opengl_npr_smoke)
 endif()
 
 # ---------------------------------------------------------------------------

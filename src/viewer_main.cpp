@@ -13,6 +13,7 @@
 #include "scene/scene_document.h"
 
 #include <imgui.h>
+#include <glad/gl.h>
 
 #include <algorithm>
 #include <chrono>
@@ -31,6 +32,8 @@
 namespace {
 
 struct ViewerOptions {
+    std::optional<renderer::OpenGlRenderStyle> style;
+    std::filesystem::path capture_path;
     std::string scene = "asset";
     std::vector<std::string> asset_paths;
     std::filesystem::path scene_file;
@@ -134,6 +137,8 @@ void print_help() {
         << "  --width integer    window width, default 960\n"
         << "  --height integer   window height, default 540\n"
         << "  --frames integer   render N frames then exit, default unlimited\n"
+        << "  --style realistic|toon|sketch  OpenGL rendering style\n"
+        << "  --capture path.png  save the final render without UI (use with --frames)\n"
         << "  --cuda-device N    CUDA device index for Path mode; default GL-compatible\n"
         << "  --gl-vertex-shader path    OpenGL vertex shader override\n"
         << "  --gl-fragment-shader path  OpenGL fragment shader override\n"
@@ -204,6 +209,14 @@ ViewerOptions parse_args(int argc, char** argv) {
             options.scene_file = require_value(argc, argv, i, arg);
         } else if (arg == "--mode") {
             options.mode = parse_mode(require_value(argc, argv, i, arg));
+        } else if (arg == "--style") {
+            const std::string style = require_value(argc, argv, i, arg);
+            if (style == "realistic") options.style = renderer::OpenGlRenderStyle::Realistic;
+            else if (style == "toon") options.style = renderer::OpenGlRenderStyle::Toon;
+            else if (style == "sketch") options.style = renderer::OpenGlRenderStyle::Sketch;
+            else throw std::invalid_argument("--style must be realistic, toon, or sketch");
+        } else if (arg == "--capture") {
+            options.capture_path = require_value(argc, argv, i, arg);
         } else if (arg == "--width") {
             options.width = parse_positive_int(require_value(argc, argv, i, arg), arg);
         } else if (arg == "--height") {
@@ -592,6 +605,13 @@ int main(int argc, char** argv) {
         settings.width = scaled_dimension(window_width, ui_state.render_scale);
         settings.height = scaled_dimension(window_height, ui_state.render_scale);
         settings.path.samples_per_pixel = 1;
+        if (options.style) {
+            settings.opengl.npr.style = *options.style;
+            settings.opengl.shadow_map.debug_view = renderer::OpenGlShadowDebugView::Final;
+            settings.opengl.ambient_occlusion.debug_view = renderer::OpenGlAmbientOcclusionDebugView::Final;
+            settings.opengl.ssgi.debug_view = renderer::OpenGlSsgiDebugView::Final;
+            settings.opengl.ssr.debug_view = renderer::OpenGlSsrDebugView::Final;
+        }
         if (!restored_session) {
             settings.path.cuda_device = options.cuda_device;
         }
@@ -1284,6 +1304,27 @@ int main(int argc, char** argv) {
 
         if (session_enabled) {
             save_session_now();
+        }
+        if (!options.capture_path.empty()) {
+            const auto output = render_backend->output();
+            const auto* texture = std::get_if<renderer::OpenGlTextureHandle>(&output);
+            if (!texture || !texture->texture)
+                throw std::runtime_error("Capture requires an OpenGL texture output");
+            std::vector<float> pixels(static_cast<std::size_t>(texture->width) * texture->height * 4);
+            glBindTexture(GL_TEXTURE_2D, texture->texture);
+            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, pixels.data());
+            renderer::Image capture(texture->width, texture->height);
+            for (int y = 0; y < texture->height; ++y) {
+                for (int x = 0; x < texture->width; ++x) {
+                    const int source_y = texture->flip_y ? y : texture->height - 1 - y;
+                    const std::size_t index = (static_cast<std::size_t>(source_y) * texture->width + x) * 4;
+                    const renderer::Color color(pixels[index], pixels[index + 1], pixels[index + 2]);
+                    if (!color.allFinite()) throw std::runtime_error("Capture contains non-finite pixels");
+                    capture.set_pixel(x, y, renderer::apply_display_transform(color, ui_state.display));
+                }
+            }
+            if (!capture.write_png(options.capture_path.string()))
+                throw std::runtime_error("Failed to write capture: " + options.capture_path.string());
         }
         std::cout << "viewer mode=" << mode_name(ui_state.mode)
                   << " frames=" << rendered_frames

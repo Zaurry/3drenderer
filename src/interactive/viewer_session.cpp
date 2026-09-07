@@ -175,6 +175,17 @@ void restore_opengl_settings(
             opengl.value("ibl_enabled", true);
         settings.ltc_area_lights_enabled =
             opengl.value("ltc_area_lights_enabled", true);
+        if (opengl.contains("npr")) {
+            const auto& source = opengl.at("npr");
+            auto& npr = settings.npr;
+            npr.style = static_cast<OpenGlRenderStyle>(std::clamp(source.value("style", 0), 0, 2));
+            npr.toon_levels = std::clamp(source.value("toon_levels", 3), 2, 6);
+            npr.outline_width = finite_value_or_default_clamped(source, "outline_width", 1.5f, 0.0f, 4.0f);
+            npr.outline_strength = finite_value_or_default_clamped(source, "outline_strength", 0.85f, 0.0f, 1.0f);
+            npr.sketch_scale = finite_value_or_default_clamped(source, "sketch_scale", 8.0f, 0.5f, 32.0f);
+            npr.sketch_tone = finite_value_or_default_clamped(source, "sketch_tone", 1.0f, 0.25f, 2.0f);
+            npr.sketch_use_uv = source.value("sketch_use_uv", false);
+        }
         if (opengl.contains("shadow_map")) {
             const auto& shadow = opengl.at("shadow_map");
             auto& target = settings.shadow_map;
@@ -577,6 +588,15 @@ void ViewerSessionStore::save(
     root["render"]["opengl"] = {
         {"ibl_enabled", state.render_settings.opengl.ibl_enabled},
         {"ltc_area_lights_enabled", state.render_settings.opengl.ltc_area_lights_enabled},
+        {"npr", {
+            {"style", static_cast<int>(state.render_settings.opengl.npr.style)},
+            {"toon_levels", state.render_settings.opengl.npr.toon_levels},
+            {"outline_width", state.render_settings.opengl.npr.outline_width},
+            {"outline_strength", state.render_settings.opengl.npr.outline_strength},
+            {"sketch_scale", state.render_settings.opengl.npr.sketch_scale},
+            {"sketch_tone", state.render_settings.opengl.npr.sketch_tone},
+            {"sketch_use_uv", state.render_settings.opengl.npr.sketch_use_uv},
+        }},
         {"shadow_map", {
             {"enabled", state.render_settings.opengl.shadow_map.enabled},
             {"resolution", state.render_settings.opengl.shadow_map.resolution},

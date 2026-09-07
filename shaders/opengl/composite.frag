@@ -8,8 +8,38 @@ layout(binding = 5) uniform sampler2D u_linear_depth;
 uniform int u_ao_debug_view;
 uniform int u_skip_transparency;
 uniform float u_scene_radius;
+uniform int u_npr_style;
+uniform float u_outline_width;
+uniform float u_outline_strength;
 in vec2 v_ndc;
 layout(location = 0) out vec4 out_linear_color;
+
+float npr_outline(vec2 uv) {
+    if (u_outline_width <= 0.0 || u_outline_strength <= 0.0) return 0.0;
+    float depth = texture(u_linear_depth, uv).r;
+    vec3 normal = texture(u_view_normal, uv).xyz;
+    vec2 texel = 1.0 / vec2(textureSize(u_linear_depth, 0));
+    float edge = 0.0;
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            if (x == 0 && y == 0) continue;
+            vec2 q = clamp(uv + vec2(x, y) * texel * u_outline_width,
+                texel * 0.5, vec2(1.0) - texel * 0.5);
+            float q_depth = texture(u_linear_depth, q).r;
+            if ((depth > 0.0) != (q_depth > 0.0)) {
+                edge = 1.0;
+            } else if (depth > 0.0 && q_depth > 0.0) {
+                vec3 q_normal = texture(u_view_normal, q).xyz;
+                float normal_edge = 1.0 - clamp(dot(normal, q_normal), -1.0, 1.0);
+                float depth_edge = abs(q_depth - depth) / max(min(depth, q_depth), 1.0e-5);
+                edge = max(edge, max(smoothstep(0.015, 0.06, depth_edge),
+                    smoothstep(0.12, 0.40, normal_edge)));
+            }
+        }
+    }
+    return edge * u_outline_strength;
+}
+
 void main() {
     vec2 uv = v_ndc * 0.5 + 0.5;
     if (u_ao_debug_view != 0) {
@@ -37,6 +67,11 @@ void main() {
         return;
     }
     vec3 opaque = texture(u_opaque, uv).rgb;
+    if (u_npr_style != 0) {
+        if (u_npr_style == 2 && texture(u_linear_depth, uv).r <= 0.0)
+            opaque = vec3(0.92, 0.89, 0.82);
+        opaque = mix(opaque, vec3(0.025, 0.021, 0.018), npr_outline(uv));
+    }
     if (u_skip_transparency != 0) {
         out_linear_color = vec4(opaque, 1.0);
         return;

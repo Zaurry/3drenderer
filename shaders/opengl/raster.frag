@@ -36,6 +36,12 @@ layout(binding = 12) uniform sampler2D u_ltc_amplitude_lut;
 layout(binding = 13) uniform sampler2DArray u_shadow_maps_2d;
 layout(binding = 14) uniform samplerCubeArray u_shadow_maps_cube;
 layout(binding = 15) uniform sampler2D u_ambient_occlusion_texture;
+layout(binding = 16) uniform sampler2DArray u_tonal_art_map;
+uniform int u_npr_style;
+uniform int u_toon_levels;
+uniform float u_sketch_scale;
+uniform float u_sketch_tone;
+uniform int u_sketch_use_uv;
 
 uniform vec3 u_camera_position;
 uniform vec3 u_environment_color;
@@ -256,6 +262,20 @@ float punctual_range_attenuation(float distance, float range) {
     return cutoff * cutoff;
 }
 
+float toon_band(float value) {
+    float steps = float(max(u_toon_levels - 1, 1));
+    float scaled = clamp(value, 0.0, 1.0) * steps;
+    // A derivative-sized transition suppresses crawling at band boundaries.
+    float width = clamp(fwidth(scaled), 0.001, 0.15);
+    return (floor(scaled) + smoothstep(0.5 - width, 0.5 + width, fract(scaled))) / steps;
+}
+
+float toon_highlight(float n_dot_h, float roughness) {
+    float threshold = mix(0.995, 0.80, roughness * roughness);
+    float width = max(fwidth(n_dot_h), 0.002);
+    return smoothstep(threshold - width, threshold + width, n_dot_h);
+}
+
 vec3 evaluate_light(
     vec3 diffuse_color,
     vec3 specular_f0,
@@ -275,6 +295,11 @@ vec3 evaluate_light(
         return vec3(0.0);
     }
     vec3 half_vector = normalize(view_direction + light_direction);
+    if (u_npr_style == 1) {
+        vec3 pigment = max(diffuse_color, specular_f0);
+        return radiance * (pigment * toon_band(n_dot_l) / PI +
+            specular_f0 * toon_highlight(max(dot(normal, half_vector), 0.0), roughness));
+    }
     vec3 fresnel = fresnel_schlick(
         max(dot(view_direction, half_vector), 0.0),
         specular_f0,
@@ -479,6 +504,18 @@ vec3 evaluate_rect_area_light(
         normal, view_direction, position, inverse_ltc, points, two_sided);
     float diffuse_integral = ltc_evaluate(
         normal, view_direction, position, mat3(1.0), points, two_sided);
+    if (u_npr_style == 1) {
+        // The raw LTC integral includes a potentially tiny solid angle.
+        // Quantizing it directly would extinguish small/distant area lights.
+        vec3 to_light = light.position_two_sided.xyz - position;
+        vec3 light_direction = to_light / max(length(to_light), 1.0e-5);
+        float cosine = max(dot(normal, light_direction), 0.0);
+        float band_scale = max(toon_band(cosine), 0.12) / max(cosine, 0.12);
+        vec3 half_vector = normalize(light_direction + view_direction);
+        return light.radiance.xyz * diffuse_integral *
+            (max(diffuse_color, specular_f0) * band_scale + specular_f0 *
+                toon_highlight(max(dot(normal, half_vector), 0.0), roughness));
+    }
     vec3 diffuse_fresnel = fresnel_schlick(
         n_dot_v, diffuse_fresnel_f0, diffuse_fresnel_f90);
     vec3 diffuse_weight = diffuse_fresnel_uses_max != 0
@@ -753,6 +790,32 @@ float gtso_visibility(
         1.0);
 }
 
+float tam_strokes(vec2 uv, float layer) {
+    float lo = floor(layer);
+    float hi = min(lo + 1.0, 5.0);
+    return mix(texture(u_tonal_art_map, vec3(uv, lo)).r,
+        texture(u_tonal_art_map, vec3(uv, hi)).r, fract(layer));
+}
+
+vec3 sketch_color(vec3 lighting) {
+    float brightness = max(luminance(lighting), 0.0);
+    float tone = clamp(1.0 - brightness / (brightness + 0.65), 0.0, 1.0);
+    float layer = clamp(tone * u_sketch_tone, 0.0, 1.0) * 5.0;
+    float strokes;
+    if (u_sketch_use_uv != 0) {
+        strokes = tam_strokes(fragment_in.uv * u_sketch_scale, layer);
+    } else {
+        // World triplanar mapping also works for unparameterized primitives.
+        // It is stable under camera movement; UV mode follows object motion.
+        vec3 weights = pow(abs(normalize(fragment_in.normal)), vec3(8.0));
+        weights /= max(weights.x + weights.y + weights.z, 1.0e-5);
+        vec3 p = fragment_in.world_position * u_sketch_scale;
+        strokes = dot(weights, vec3(tam_strokes(p.yz, layer),
+            tam_strokes(p.zx, layer), tam_strokes(p.xy, layer)));
+    }
+    return mix(vec3(0.92, 0.89, 0.82), vec3(0.025, 0.021, 0.018), strokes);
+}
+
 void main() {
     vec4 base_sample = u_has_base_color_texture != 0
         ? texture(u_base_color_texture, material_uv(0))
@@ -775,7 +838,8 @@ void main() {
         emission *= texture(u_emissive_texture, material_uv(5)).rgb;
     }
     if (u_material_type == 3) {
-        write_fragment(emission, opacity, vec3(0.0));
+        write_fragment(u_npr_style == 2 ? sketch_color(emission) : emission,
+            opacity, vec3(0.0));
         return;
     }
 
@@ -1062,9 +1126,17 @@ void main() {
                 n_dot_v);
         }
         applied_diffuse_ibl = diffuse_ibl * (occlusion * screen_ao);
-        color += applied_diffuse_ibl +
-            (specular_ibl + specular_multiscatter_ibl) *
-                (occlusion * specular_visibility);
+        if (u_npr_style == 1) {
+            float irradiance = max(luminance(diffuse_irradiance), 0.0);
+            vec3 light_tint = diffuse_irradiance / max(irradiance, 1.0e-5);
+            float band = toon_band(irradiance / (1.0 + irradiance));
+            color += max(diffuse_color, specular_f0) * light_tint *
+                (0.12 + 0.65 * band) * toon_band(occlusion * screen_ao);
+        } else {
+            color += applied_diffuse_ibl +
+                (specular_ibl + specular_multiscatter_ibl) *
+                    (occlusion * specular_visibility);
+        }
     }
     if (u_shadow_debug_view != 0) {
         float debug_value = 0.0;
@@ -1081,6 +1153,9 @@ void main() {
         write_fragment(
             vec3(clamp(debug_value, 0.0, 1.0)), opacity, vec3(0.0));
         return;
+    }
+    if (u_npr_style == 2) {
+        color = sketch_color(color);
     }
     write_fragment(color, opacity, applied_diffuse_ibl);
 }

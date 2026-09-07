@@ -1,7 +1,7 @@
 {
   "assets": [
     {
-      "id": 2,
+      "id": 1,
       "kind": "obj",
       "mesh_index": -1,
       "path": "../sphere/sphere-cylcoords-1k.obj"
@@ -78,7 +78,7 @@
     {
       "area_height": 1.0,
       "area_width": 1.0,
-      "asset": 2,
+      "asset": 1,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
       "camera_near_plane": 0.009999999776482582,
@@ -163,9 +163,9 @@
           "alpha_cutoff": 0.5,
           "alpha_mode": "opaque",
           "base_color": [
-            0.5178571343421936,
-            0.5055271983146667,
-            0.5178571343421936
+            1.0,
+            1.0,
+            1.0
           ],
           "bump_scale": 1.0,
           "emission": [

@@ -4,6 +4,7 @@
 #include "render/opengl/opengl_shader_contract.h"
 #include "render/opengl/opengl_shadow_math.h"
 #include "render/opengl/opengl_ssgi_math.h"
+#include "render/opengl/tonal_art_map.h"
 #include "render/shading_constants.h"
 
 #include "platform/opengl/gl_shader_program.h"
@@ -779,6 +780,7 @@ public:
         }
         create_brdf_lut();
         create_ltc_luts();
+        create_tonal_art_map();
         request_shader_reload();
     }
 
@@ -798,6 +800,9 @@ public:
         release_shadow_resources();
         if (fallback_texture_ != 0) {
             glDeleteTextures(1, &fallback_texture_);
+        }
+        if (tonal_art_map_texture_ != 0) {
+            glDeleteTextures(1, &tonal_art_map_texture_);
         }
         if (directional_light_buffer_ != 0) {
             glDeleteBuffers(1, &directional_light_buffer_);
@@ -976,6 +981,21 @@ public:
         }
 
         glUseProgram(shader_program_.id());
+        const auto& npr = settings.opengl.npr;
+        const int npr_style = open_gl_npr_active(settings.opengl)
+            ? static_cast<int>(npr.style) : 0;
+        set_uniform(glGetUniformLocation(shader_program_.id(), "u_npr_style"), npr_style);
+        set_uniform(glGetUniformLocation(shader_program_.id(), "u_toon_levels"),
+            std::clamp(npr.toon_levels, 2, 6));
+        set_uniform(glGetUniformLocation(shader_program_.id(), "u_sketch_scale"),
+            std::clamp(npr.sketch_scale, 0.5f, 32.0f) /
+                (npr.sketch_use_uv ? 1.0f : std::max(scene_radius_, 1.0e-5f)));
+        set_uniform(glGetUniformLocation(shader_program_.id(), "u_sketch_tone"),
+            std::clamp(npr.sketch_tone, 0.25f, 2.0f));
+        set_uniform(glGetUniformLocation(shader_program_.id(), "u_sketch_use_uv"),
+            npr.sketch_use_uv ? 1 : 0);
+        glActiveTexture(GL_TEXTURE16);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, tonal_art_map_texture_);
         const std::array<GLenum, 4> opaque_buffers{
             GL_COLOR_ATTACHMENT0,
             GL_NONE,
@@ -1255,6 +1275,12 @@ public:
         glViewport(0, 0, settings.width, settings.height);
         glDisable(GL_DEPTH_TEST);
         glUseProgram(composite_program_.id());
+        set_uniform(glGetUniformLocation(composite_program_.id(), "u_npr_style"),
+            gbuffer_active ? npr_style : 0);
+        set_uniform(glGetUniformLocation(composite_program_.id(), "u_outline_width"),
+            std::clamp(npr.outline_width, 0.0f, 4.0f));
+        set_uniform(glGetUniformLocation(composite_program_.id(), "u_outline_strength"),
+            std::clamp(npr.outline_strength, 0.0f, 1.0f));
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(
             GL_TEXTURE_2D,
@@ -2811,6 +2837,29 @@ private:
         }
     }
 
+    GLuint tonal_art_map_texture_ = 0;
+
+    void create_tonal_art_map() {
+        const auto map = make_tonal_art_map();
+        glGenTextures(1, &tonal_art_map_texture_);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, tonal_art_map_texture_);
+        GLint unpack_alignment = 4;
+        glGetIntegerv(GL_UNPACK_ALIGNMENT, &unpack_alignment);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        int width = TonalArtMap::size;
+        for (std::size_t level = 0; level < map.mips.size(); ++level) {
+            glTexImage3D(GL_TEXTURE_2D_ARRAY, static_cast<GLint>(level), GL_R8,
+                width, width, TonalArtMap::tones, 0, GL_RED, GL_UNSIGNED_BYTE,
+                map.mips[level].data());
+            width = std::max(1, width / 2);
+        }
+        glPixelStorei(GL_UNPACK_ALIGNMENT, unpack_alignment);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    }
+
     bool ambient_occlusion_wants_gbuffer(const RenderSettings& settings) const {
         const auto& ao_settings = settings.opengl.ambient_occlusion;
         return ao_shaders_available_ &&
@@ -3082,7 +3131,9 @@ private:
         bool ssgi_active,
         bool& gbuffer_active) {
         const bool ao_wants_gbuffer = ambient_occlusion_wants_gbuffer(settings);
-        gbuffer_active = ao_wants_gbuffer || ssr_active || ssgi_active;
+        gbuffer_active = ao_wants_gbuffer || ssr_active || ssgi_active ||
+            (open_gl_npr_active(settings.opengl) && screen_space_gbuffer_program_ &&
+             screen_space_gbuffer_framebuffer_ != 0);
         if (!gbuffer_active) {
             ao_resolved_texture_ = ao_raw_texture_;
             return false;
