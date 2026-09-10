@@ -417,4 +417,4 @@ storeHistory(output, guide)
 
 异常值钳制阻止亮点在空间中扩散，历史钳制限制过时颜色继续参与累积。最终质量来自空间保边、时间复用和变化响应之间的协调，而不是把图像模糊得足够强。
 
-上一篇：[Real-Time Ray Tracing 1：时域复用与失效分析](lecture12-real-time-ray-tracing-1.md)。课件结尾预告下一讲进入实时渲染的工业界实践。
+上一篇：[Real-Time Ray Tracing 1：时域复用与失效分析](lecture12-real-time-ray-tracing-1.md)。下一讲：[A Glimpse of Industrial Solutions：SVGF、RAE 与工业界实践](lecture14-a-glimpse-of-industrial-solutions.md)。
