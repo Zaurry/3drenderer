@@ -67,6 +67,7 @@ struct RenderSceneInstanceSnapshot {
     Mat3 normal_to_world = Mat3::Identity();
     Bounds3 world_bounds;
     std::vector<Material> materials;
+    bool emission_casts_shadows = true;
 };
 
 struct RenderSceneSnapshot {

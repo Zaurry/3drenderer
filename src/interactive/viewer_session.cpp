@@ -1,6 +1,7 @@
 #include "interactive/viewer_session.h"
 
 #include "core/io/atomic_file.h"
+#include "render/realtime/realtime_settings_json.h"
 #include "render/pathtracer/cuda_pathtracer.h"
 
 #include <nlohmann/json.hpp>
@@ -15,9 +16,9 @@ namespace renderer {
 
 // Current viewer session schema version. Load applies version-gated
 // upgrades oldest-first (v1 legacy backend note, v3 OpenGL techniques,
-// v5 temporal SSGI);
+// v5 temporal SSGI, v6 RTRT);
 // save() always writes this version.
-constexpr int kViewerSessionVersion = 5;
+constexpr int kViewerSessionVersion = 6;
 
 namespace {
 
@@ -405,10 +406,8 @@ ViewerSessionState ViewerSessionStore::load(
         finite_clamped(view, "render_scale", 0.25f, 1.0f);
     state.ui.ui_font_scale =
         finite_clamped(view, "ui_font_scale", 0.75f, 2.0f);
-    state.ui.path_accumulation_paused =
-        view.value("path_accumulation_paused", false);
-    state.ui.automatic_interaction_quality =
-        view.value("automatic_interaction_quality", true);
+    state.ui.path_accumulation_paused = false;
+    state.ui.automatic_interaction_quality = false;
     state.ui.show_point_light_markers =
         view.value("show_point_light_markers", true);
     state.ui.panel_visible = view.value("panel_visible", true);
@@ -475,6 +474,9 @@ ViewerSessionState ViewerSessionStore::load(
         0,
         render.value("cuda_device", 0));
     state.render_settings.path.samples_per_pixel = 1;
+    if (version >= 6 && render.contains("realtime")) {
+        state.render_settings.realtime = parse_realtime_settings(render.at("realtime"));
+    }
     if (version >= 3 && render.contains("opengl")) {
         restore_opengl_settings(
             state.render_settings.opengl,
@@ -485,14 +487,14 @@ ViewerSessionState ViewerSessionStore::load(
                 render);
         }
     }
-    if (state.ui.mode == InteractiveRenderMode::Path) {
+    if (state.ui.mode == InteractiveRenderMode::Rtrt) {
         std::string reason;
         if (!cuda_path_backend_available(
                 state.render_settings.path.cuda_device,
                 &reason)) {
             state.ui.mode = InteractiveRenderMode::OpenGl;
             state.migration_warning =
-                "Saved Path session opened in OpenGL because CUDA Path is "
+                "Saved RTRT session opened in OpenGL because CUDA is "
                 "unavailable: " + reason;
         } else if (version == 1) {
             // v1 upgrade: the CPU/Auto path backends no longer exist.
@@ -501,7 +503,7 @@ ViewerSessionState ViewerSessionStore::load(
             if (legacy_backend != "cuda") {
                 state.migration_warning =
                     "Migrated v1 " + legacy_backend +
-                    " Path session to the CUDA-only Path backend";
+                    " Path session to the CUDA RTRT backend";
             }
         }
     }
@@ -546,11 +548,6 @@ void ViewerSessionStore::save(
         {"camera_mode", camera_mode_name(state.ui.camera_mode)},
         {"render_scale", state.ui.render_scale},
         {"ui_font_scale", state.ui.ui_font_scale},
-        {"path_accumulation_paused", state.ui.path_accumulation_paused},
-        {
-            "automatic_interaction_quality",
-            state.ui.automatic_interaction_quality,
-        },
         {"show_point_light_markers", state.ui.show_point_light_markers},
         {"panel_visible", state.ui.panel_visible},
         {"scene_panel_visible", state.ui.scene_panel_visible},
@@ -585,6 +582,7 @@ void ViewerSessionStore::save(
             state.render_settings.path.russian_roulette_max_probability,
         },
     };
+    root["render"]["realtime"] = realtime_settings_json(state.render_settings.realtime);
     root["render"]["opengl"] = {
         {"ibl_enabled", state.render_settings.opengl.ibl_enabled},
         {"ltc_area_lights_enabled", state.render_settings.opengl.ltc_area_lights_enabled},

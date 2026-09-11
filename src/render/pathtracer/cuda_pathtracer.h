@@ -22,6 +22,7 @@ enum class CudaPathWorkMode {
 };
 
 struct CudaPathStatistics {
+    RealtimeStatistics realtime;
     int device_id = -1;
     float trace_milliseconds = 0.0f;
     float reset_milliseconds = 0.0f;

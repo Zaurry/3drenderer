@@ -207,12 +207,14 @@ if(RENDERER_HAS_CUDA)
     set(RENDERER_CUDA_API_SOURCES
         src/render/pathtracer/cuda_device_context.cu)
     set(RENDERER_CUDA_PATHTRACER_SOURCES
-        src/render/pathtracer/cuda_pathtracer.cu)
+        src/render/pathtracer/cuda_pathtracer.cu
+        src/render/realtime/cuda_realtime_renderer.cu)
 else()
     set(RENDERER_CUDA_API_SOURCES
         src/render/pathtracer/cuda_device_context_stub.cpp)
     set(RENDERER_CUDA_PATHTRACER_SOURCES
-        src/render/pathtracer/cuda_pathtracer_stub.cpp)
+        src/render/pathtracer/cuda_pathtracer_stub.cpp
+        src/render/realtime/cuda_realtime_renderer_stub.cpp)
 endif()
 
 set(RENDERER_PUBLIC_INCLUDE_DIRECTORIES
@@ -400,6 +402,9 @@ target_compile_definitions(opengl_shader_lint_tests PRIVATE
 add_executable(cuda_contract_tests tests/cuda_contract_tests.cpp tests/test_main.cpp)
 target_link_libraries(cuda_contract_tests PRIVATE renderer_cuda)
 
+add_executable(realtime_tests tests/realtime_tests.cpp tests/test_main.cpp)
+target_link_libraries(realtime_tests PRIVATE renderer_cuda)
+
 set(RENDERER_TEST_TARGETS
     renderer_tests
     scene_tests
@@ -407,7 +412,8 @@ set(RENDERER_TEST_TARGETS
     document_tests
     opengl_contract_tests
     opengl_shader_lint_tests
-    cuda_contract_tests)
+    cuda_contract_tests
+    realtime_tests)
 
 if(RENDERER_BUILD_BENCHMARKS)
     add_library(renderer_benchmark_common STATIC
@@ -455,7 +461,8 @@ if(RENDERER_BUILD_BENCHMARKS)
         # recompiled with RENDERER_BENCHMARK_DIAGNOSTICS; the rest of the
         # core is shared with the normal build.
         add_library(renderer_cuda_pathtracer_diagnostics STATIC
-            src/render/pathtracer/cuda_pathtracer.cu)
+            src/render/pathtracer/cuda_pathtracer.cu
+            src/render/realtime/cuda_realtime_renderer.cu)
         target_include_directories(renderer_cuda_pathtracer_diagnostics PUBLIC
             ${RENDERER_PUBLIC_INCLUDE_DIRECTORIES})
         target_link_libraries(renderer_cuda_pathtracer_diagnostics PUBLIC
@@ -569,6 +576,7 @@ add_test(NAME document_tests COMMAND document_tests)
 add_test(NAME opengl_contract_tests COMMAND opengl_contract_tests)
 add_test(NAME opengl_shader_lint_tests COMMAND opengl_shader_lint_tests)
 add_test(NAME cuda_contract_tests COMMAND cuda_contract_tests)
+add_test(NAME realtime_tests COMMAND realtime_tests)
 
 # The shared runner exits 77 when every executed test was skipped (e.g. all
 # CUDA tests on a no-CUDA build), so CTest can report "Skipped" instead of a

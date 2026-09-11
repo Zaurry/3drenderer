@@ -1,7 +1,7 @@
 #include "render/interactive/viewer_render_backend.h"
 
 #include "platform/opengl/cuda_opengl_interop.h"
-#include "render/interactive/path_interactive_session.h"
+#include "render/realtime/cuda_realtime_renderer.h"
 #include "render/opengl/opengl_raster_renderer.h"
 
 #include <stdexcept>
@@ -127,10 +127,11 @@ private:
     }
 };
 
-class PathViewerRenderBackend final : public ViewerRenderBackend {
+class RealtimeViewerRenderBackend final : public ViewerRenderBackend {
 public:
+    explicit RealtimeViewerRenderBackend(bool disable_interop):disable_interop_(disable_interop) {}
     InteractiveRenderMode mode() const override {
-        return InteractiveRenderMode::Path;
+        return InteractiveRenderMode::Rtrt;
     }
 
     RenderModeCapability capabilities() const override {
@@ -147,13 +148,15 @@ public:
                 &selection_reason);
         if (!device_context) {
             throw std::runtime_error(
-                "CUDA Path cannot use the current OpenGL context: " +
+                "CUDA RTRT cannot use the current OpenGL context: " +
                 selection_reason);
         }
-        session_.reset(snapshot, settings);
+        renderer_ = std::make_unique<CudaRealtimeRenderer>(*device_context);
+        renderer_->reset(snapshot, settings);
         framebuffer_->resize(settings.width, settings.height);
         output_ = HostFrameHandle{framebuffer_};
         interop_->initialize(*device_context);
+        if (disable_interop_) interop_->disable("CUDA/OpenGL interop disabled by command line");
     }
 
     const RenderFrameOutput& render(
@@ -161,12 +164,12 @@ public:
         const Camera& camera,
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state) override {
-        // Scene-change detection is owned by CudaPathInteractiveRenderer,
+        // Scene-change detection is owned by CudaRealtimeRenderer,
         // which diffs revisions against its uploaded snapshot. The caller's
         // hint flows through unchanged.
         if (interop_->state() != CudaOpenGlInteropState::Fallback &&
             interop_->state() != CudaOpenGlInteropState::Unavailable) {
-            const CudaStreamHandle stream = session_.cuda_stream_handle();
+            const CudaStreamHandle stream = renderer_->stream_handle();
             CudaSurfaceHandle surface = 0;
             if (interop_->begin_frame(
                     settings.width,
@@ -174,7 +177,7 @@ public:
                     stream,
                     surface)) {
                 try {
-                    session_.render_next_frame_to_cuda_surface(
+                    renderer_->render_next_frame_to_surface(
                         snapshot,
                         camera,
                         settings,
@@ -185,7 +188,7 @@ public:
                     throw;
                 }
                 if (interop_->end_frame(stream)) {
-                    session_.set_cuda_presentation_state(true, false);
+                    renderer_->set_presentation_state(true, false);
                     output_ = OpenGlTextureHandle{
                         interop_->texture(),
                         interop_->width(),
@@ -194,20 +197,20 @@ public:
                         interop_};
                     return output_;
                 }
-                session_.download_current_cuda_frame(*framebuffer_);
-                session_.set_cuda_presentation_state(false, true);
+                renderer_->download_current_frame(*framebuffer_);
+                renderer_->set_presentation_state(false, true);
                 output_ = HostFrameHandle{framebuffer_};
                 return output_;
             }
         }
 
-        session_.render_next_frame(
+        renderer_->render_next_frame(
             snapshot,
             camera,
             settings,
             frame_state,
             *framebuffer_);
-        session_.set_cuda_presentation_state(false, true);
+        renderer_->set_presentation_state(false, true);
         output_ = HostFrameHandle{framebuffer_};
         return output_;
     }
@@ -218,18 +221,19 @@ public:
 
     ViewerRenderBackendStatistics statistics() const override {
         CudaPathViewerStatistics result;
-        result.accumulated_samples = session_.accumulated_samples();
+
         result.interop_status = interop_state_name(interop_->state());
         result.interop_detail = interop_->reason();
-        session_.refresh_cuda_statistics();
-        if (const CudaPathStatistics* cuda = session_.cuda_statistics()) {
-            result.cuda = *cuda;
+        if (renderer_) {
+            renderer_->refresh_statistics();
+            result.cuda = renderer_->statistics();
         }
         return result;
     }
 
 private:
-    PathInteractiveSession session_;
+    bool disable_interop_ = false;
+    std::unique_ptr<CudaRealtimeRenderer> renderer_;
     std::shared_ptr<CudaOpenGlInteropTexture> interop_ =
         std::make_shared<CudaOpenGlInteropTexture>();
     std::shared_ptr<Framebuffer> framebuffer_ =
@@ -246,14 +250,15 @@ OpenGlShaderControl* open_gl_shader_control(ViewerRenderBackend& backend) {
 std::unique_ptr<ViewerRenderBackend> make_viewer_render_backend(
     InteractiveRenderMode mode,
     const std::filesystem::path& vertex_shader_path,
-    const std::filesystem::path& fragment_shader_path) {
+    const std::filesystem::path& fragment_shader_path,
+    bool disable_cuda_interop) {
     if (mode == InteractiveRenderMode::OpenGl) {
         return std::make_unique<OpenGlViewerRenderBackend>(
             vertex_shader_path,
             fragment_shader_path);
     }
-    if (mode == InteractiveRenderMode::Path) {
-        return std::make_unique<PathViewerRenderBackend>();
+    if (mode == InteractiveRenderMode::Rtrt) {
+        return std::make_unique<RealtimeViewerRenderBackend>(disable_cuda_interop);
     }
     throw std::invalid_argument("unsupported interactive render mode");
 }

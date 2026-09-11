@@ -7,13 +7,15 @@ namespace renderer {
 
 enum class InteractiveRenderMode {
     OpenGl,
-    Path,
+    Rtrt,
+    Path = Rtrt, // Legacy source compatibility; interactive Path now uses RTRT.
 };
 
 enum class RenderModeCapability : unsigned int {
     None = 0,
     Progressive = 1U << 0U,
     ShaderReload = 1U << 1U,
+    Temporal = 1U << 2U,
 };
 
 constexpr RenderModeCapability operator|(

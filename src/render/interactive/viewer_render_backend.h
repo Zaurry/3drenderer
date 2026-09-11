@@ -54,9 +54,7 @@ public:
         const Camera& camera,
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state) = 0;
-    // The last completed frame, valid until the next render() call. When
-    // rendering is skipped (e.g. paused progressive accumulation), callers
-    // present this same handle to show the frozen frame on purpose.
+    // The last completed frame, valid until the next render() call.
     virtual const RenderFrameOutput& output() const = 0;
     virtual ViewerRenderBackendStatistics statistics() const = 0;
 };
@@ -66,6 +64,7 @@ OpenGlShaderControl* open_gl_shader_control(ViewerRenderBackend& backend);
 std::unique_ptr<ViewerRenderBackend> make_viewer_render_backend(
     InteractiveRenderMode mode,
     const std::filesystem::path& vertex_shader_path,
-    const std::filesystem::path& fragment_shader_path);
+    const std::filesystem::path& fragment_shader_path,
+    bool disable_cuda_interop = false);
 
 }  // namespace renderer

@@ -8,6 +8,8 @@
 #include "render/interactive/render_mode.h"
 #include "render/interactive/viewer_render_backend.h"
 #include "render/pathtracer/cuda_pathtracer.h"
+#include "render/realtime/realtime_settings_json.h"
+#include <fstream>
 #include "scene/scene.h"
 #include "scene/scene_asset_loader.h"
 #include "scene/scene_document.h"
@@ -37,7 +39,8 @@ struct ViewerOptions {
     std::string scene = "asset";
     std::vector<std::string> asset_paths;
     std::filesystem::path scene_file;
-    renderer::InteractiveRenderMode mode = renderer::InteractiveRenderMode::OpenGl;
+    renderer::InteractiveRenderMode mode = renderer::InteractiveRenderMode::Rtrt;
+    std::filesystem::path realtime_config;
     int width = 960;
     int height = 540;
     int frame_limit = 0;
@@ -49,6 +52,7 @@ struct ViewerOptions {
     float environment_yaw_degrees = 0.0f;
     bool environment_background_visible = true;
     bool restore_last_session = true;
+    bool disable_cuda_interop = false;
 };
 
 struct ViewerScene {
@@ -126,7 +130,7 @@ void print_help() {
     std::cout
         << "3D Renderer Viewer\n\n"
         << "Usage:\n"
-        << "  viewer --scene builtin|asset [--asset path\\to\\model-or-directory ...] --mode opengl|path [options]\n\n"
+        << "  viewer --scene builtin|asset [--asset path\\to\\model-or-directory ...] --mode opengl|rtrt [options]\n\n"
         << "Options:\n"
         << "  --asset path      OBJ/glTF/GLB file or directory; may be repeated\n"
         << "  --scene-file path open a saved .rscene document\n"
@@ -139,7 +143,9 @@ void print_help() {
         << "  --frames integer   render N frames then exit, default unlimited\n"
         << "  --style realistic|toon|sketch  OpenGL rendering style\n"
         << "  --capture path.png  save the final render without UI (use with --frames)\n"
-        << "  --cuda-device N    CUDA device index for Path mode; default GL-compatible\n"
+        << "  --no-cuda-interop  use host presentation (diagnose interop compatibility)\n"
+        << "  --rtrt-config path.json  RTRT settings object (same fields as session render.realtime)\n"
+        << "  --cuda-device N    CUDA device index for RTRT mode; default GL-compatible\n"
         << "  --gl-vertex-shader path    OpenGL vertex shader override\n"
         << "  --gl-fragment-shader path  OpenGL fragment shader override\n"
         << "  --no-restore-last  start the default scene without restoring the last session\n"
@@ -209,6 +215,10 @@ ViewerOptions parse_args(int argc, char** argv) {
             options.scene_file = require_value(argc, argv, i, arg);
         } else if (arg == "--mode") {
             options.mode = parse_mode(require_value(argc, argv, i, arg));
+        } else if (arg == "--no-cuda-interop") {
+            options.disable_cuda_interop = true;
+        } else if (arg == "--rtrt-config") {
+            options.realtime_config = require_value(argc, argv, i, arg);
         } else if (arg == "--style") {
             const std::string style = require_value(argc, argv, i, arg);
             if (style == "realistic") options.style = renderer::OpenGlRenderStyle::Realistic;
@@ -428,6 +438,7 @@ struct ViewerSessionSignature {
     float russian_roulette_min_probability = 0.05f;
     float russian_roulette_max_probability = 0.95f;
     renderer::OpenGlRenderSettings opengl;
+    renderer::RealtimeRenderSettings realtime;
     int logical_width = 0;
     int logical_height = 0;
     float render_scale = 1.0f;
@@ -472,6 +483,7 @@ ViewerSessionSignature make_session_signature(
     signature.russian_roulette_max_probability =
         settings.path.russian_roulette_max_probability;
     signature.opengl = settings.opengl;
+    signature.realtime = settings.realtime;
     signature.logical_width = logical_size.first;
     signature.logical_height = logical_size.second;
     signature.render_scale = ui.render_scale;
@@ -605,6 +617,12 @@ int main(int argc, char** argv) {
         settings.width = scaled_dimension(window_width, ui_state.render_scale);
         settings.height = scaled_dimension(window_height, ui_state.render_scale);
         settings.path.samples_per_pixel = 1;
+        if (!options.realtime_config.empty()) {
+            std::ifstream config_file(options.realtime_config);
+            if (!config_file) throw std::runtime_error("cannot open RTRT config");
+            nlohmann::json config; config_file >> config;
+            settings.realtime = renderer::parse_realtime_settings(config);
+        }
         if (options.style) {
             settings.opengl.npr.style = *options.style;
             settings.opengl.shadow_map.debug_view = renderer::OpenGlShadowDebugView::Final;
@@ -615,7 +633,7 @@ int main(int argc, char** argv) {
         if (!restored_session) {
             settings.path.cuda_device = options.cuda_device;
         }
-        if (ui_state.mode == renderer::InteractiveRenderMode::Path) {
+        if (ui_state.mode == renderer::InteractiveRenderMode::Rtrt) {
             std::string reason;
             auto device_context =
                 renderer::select_cuda_device_for_current_opengl_context(
@@ -638,7 +656,7 @@ int main(int argc, char** argv) {
                 settings.path.cuda_device = 0;
                 ui_state.mode = renderer::InteractiveRenderMode::OpenGl;
                 ui_state.scene_status =
-                    "CUDA Path unavailable; switched to OpenGL: " + reason;
+                    "CUDA RTRT unavailable; switched to OpenGL: " + reason;
                 std::cerr << "warning: " << ui_state.scene_status << '\n';
                 // Stable machine-readable marker; CI smoke tests match this
                 // line instead of the localized status text.
@@ -708,7 +726,7 @@ int main(int argc, char** argv) {
             renderer::make_viewer_render_backend(
                 ui_state.mode,
                 options.gl_vertex_shader,
-                options.gl_fragment_shader);
+                options.gl_fragment_shader, options.disable_cuda_interop);
         const auto current_render_scene_snapshot =
             [&]() -> const renderer::RenderSceneSnapshot& {
                 return viewer_scene.document.render_scene_snapshot();
@@ -726,7 +744,7 @@ int main(int argc, char** argv) {
                 ui_state.mode,
                 frame_rate_counter.snapshot(),
                 path_samples);
-            if (ui_state.mode == renderer::InteractiveRenderMode::Path) {
+            if (ui_state.mode == renderer::InteractiveRenderMode::Rtrt) {
                 title += " - cuda";
             }
             title += std::string(" - camera=") + camera_mode_name(ui_state.camera_mode);
@@ -992,11 +1010,11 @@ int main(int argc, char** argv) {
                         input.render_mode_hotkey);
                 }
                 if (hotkey_mode != ui_state.mode) {
-                    if (hotkey_mode == renderer::InteractiveRenderMode::Path) {
+                    if (hotkey_mode == renderer::InteractiveRenderMode::Rtrt) {
                         std::string reason;
                         if (!renderer::cuda_path_backend_available(&reason)) {
                             ui_state.scene_status =
-                                "CUDA Path unavailable: " + reason;
+                                "CUDA RTRT unavailable: " + reason;
                         } else {
                             ui_state.mode = hotkey_mode;
                             ui_actions.mode_changed = true;
@@ -1027,7 +1045,7 @@ int main(int argc, char** argv) {
                 render_backend = renderer::make_viewer_render_backend(
                     ui_state.mode,
                     options.gl_vertex_shader,
-                    options.gl_fragment_shader);
+                    options.gl_fragment_shader, options.disable_cuda_interop);
                 render_backend->reset(
                     current_render_scene_snapshot(),
                     settings);
@@ -1099,6 +1117,8 @@ int main(int argc, char** argv) {
             }
 
             renderer::InteractiveFrameState frame_state;
+            frame_state.camera_cut = ui_actions.camera_reset_requested ||
+                ui_actions.look_through_camera != renderer::kInvalidObjectId;
             frame_state.delta_seconds = delta_seconds;
             frame_state.scene_changes = scene_changes;
             frame_state.reset_requested = ui_actions.reset_requested;
@@ -1225,27 +1245,7 @@ int main(int argc, char** argv) {
                 ui_state,
                 viewer_scene.document,
                 camera);
-            const bool path_needs_preview =
-                rendered_frames == 0 ||
-                mode_changed ||
-                ui_actions.automatic_interaction_quality_changed ||
-                ui_actions.path_depth_changed ||
-                ui_actions.path_roulette_changed ||
-                frame_state.camera_changed ||
-                frame_state.scene_changes != renderer::SceneChange::None ||
-                frame_state.framebuffer_resized ||
-                frame_state.reset_requested;
-            const bool should_render =
-                ui_state.mode != renderer::InteractiveRenderMode::Path ||
-                !ui_state.path_accumulation_paused ||
-                path_needs_preview;
-            if (should_render) {
-                render_backend->render(
-                    current_render_scene_snapshot(),
-                    camera,
-                    settings,
-                    frame_state);
-            }
+            render_backend->render(current_render_scene_snapshot(), camera, settings, frame_state);
             const renderer::ViewerRenderBackendStatistics current_statistics =
                 render_backend->statistics();
             const auto* current_path =
@@ -1308,19 +1308,28 @@ int main(int argc, char** argv) {
         if (!options.capture_path.empty()) {
             const auto output = render_backend->output();
             const auto* texture = std::get_if<renderer::OpenGlTextureHandle>(&output);
-            if (!texture || !texture->texture)
-                throw std::runtime_error("Capture requires an OpenGL texture output");
-            std::vector<float> pixels(static_cast<std::size_t>(texture->width) * texture->height * 4);
-            glBindTexture(GL_TEXTURE_2D, texture->texture);
-            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, pixels.data());
-            renderer::Image capture(texture->width, texture->height);
-            for (int y = 0; y < texture->height; ++y) {
-                for (int x = 0; x < texture->width; ++x) {
-                    const int source_y = texture->flip_y ? y : texture->height - 1 - y;
-                    const std::size_t index = (static_cast<std::size_t>(source_y) * texture->width + x) * 4;
-                    const renderer::Color color(pixels[index], pixels[index + 1], pixels[index + 2]);
+            const auto* host = std::get_if<renderer::HostFrameHandle>(&output);
+            int capture_width=0,capture_height=0;
+            bool top_left_origin=true;
+            std::vector<float> pixels;
+            if (texture && texture->texture) {
+                capture_width=texture->width;capture_height=texture->height;
+                top_left_origin=texture->flip_y;
+                pixels.resize(static_cast<std::size_t>(capture_width)*capture_height*4);
+                glBindTexture(GL_TEXTURE_2D, texture->texture);
+                glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, pixels.data());
+            } else if (host && host->framebuffer) {
+                capture_width=host->framebuffer->width();capture_height=host->framebuffer->height();
+                pixels=host->framebuffer->to_rgba32f();
+            } else throw std::runtime_error("Capture requires a completed render frame");
+            renderer::Image capture(capture_width,capture_height);
+            for (int y=0;y<capture_height;++y) {
+                for (int x=0;x<capture_width;++x) {
+                    const int source_y=top_left_origin?y:capture_height-1-y;
+                    const std::size_t index=(static_cast<std::size_t>(source_y)*capture_width+x)*4;
+                    const renderer::Color color(pixels[index],pixels[index+1],pixels[index+2]);
                     if (!color.allFinite()) throw std::runtime_error("Capture contains non-finite pixels");
-                    capture.set_pixel(x, y, renderer::apply_display_transform(color, ui_state.display));
+                    capture.set_pixel(x,y,renderer::apply_display_transform(color,ui_state.display));
                 }
             }
             if (!capture.write_png(options.capture_path.string()))
@@ -1339,11 +1348,18 @@ int main(int argc, char** argv) {
             if (!gl.shader_error.empty()) {
                 std::cerr << "\nshader error: " << gl.shader_error;
             }
-        } else if (ui_state.mode == renderer::InteractiveRenderMode::Path) {
+        } else if (ui_state.mode == renderer::InteractiveRenderMode::Rtrt) {
             const auto& path =
                 std::get<renderer::CudaPathViewerStatistics>(final_statistics);
             std::cout << " interop="
                       << path.interop_status;
+            const auto& rt = path.cuda.realtime;
+            std::cout << " rt_frames=" << rt.frames << " history_resets=" << rt.history_resets
+                      << " internal=" << path.cuda.internal_width << 'x' << path.cuda.internal_height
+                      << " gbuffer_ms=" << rt.gbuffer_ms << " lighting_ms=" << rt.lighting_ms
+                      << " temporal_ms=" << rt.temporal_ms << " atrous_ms=" << rt.filter_ms
+                      << " reconstruction_ms=" << rt.reconstruction_ms << " total_ms=" << rt.total_ms
+                      << " framebuffer_mib=" << double(rt.framebuffer_bytes)/1048576;
             std::cout << " trace_ms=" << path.cuda.trace_milliseconds
                       << " present_ms="
                       << path.cuda.presentation_milliseconds

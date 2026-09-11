@@ -1,4 +1,5 @@
 #include "interactive/viewer_ui.h"
+#include "interactive/realtime_panel.h"
 
 #include "render/opengl/opengl_shader_contract.h"
 #include "render/pathtracer/cuda_pathtracer.h"
@@ -447,7 +448,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                FreeCameraController& free_camera,
                                const Bounds3& bounds,
                                const FrameRateSnapshot& performance,
-                               int accumulated_path_samples,
+                               int /*accumulated_path_samples*/,
                                const CudaOpenGlInteropUiState& interop_state,
                                const CudaPathStatistics& cuda_statistics,
                                const OpenGlTechniqueDiagnostics& technique_diagnostics,
@@ -562,106 +563,19 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 } else {
                     ImGui::TextUnformatted("Collecting frame timing...");
                 }
-                if (has_capability(
-                        active_capabilities,
-                        RenderModeCapability::Progressive)) {
-                    ImGui::Text("%d spp  |  %s",
-                                accumulated_path_samples,
-                                "CUDA");
-                    {
-                        ImGui::Text("CUDA/OpenGL interop: %s", interop_state.status.c_str());
-                        if (!interop_state.detail.empty()) {
-                            ImGui::TextWrapped("%s", interop_state.detail.c_str());
-                        }
-                        ImGui::Text(
-                            "GPU trace %.3f ms  |  reset %.3f ms  |  upload %.3f ms",
-                            cuda_statistics.trace_milliseconds,
-                            cuda_statistics.reset_milliseconds,
-                            cuda_statistics.upload_milliseconds);
-                        const char* work_mode = "full frame";
-                        if (cuda_statistics.work_mode ==
-                            CudaPathWorkMode::InteractionPreview) {
-                            work_mode = "interaction preview";
-                        } else if (cuda_statistics.work_mode ==
-                                   CudaPathWorkMode::NativeTile) {
-                            work_mode = "native tile";
-                        }
-                        ImGui::Text(
-                            "%s  |  internal %dx%d",
-                            work_mode,
-                            cuda_statistics.internal_width,
-                            cuda_statistics.internal_height);
-                        if (cuda_statistics.work_mode ==
-                            CudaPathWorkMode::NativeTile) {
-                            ImGui::Text(
-                                "Sweep %.1f%%  |  y=%d quantum rows=%d  |  %.3f complete spp/s",
-                                cuda_statistics.sweep_progress * 100.0f,
-                                cuda_statistics.tile_y,
-                                cuda_statistics.tile_rows,
-                                cuda_statistics.complete_sweeps_per_second);
-                            ImGui::Text(
-                                "Published this frame: %s  |  resolve %.3f ms",
-                                cuda_statistics.presentation_updated
-                                    ? "yes"
-                                    : "no",
-                                cuda_statistics.presentation_milliseconds);
-                        }
-                        if (cuda_statistics.traversal_milliseconds > 0.0f ||
-                            cuda_statistics.sort_milliseconds > 0.0f) {
-                            ImGui::Text(
-                                "Traversal %.3f ms  |  sort %.3f ms",
-                                cuda_statistics.traversal_milliseconds,
-                                cuda_statistics.sort_milliseconds);
-                        }
-                        ImGui::Text(
-                            "Alloc generation %llu  |  downloads %llu",
-                            static_cast<unsigned long long>(
-                                cuda_statistics.allocation_generation),
-                            static_cast<unsigned long long>(
-                                cuda_statistics.framebuffer_downloads));
-                        ImGui::Text(
-                            "Instances %.3f ms / %.1f KiB  |  TLAS refit %.3f ms",
-                            cuda_statistics.instance_upload_milliseconds,
-                            static_cast<double>(
-                                cuda_statistics.instance_upload_bytes) /
-                                1024.0,
-                            cuda_statistics.tlas_refit_milliseconds);
-                        ImGui::Text(
-                            "BLAS builds %llu (%.3f ms)  |  TLAS builds %llu  refits %llu",
-                            static_cast<unsigned long long>(
-                                cuda_statistics.blas_build_count),
-                            cuda_statistics.blas_build_milliseconds,
-                            static_cast<unsigned long long>(
-                                cuda_statistics.tlas_build_count),
-                            static_cast<unsigned long long>(
-                                cuda_statistics.tlas_refit_count));
-                        ImGui::Text(
-                            "Upload KiB: geometry %.1f  BVH %.1f  material %.1f  "
-                            "binding %.1f  texture %.1f  lighting %.1f",
-                            static_cast<double>(
-                                cuda_statistics.geometry_upload_bytes) /
-                                1024.0,
-                            static_cast<double>(
-                                cuda_statistics.bvh_upload_bytes) /
-                                1024.0,
-                            static_cast<double>(
-                                cuda_statistics.material_upload_bytes) /
-                                1024.0,
-                            static_cast<double>(
-                                cuda_statistics.material_binding_upload_bytes) /
-                                1024.0,
-                            static_cast<double>(
-                                cuda_statistics.texture_upload_bytes) /
-                                1024.0,
-                            static_cast<double>(
-                                cuda_statistics.lighting_upload_bytes) /
-                                1024.0);
-                    }
-                    if (ImGui::Button(state.path_accumulation_paused ? "Resume accumulation"
-                                                                     : "Pause accumulation")) {
-                        state.path_accumulation_paused = !state.path_accumulation_paused;
-                    }
-                    ImGui::SameLine();
+                if (state.mode == InteractiveRenderMode::Rtrt) {
+                    const auto& rt = cuda_statistics.realtime;
+                    ImGui::Text("CUDA/OpenGL interop: %s", interop_state.status.c_str());
+                    if (!interop_state.detail.empty()) ImGui::TextWrapped("%s", interop_state.detail.c_str());
+                    ImGui::Text("%d SPP/frame | internal %dx%d", render_settings.realtime.samples_per_pixel,
+                        cuda_statistics.internal_width, cuda_statistics.internal_height);
+                    ImGui::Text("G-buffer %.2f ms | lighting %.2f ms", rt.gbuffer_ms, rt.lighting_ms);
+                    ImGui::Text("Temporal %.2f ms | atrous %.2f ms", rt.temporal_ms, rt.filter_ms);
+                    ImGui::Text("Reconstruction %.2f ms | total %.2f ms", rt.reconstruction_ms, rt.total_ms);
+                    ImGui::Text("Frames %llu | history resets %llu", (unsigned long long)rt.frames, (unsigned long long)rt.history_resets);
+                    ImGui::Text("Frame buffers %.1f MiB | downloads %llu", double(rt.framebuffer_bytes)/1048576,
+                        (unsigned long long)cuda_statistics.framebuffer_downloads);
+                    ImGui::Text("Scene upload %.2f ms | TLAS refit %.2f ms", cuda_statistics.upload_milliseconds, cuda_statistics.tlas_refit_milliseconds);
                 }
                 if (ImGui::Button("Reset render")) {
                     actions.reset_requested = true;
@@ -679,7 +593,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                          interactive_render_modes()) {
                         const bool selected = descriptor.mode == state.mode;
                         const bool enabled =
-                            descriptor.mode != InteractiveRenderMode::Path ||
+                            descriptor.mode != InteractiveRenderMode::Rtrt ||
                             cuda_available;
                         if (!enabled) {
                             ImGui::BeginDisabled();
@@ -692,7 +606,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                             ImGui::IsItemHovered(
                                 ImGuiHoveredFlags_AllowWhenDisabled)) {
                             ImGui::SetTooltip(
-                                "CUDA Path unavailable: %s",
+                                "CUDA RTRT unavailable: %s",
                                 cuda_reason.c_str());
                         }
                         if (selected) {
@@ -705,7 +619,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     ImGui::EndCombo();
                 }
 
-                ImGui::BeginDisabled(state.mode != InteractiveRenderMode::OpenGl);
+                if (state.mode == InteractiveRenderMode::OpenGl) {
                 auto& npr = render_settings.opengl.npr;
                 int style = static_cast<int>(npr.style);
                 if (ImGui::Combo("Style", &style, "Realistic\0Toon\0Sketch\0")) {
@@ -732,83 +646,11 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     }
                     ImGui::TextWrapped("NPR uses direct light, IBL and AO. SSGI / SSR resume in Realistic style.");
                 }
-                ImGui::EndDisabled();
-                if (state.mode != InteractiveRenderMode::OpenGl)
-                    ImGui::TextDisabled("Styles are available in OpenGL mode.");
+                }
 
-                if (has_capability(
-                        active_capabilities,
-                        RenderModeCapability::Progressive) &&
-                    ImGui::Checkbox(
-                        "Auto interaction quality",
-                        &state.automatic_interaction_quality)) {
-                    actions.automatic_interaction_quality_changed = true;
-                }
-                if (has_capability(
-                        active_capabilities,
-                        RenderModeCapability::Progressive)) {
-                    ImGui::Text("CUDA device: %d", render_settings.path.cuda_device);
-                    if (ImGui::SliderInt(
-                            "Maximum bounces",
-                            &render_settings.path.max_bounces,
-                            1,
-                            64)) {
-                        actions.path_depth_changed = true;
-                    }
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip(
-                            "Hard path-depth limit before Russian roulette");
-                    }
-                    bool roulette_changed = ImGui::SliderInt(
-                        "RR start bounce",
-                        &render_settings.path.russian_roulette_start_bounce,
-                        1,
-                        64);
-                    int roulette_minimum_percent = static_cast<int>(std::lround(
-                        render_settings.path.russian_roulette_min_probability * 100.0f));
-                    int roulette_maximum_percent = static_cast<int>(std::lround(
-                        render_settings.path.russian_roulette_max_probability * 100.0f));
-                    if (ImGui::SliderInt(
-                        "RR minimum survival",
-                        &roulette_minimum_percent,
-                        1,
-                        100,
-                        "%d%%")) {
-                        render_settings.path.russian_roulette_min_probability =
-                            static_cast<float>(roulette_minimum_percent) / 100.0f;
-                        if (roulette_minimum_percent > roulette_maximum_percent) {
-                            roulette_maximum_percent = roulette_minimum_percent;
-                            render_settings.path.russian_roulette_max_probability =
-                                render_settings.path.russian_roulette_min_probability;
-                        }
-                        roulette_changed = true;
-                    }
-                    if (ImGui::SliderInt(
-                        "RR maximum survival",
-                        &roulette_maximum_percent,
-                        1,
-                        100,
-                        "%d%%")) {
-                        render_settings.path.russian_roulette_max_probability =
-                            static_cast<float>(roulette_maximum_percent) / 100.0f;
-                        if (roulette_maximum_percent < roulette_minimum_percent) {
-                            roulette_minimum_percent = roulette_maximum_percent;
-                            render_settings.path.russian_roulette_min_probability =
-                                render_settings.path.russian_roulette_max_probability;
-                        }
-                        roulette_changed = true;
-                    }
-                    if (roulette_changed) {
-                        actions.path_roulette_changed = true;
-                    }
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip(
-                            "Surviving paths are divided by their survival probability");
-                    }
-                }
                 int render_scale_percent =
                     static_cast<int>(std::lround(state.render_scale * 100.0f));
-                if (ImGui::SliderInt("Render scale", &render_scale_percent, 25, 100, "%d%%")) {
+                if (ImGui::SliderInt("Output scale", &render_scale_percent, 25, 100, "%d%%")) {
                     state.render_scale = static_cast<float>(render_scale_percent) / 100.0f;
                     actions.render_scale_changed = true;
                 }
@@ -933,9 +775,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 ImGui::Checkbox("Show point light markers", &state.show_point_light_markers);
                 ImGui::SeparatorText("Environment IBL");
                 const bool open_gl_mode = state.mode == InteractiveRenderMode::OpenGl;
-                ImGui::BeginDisabled(!open_gl_mode);
-                ImGui::Checkbox("Enable IBL", &render_settings.opengl.ibl_enabled);
-                ImGui::EndDisabled();
+                if (open_gl_mode) ImGui::Checkbox("Enable IBL", &render_settings.opengl.ibl_enabled);
                 const std::string environment_path = document.environment_path().empty()
                     ? std::string("Constant color")
                     : document.environment_path().filename().string();
@@ -997,11 +837,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     (environment_changed && ImGui::IsItemDeactivated())) {
                     document.checkpoint();
                 }
-                if (!open_gl_mode) {
-                    ImGui::TextDisabled(
-                        "Path mode always uses the full environment and ray visibility.");
-                }
-
+                if (open_gl_mode) {
                 ImGui::SeparatorText("Shadow Map");
                 ImGui::BeginDisabled(!open_gl_mode);
                 ImGui::Checkbox(
@@ -1177,6 +1013,8 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 ImGui::TextDisabled(
                     "64x64 GGX LTC matrix/amplitude LUT; rectangle shadows use a center cube map approximation.");
 
+                }
+
                 ImGui::SeparatorText("Create Lights");
                 if (ImGui::Button("Add point light")) {
                     const Vec3 center = (bounds.min + bounds.max) * 0.5f;
@@ -1233,6 +1071,9 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 }
             }
 
+            if (state.mode == InteractiveRenderMode::Rtrt) {
+                draw_realtime_panel(render_settings.realtime);
+            } else {
             if (ImGui::CollapsingHeader(
                     "Ambient Occlusion",
                     ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -1378,10 +1219,6 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     scene_radius(bounds) * radius_scale);
                 ImGui::TextDisabled(
                     "AO affects environment IBL only; direct lights and the sky remain unchanged.");
-                if (!open_gl_mode) {
-                    ImGui::TextDisabled(
-                        "Path mode uses ray visibility and does not run screen-space AO.");
-                }
             }
 
             if (ImGui::CollapsingHeader(
@@ -1520,10 +1357,6 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         ImVec4(1.0f, 0.72f, 0.28f, 1.0f),
                         "IBL is disabled: off-screen and missed-ray fallback is black.");
                 }
-                if (!open_gl_mode) {
-                    ImGui::TextDisabled(
-                        "Path mode uses traced indirect lighting and does not run SSGI.");
-                }
             }
 
             if (ImGui::CollapsingHeader(
@@ -1630,10 +1463,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     "Glossy hits use a contact-hardening, elongated GGX footprint; missing screen support falls back to the environment.");
                 ImGui::TextDisabled(
                     "Reflections apply to opaque surfaces; transparent objects are composited after and are not reflected.");
-                if (!open_gl_mode) {
-                    ImGui::TextDisabled(
-                        "Path mode renders true reflections via ray tracing; screen-space reflections do not run.");
-                }
+            }
             }
         }
         ImGui::End();
@@ -2027,7 +1857,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     }
                     if (active->camera_projection == SceneCameraProjection::Orthographic) {
                         ImGui::TextDisabled(
-                            "Path/OpenGL camera rays are perspective; this view uses a 45 deg preview.");
+                            "RTRT/OpenGL camera rays are perspective; this view uses a 45 deg preview.");
                     }
                 }
 
@@ -2180,7 +2010,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                     material_changed;
                                 material_edit_finished =
                                     ImGui::IsItemDeactivatedAfterEdit() || material_edit_finished;
-                                ImGui::TextDisabled("GGX roughness: OpenGL / CUDA Path");
+                                ImGui::TextDisabled("GGX roughness: OpenGL / CUDA RTRT");
                             } else if (properties->type == MaterialType::Dielectric) {
                                 material_changed =
                                     ImGui::SliderFloat(
@@ -2188,7 +2018,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                     material_changed;
                                 material_edit_finished =
                                     ImGui::IsItemDeactivatedAfterEdit() || material_edit_finished;
-                                ImGui::TextDisabled("Physical refraction: Path");
+                                ImGui::TextDisabled("Physical refraction: RTRT");
                             }
                             if (properties->type == MaterialType::Emissive ||
                                 properties->type == MaterialType::Pbr) {

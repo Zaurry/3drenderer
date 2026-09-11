@@ -105,6 +105,7 @@ inline SceneChangeSet scene_changes_for_snapshot(
 }
 
 struct InteractiveFrameState {
+    bool camera_cut = false;
     bool camera_changed = false;
     SceneChangeSet scene_changes = SceneChange::None;
     bool framebuffer_resized = false;

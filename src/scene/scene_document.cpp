@@ -2010,6 +2010,7 @@ void SceneDocument::ensure_render_scene_snapshot() const {
             RenderSceneInstanceSnapshot instance;
             instance.object_id = object.id;
             instance.asset_index = unit_quad_asset_index;
+            instance.emission_casts_shadows = object.light_casts_shadows;
             instance.object_to_world = world * area_scale;
             instance.world_to_object = instance.object_to_world.inverse();
             instance.normal_to_world = instance.object_to_world

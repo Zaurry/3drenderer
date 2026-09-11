@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "render/realtime/realtime_settings.h"
 
 namespace renderer {
 
@@ -193,6 +194,7 @@ struct RenderSettings {
     int height = 512;
     OpenGlRenderSettings opengl;
     PathRenderSettings path;
+    RealtimeRenderSettings realtime;
 };
 
 }  // namespace renderer

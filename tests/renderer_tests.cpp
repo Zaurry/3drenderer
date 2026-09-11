@@ -661,7 +661,7 @@ RENDER_TEST(test_frame_rate_counter_reports_window_average) {
     RENDER_CHECK(!counter.snapshot().valid);
 }
 
-RENDER_TEST(test_viewer_title_format_includes_fps_and_path_samples) {
+RENDER_TEST(test_viewer_title_format_includes_fps_without_progressive_samples) {
     renderer::FrameRateSnapshot warming_up;
     const std::string opengl_warming_title = renderer::format_viewer_title(
         renderer::InteractiveRenderMode::OpenGl,
@@ -681,10 +681,10 @@ RENDER_TEST(test_viewer_title_format_includes_fps_and_path_samples) {
         renderer::InteractiveRenderMode::Path,
         snapshot,
         12);
-    RENDER_CHECK(path_title.find("path") != std::string::npos);
+    RENDER_CHECK(path_title.find("rtrt") != std::string::npos);
     RENDER_CHECK(path_title.find("60.0 FPS") != std::string::npos);
     RENDER_CHECK(path_title.find("16.7 ms") != std::string::npos);
-    RENDER_CHECK(path_title.find("12 spp") != std::string::npos);
+    RENDER_CHECK(path_title.find("spp") == std::string::npos);
 
     const std::string opengl_title = renderer::format_viewer_title(
         renderer::InteractiveRenderMode::OpenGl,
@@ -694,7 +694,7 @@ RENDER_TEST(test_viewer_title_format_includes_fps_and_path_samples) {
     RENDER_CHECK(opengl_title.find("spp") == std::string::npos);
 }
 
-RENDER_TEST(test_interactive_mode_catalog_contains_only_opengl_and_path) {
+RENDER_TEST(test_interactive_mode_catalog_contains_opengl_and_rtrt) {
     const auto& modes = renderer::interactive_render_modes();
     RENDER_CHECK(modes.size() == 2);
     RENDER_CHECK(modes[0].mode == renderer::InteractiveRenderMode::OpenGl);
@@ -709,7 +709,7 @@ RENDER_TEST(test_interactive_mode_catalog_contains_only_opengl_and_path) {
         renderer::InteractiveRenderMode::Path);
     RENDER_CHECK(
         renderer::ViewerUiState{}.mode ==
-        renderer::InteractiveRenderMode::OpenGl);
+        renderer::InteractiveRenderMode::Rtrt);
     for (const char* removed_mode : {"raster", "ray"}) {
         bool rejected = false;
         try {
@@ -4433,6 +4433,9 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
     state.ui.ui_font_scale = 1.25f;
     state.ui.automatic_interaction_quality = false;
     state.ui.path_accumulation_paused = true;
+    state.render_settings.realtime.internal_scale=.5f;
+    state.render_settings.realtime.diffuse_history=48;
+    state.render_settings.realtime.debug_view=renderer::RealtimeDebugView::Variance;
     state.ui.show_point_light_markers = false;
     state.ui.panel_visible = false;
     state.ui.scene_panel_visible = false;
@@ -4540,7 +4543,7 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
         std::ifstream input(session_path);
         input >> saved_json;
     }
-    RENDER_CHECK(saved_json.at("version").get<int>() == 5);
+    RENDER_CHECK(saved_json.at("version").get<int>() == 6);
     const auto& source =
         saved_json.at("document").at("snapshot").at("assets").at(0).at("source");
     RENDER_CHECK(source.at("kind").get<std::string>() == "obj");
@@ -4550,6 +4553,8 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
     renderer::ViewerSessionState loaded =
         renderer::ViewerSessionStore::load(session_path);
     RENDER_CHECK(loaded.window_width == 1400);
+    RENDER_CHECK(loaded.render_settings.realtime == state.render_settings.realtime);
+    RENDER_CHECK(!saved_json.at("view").contains("path_accumulation_paused"));
     RENDER_CHECK(loaded.render_settings.opengl.npr == state.render_settings.opengl.npr);
     RENDER_CHECK(loaded.window_height == 900);
     RENDER_CHECK(loaded.document.file_path() == file_path_before);
@@ -4576,7 +4581,7 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
     RENDER_CHECK(nearly_equal(loaded.ui.render_scale, 0.75f));
     RENDER_CHECK(nearly_equal(loaded.ui.ui_font_scale, 1.25f));
     RENDER_CHECK(!loaded.ui.automatic_interaction_quality);
-    RENDER_CHECK(loaded.ui.path_accumulation_paused);
+    RENDER_CHECK(!loaded.ui.path_accumulation_paused);
     RENDER_CHECK(!loaded.ui.show_point_light_markers);
     RENDER_CHECK(!loaded.ui.panel_visible);
     RENDER_CHECK(!loaded.ui.scene_panel_visible);
@@ -4755,7 +4760,7 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
     }
     const renderer::ViewerSessionState old_session =
         renderer::ViewerSessionStore::load(session_path);
-    RENDER_CHECK(old_session.ui.automatic_interaction_quality);
+    RENDER_CHECK(!old_session.ui.automatic_interaction_quality);
     RENDER_CHECK(old_session.render_settings.path.max_bounces == 64);
     RENDER_CHECK(
         old_session.render_settings.path.russian_roulette_start_bounce == 3);

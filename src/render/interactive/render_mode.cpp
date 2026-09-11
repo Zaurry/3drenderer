@@ -15,11 +15,11 @@ constexpr std::array<RenderModeDescriptor, 2> kRenderModes{{
         RenderModeCapability::ShaderReload,
     },
     {
-        InteractiveRenderMode::Path,
-        "path",
-        "Path",
+        InteractiveRenderMode::Rtrt,
+        "rtrt",
+        "RTRT",
         2,
-        RenderModeCapability::Progressive,
+        RenderModeCapability::Temporal,
     },
 }};
 
@@ -39,7 +39,7 @@ const RenderModeDescriptor& render_mode_descriptor(InteractiveRenderMode mode) {
 }
 
 InteractiveRenderMode parse_interactive_render_mode(const std::string& value) {
-    const std::string canonical = value == "gl" ? "opengl" : value;
+    const std::string canonical = value == "gl" ? "opengl" : value == "path" ? "rtrt" : value;
     for (const RenderModeDescriptor& descriptor : kRenderModes) {
         if (canonical == descriptor.cli_name) {
             return descriptor.mode;

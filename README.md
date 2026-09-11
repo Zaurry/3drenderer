@@ -1,11 +1,12 @@
 # 3D Renderer
 
-一个 C++20 教学型 3D 渲染器，提供两条产品渲染链路：
+一个 C++20 教学型 3D 渲染器，提供实时预览、实时光追和离线参考渲染：
 
 - `OpenGL`：OpenGL 4.5 Core 实时预览，支持可热重载 GLSL、PBR、IBL、SSAO、GTAO + Bent Normal、时域 Hi-Z SSGI、SSR、Shadow Map/PCSS、环境主光提取、LTC 矩形面光和 weighted blended OIT。
-- `Path`：CUDA Wavefront 路径追踪，支持渐进累积、环境/发光几何 NEE + MIS、矩形面光，以及 CUDA/OpenGL interop。
+- `RTRT`：CUDA 首交点与低采样路径追踪，支持 SVGF 时空降噪、TAA / TAAU、分信号历史、真实阴影、反射与透射，以及 CUDA/OpenGL interop。
+- 离线 `Path`：保留 CUDA Wavefront 高采样路径追踪，用于参考图和最终离线输出。
 
-CPU Path 已从产品、CLI 和交互会话中删除。没有 CUDA 时仍可构建场景/文档系统、测试和 OpenGL Viewer；Path 模式会明确显示不可用原因，并回退到 OpenGL。
+CPU Path 已从产品、CLI 和交互会话中删除。没有 CUDA 时仍可构建场景/文档系统、测试和 OpenGL Viewer；RTRT 模式会明确显示不可用原因，并回退到 OpenGL。
 
 ## 快速开始
 
@@ -94,7 +95,7 @@ Viewer 只有两种模式：
 | 快捷键 | 模式 | 行为 |
 |---|---|---|
 | `1` | OpenGL | 实时编辑与 GLSL 热重载 |
-| `2` | Path | CUDA 渐进路径追踪；无可用 CUDA 时禁用 |
+| `2` | RTRT | 每帧完整光追、SVGF、TAA / TAAU；无可用 CUDA 时禁用 |
 
 常用操作：
 
@@ -106,9 +107,9 @@ Viewer 只有两种模式：
 - `F5`：仅在 OpenGL 模式重载 shader。
 - `Tab`：显示或隐藏编辑器界面。
 
-Viewer 会把会话 v5 保存到 `%APPDATA%\Zaurry\3D Renderer\last-session.json`。不带参数启动时可恢复上次会话；`--no-restore-last` 禁用恢复。旧会话 v1–v4 可只读迁移：SSGI 等新增 OpenGL 技术参数使用默认值，CPU/Auto Path 字段会被忽略；CUDA 不可用时自动转到 OpenGL，并显示迁移警告。
+Viewer 会把会话 v6 保存到 `%APPDATA%\Zaurry\3D Renderer\last-session.json`。不带参数启动时可恢复上次会话；`--no-restore-last` 禁用恢复。旧会话 v1–v5 可迁移：SSGI 等新增 OpenGL 技术参数使用默认值，CPU/Auto Path 字段会被忽略，旧 Path 模式映射为 RTRT，旧暂停和自动预览状态不再生效；CUDA 不可用时自动转到 OpenGL，并显示迁移警告。
 
-默认可见的 `Techniques` 面板把 IBL、Shadow Map、PCSS、Dominant Light Extraction 和 LTC Area Lights 集中在 `Direct Lighting`，并提供独立的 AO、SSGI 与 SSR 区域。SSGI 默认开启，以半分辨率 2 rays/pixel 做单次漫反射反弹，使用 RG32F min/max Hi-Z、深度/世界法线历史验证、时域方差裁剪、三轮双边 à-trous 和全分辨率双边上采样；它始终保留清晰的全分辨率 raster diffuse IBL，只对“命中辐射－同方向环境辐射”的有符号残差执行半分辨率时域与空间滤波，再把残差加回 Opaque HDR。GTAO/Bent Normal 负责 IBL 的近场遮蔽，SSR 随后反射合成过 SSGI 的 Opaque HDR，Blend 最后合成。OpenGL 技术控件在 Path 模式中禁用，Path 始终使用完整环境和真实光线可见性。
+默认可见的 `Techniques` 面板把 IBL、Shadow Map、PCSS、Dominant Light Extraction 和 LTC Area Lights 集中在 `Direct Lighting`，并提供独立的 AO、SSGI 与 SSR 区域。SSGI 默认开启，以半分辨率 2 rays/pixel 做单次漫反射反弹，使用 RG32F min/max Hi-Z、深度/世界法线历史验证、时域方差裁剪、三轮双边 à-trous 和全分辨率双边上采样；它始终保留清晰的全分辨率 raster diffuse IBL，只对“命中辐射－同方向环境辐射”的有符号残差执行半分辨率时域与空间滤波，再把残差加回 Opaque HDR。GTAO/Bent Normal 负责 IBL 的近场遮蔽，SSR 随后反射合成过 SSGI 的 Opaque HDR，Blend 最后合成。切换至 RTRT 时，该窗口换成光照与采样、SVGF、TAA / TAAU 和诊断面板，两套参数分别保存。新会话默认进入 RTRT；`--mode path` 保留为别名。详见 [RTRT 使用与实现说明](docs/rtrt-renderer.md)。
 
 ## 场景与后端边界
 
@@ -119,7 +120,7 @@ SceneDocument transaction
   -> typed edit + revision update + undo/dirty state
   -> immutable RenderSceneSnapshot
        -> OpenGL
-       -> CUDA Path
+       -> CUDA RTRT / offline Path
        -> CPU picking BVH
        -> offline renderer
 ```
@@ -130,7 +131,7 @@ SceneDocument transaction
 
 程序球在进入渲染快照前统一映射到一份共享的 64×32 平滑单位球网格，center/radius 进入实例矩阵，因此 OpenGL、CUDA、拾取和离线输出共享三角形、法线、UV 与材质槽语义。
 
-矩形面光在快照中同时保留解析灯光数据和一份共享单位四边形实例。OpenGL 用解析矩形与内置 64×64 LTC LUT 求值；CUDA Path 把可见四边形作为两个发光三角形加入现有 emissive NEE/MIS 分布。LTC 数据来自 Eric Heitz 等人的 `selfshadow/ltc_code`，许可和论文引用见 `shaders/opengl/LTC_LICENSE.txt`。
+矩形面光在快照中同时保留解析灯光数据和一份共享单位四边形实例。OpenGL 用解析矩形与内置 64×64 LTC LUT 求值；CUDA RTRT / Path 把可见四边形作为两个发光三角形加入现有 emissive NEE/MIS 分布。LTC 数据来自 Eric Heitz 等人的 `selfshadow/ltc_code`，许可和论文引用见 `shaders/opengl/LTC_LICENSE.txt`。
 
 ## CUDA 设备与帧生命周期
 
@@ -169,7 +170,7 @@ viewer --scene builtin|asset
        [--environment file.hdr|file.exr|file.png|file.jpg]
        [--environment-intensity value] [--environment-yaw degrees]
        [--hide-environment-background]
-       [--mode opengl|path]
+       [--mode opengl|rtrt]
        [--cuda-device N]
        [--width N] [--height N] [--frames N]
        [--no-restore-last]

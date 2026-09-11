@@ -208,6 +208,7 @@ RenderSceneSnapshot make_render_scene_snapshot(Scene scene) {
             instance.object_id =
                 static_cast<std::uint64_t>(snapshot.instances.size() + 1U);
             instance.asset_index = quad_asset_index;
+            instance.emission_casts_shadows = light.casts_shadows;
             instance.object_to_world = Mat4::Identity();
             instance.object_to_world.block<3, 1>(0, 0) = 2.0f * light.axis_u;
             instance.object_to_world.block<3, 1>(0, 1) = 2.0f * light.axis_v;
