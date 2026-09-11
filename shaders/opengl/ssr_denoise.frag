@@ -5,8 +5,11 @@ layout(binding = 1) uniform sampler2D u_moments;
 layout(binding = 2) uniform sampler2D u_linear_depth;
 layout(binding = 3) uniform sampler2D u_view_normal;
 
+layout(binding = 4) uniform sampler2D u_ssr_pbr;
+layout(binding = 5) uniform sampler2D u_ssr_material;
+
 uniform ivec2 u_full_resolution;
-uniform ivec2 u_half_resolution;
+uniform ivec2 u_trace_resolution;
 uniform ivec2 u_filter_axis;
 uniform int u_stride;
 uniform float u_depth_sigma;
@@ -24,27 +27,11 @@ float luminance(vec3 color) {
     return dot(color, vec3(0.2126, 0.7152, 0.0722));
 }
 
-SurfaceSample representative_surface(ivec2 half_pixel) {
+SurfaceSample representative_surface(ivec2 pixel) {
     SurfaceSample result;
-    result.depth = 0.0;
-    result.normal = vec3(0.0);
-    float nearest = 3.402823466e+38;
-    for (int y = 0; y < 2; ++y) {
-        for (int x = 0; x < 2; ++x) {
-            ivec2 pixel = half_pixel * 2 + ivec2(x, y);
-            if (any(greaterThanEqual(pixel, u_full_resolution))) {
-                continue;
-            }
-            float depth = texelFetch(u_linear_depth, pixel, 0).r;
-            vec3 normal = texelFetch(u_view_normal, pixel, 0).xyz;
-            if (depth > 0.0 && dot(normal, normal) > 1.0e-8 &&
-                depth < nearest) {
-                nearest = depth;
-                result.depth = depth;
-                result.normal = normalize(normal);
-            }
-        }
-    }
+    result.depth = texelFetch(u_linear_depth, pixel, 0).r;
+    result.normal = texelFetch(u_view_normal, pixel, 0).xyz;
+    if (dot(result.normal, result.normal) > 1.0e-8) result.normal = normalize(result.normal);
     return result;
 }
 
@@ -59,7 +46,7 @@ void main() {
     ivec2 center_pixel = clamp(
         ivec2(gl_FragCoord.xy),
         ivec2(0),
-        u_half_resolution - 1);
+        u_trace_resolution - 1);
     SurfaceSample center_surface = representative_surface(center_pixel);
     vec4 center_value = texelFetch(u_source_indirect, center_pixel, 0);
     if (center_surface.depth <= 0.0 ||
@@ -68,6 +55,14 @@ void main() {
         return;
     }
 
+    vec4 center_pbr = texelFetch(u_ssr_pbr, center_pixel, 0);
+    vec3 center_material = texelFetch(u_ssr_material, center_pixel, 0).rgb;
+    // Avoid spatially smearing a sharp, view-dependent reflection.
+    float glossy = smoothstep(0.08, 0.35, center_pbr.a);
+    if (glossy <= 0.0 && dot(center_pbr.rgb, center_pbr.rgb) > 1.0e-8) {
+        out_filtered_indirect = center_value;
+        return;
+    }
     vec2 center_moments = texelFetch(u_moments, center_pixel, 0).rg;
     float variance = max(
         center_moments.y - center_moments.x * center_moments.x,
@@ -87,7 +82,7 @@ void main() {
         ivec2 pixel = center_pixel +
             u_filter_axis * (offset * max(u_stride, 1));
         if (any(lessThan(pixel, ivec2(0))) ||
-            any(greaterThanEqual(pixel, u_half_resolution))) {
+            any(greaterThanEqual(pixel, u_trace_resolution))) {
             continue;
         }
         SurfaceSample sample_surface = representative_surface(pixel);
@@ -106,8 +101,13 @@ void main() {
         float luminance_weight = exp(
             -abs(luminance(sample_value) - center_luminance) /
             luminance_sigma);
-        float weight = spatial_weight * depth_weight *
-            normal_weight * luminance_weight;
+        vec4 sample_pbr = texelFetch(u_ssr_pbr, pixel, 0);
+        vec3 sample_material = texelFetch(u_ssr_material, pixel, 0).rgb;
+        float material_weight = exp(-32.0 * abs(sample_pbr.a - center_pbr.a) -
+            8.0 * length(sample_pbr.rgb - center_pbr.rgb) -
+            8.0 * length(sample_material - center_material));
+        float weight = spatial_weight * depth_weight * normal_weight *
+            luminance_weight * material_weight * (offset == 0 ? 1.0 : glossy);
         sum += sample_value * weight;
         weight_sum += weight;
     }

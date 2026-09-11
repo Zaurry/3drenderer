@@ -111,27 +111,6 @@ struct AmbientOcclusionRenderSettings {
 
 enum class OpenGlSsrDebugView : std::uint8_t {
     Final = 0,
-    Reflection,
-    Confidence,
-};
-
-struct SsrRenderSettings {
-    bool enabled = true;
-    int max_steps = 64;
-    int refinement_steps = 4;
-    float max_distance_scale = 1.0f;
-    float thickness_scale = 0.01f;
-    float max_roughness = 0.9f;
-    float intensity = 1.0f;
-    float edge_fade = 0.15f;
-    bool jitter = true;
-    OpenGlSsrDebugView debug_view = OpenGlSsrDebugView::Final;
-
-    bool operator==(const SsrRenderSettings&) const = default;
-};
-
-enum class OpenGlSsgiDebugView : std::uint8_t {
-    Final = 0,
     RawIndirect,
     HitConfidence,
     TemporalIndirect,
@@ -139,22 +118,21 @@ enum class OpenGlSsgiDebugView : std::uint8_t {
     HistoryLength,
 };
 
-struct SsgiRenderSettings {
+// Unified screen-space ray tracing of the complete reflective BRDF.
+struct SsrRenderSettings {
     bool enabled = true;
     int rays_per_pixel = 2;
     int max_steps = 64;
-    int refinement_steps = 4;
     float max_distance_scale = 1.0f;
-    float thickness_scale = 0.01f;
+    float thickness_scale = 0.002f;
     float edge_fade = 0.15f;
-    float strength = 1.0f;
     int max_history_frames = 32;
     int denoise_passes = 3;
     float denoise_depth_sigma_fraction = 0.05f;
     float denoise_normal_power = 16.0f;
-    OpenGlSsgiDebugView debug_view = OpenGlSsgiDebugView::Final;
+    OpenGlSsrDebugView debug_view = OpenGlSsrDebugView::Final;
 
-    bool operator==(const SsgiRenderSettings&) const = default;
+    bool operator==(const SsrRenderSettings&) const = default;
 };
 
 enum class OpenGlRenderStyle : std::uint8_t {
@@ -183,7 +161,6 @@ struct OpenGlRenderSettings {
     PcssRenderSettings pcss;
     DominantLightExtractionRenderSettings dominant_light;
     AmbientOcclusionRenderSettings ambient_occlusion;
-    SsgiRenderSettings ssgi;
     SsrRenderSettings ssr;
 
     bool operator==(const OpenGlRenderSettings&) const = default;

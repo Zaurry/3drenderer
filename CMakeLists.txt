@@ -415,6 +415,16 @@ set(RENDERER_TEST_TARGETS
     cuda_contract_tests
     realtime_tests)
 
+if(RENDERER_BUILD_VIEWER)
+    add_executable(opengl_transport_tests
+        tests/opengl_transport_tests.cpp tests/test_main.cpp)
+    target_link_libraries(opengl_transport_tests PRIVATE
+        renderer_core renderer_opengl renderer_glad ${RENDERER_SDL_TARGET})
+    target_compile_definitions(opengl_transport_tests PRIVATE
+        RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    list(APPEND RENDERER_TEST_TARGETS opengl_transport_tests)
+endif()
+
 if(RENDERER_BUILD_BENCHMARKS)
     add_library(renderer_benchmark_common STATIC
         src/benchmark/benchmark_framework.cpp
@@ -575,6 +585,9 @@ add_test(NAME sampling_tests COMMAND sampling_tests)
 add_test(NAME document_tests COMMAND document_tests)
 add_test(NAME opengl_contract_tests COMMAND opengl_contract_tests)
 add_test(NAME opengl_shader_lint_tests COMMAND opengl_shader_lint_tests)
+if(RENDERER_BUILD_VIEWER)
+    add_test(NAME opengl_transport_tests COMMAND opengl_transport_tests)
+endif()
 add_test(NAME cuda_contract_tests COMMAND cuda_contract_tests)
 add_test(NAME realtime_tests COMMAND realtime_tests)
 

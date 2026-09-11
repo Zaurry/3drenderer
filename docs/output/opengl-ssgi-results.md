@@ -1,5 +1,7 @@
 # OpenGL Temporal Hi-Z SSGI 验收结果
 
+> 历史记录：当前实现已统一为 SSR（Screen Space Ray Tracing），见 [统一 SSR 验证记录](opengl-ssr-results.md)。下文性能数字对应旧实现。
+
 记录日期：2026-08-29。对比基线为提交 `93096ca`，变更后为同一提交上的 SSGI 工作树；两次均使用 Release、no-CUDA、同一台 NVIDIA GeForce RTX 5080 和标准 `san_miguel_first_scene` case（2418×1343，60 帧预热、300 帧测量）。本记录用于描述新增默认工作量，不设置绝对性能门槛。
 
 运行命令：

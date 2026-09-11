@@ -16,7 +16,7 @@ namespace renderer {
 
 // Current viewer session schema version. Load applies version-gated
 // upgrades oldest-first (v1 legacy backend note, v3 OpenGL techniques,
-// v5 temporal SSGI, v6 RTRT);
+// v5 temporal SSGI, v6 RTRT and unified screen-space ray tracing);
 // save() always writes this version.
 constexpr int kViewerSessionVersion = 6;
 
@@ -281,85 +281,61 @@ void restore_opengl_settings(
                 settings.shadow_map.debug_view =
                     OpenGlShadowDebugView::Final;
                 settings.ssr.debug_view = OpenGlSsrDebugView::Final;
-                settings.ssgi.debug_view = OpenGlSsgiDebugView::Final;
             }
         }
-        if (opengl.contains("ssr")) {
-            const auto& ssr = opengl.at("ssr");
-            auto& target = settings.ssr;
-            target.enabled = ssr.value("enabled", true);
-            target.max_steps = std::clamp(
-                ssr.value("max_steps", 64), 8, 256);
-            target.refinement_steps = std::clamp(
-                ssr.value("refinement_steps", 4), 0, 16);
-            target.max_distance_scale = finite_value_or_default_clamped(
-                ssr, "max_distance_scale", 1.0f, 0.05f, 4.0f);
-            target.thickness_scale = finite_value_or_default_clamped(
-                ssr, "thickness_scale", 0.01f, 0.0005f, 0.1f);
-            target.max_roughness = finite_value_clamped(
-                ssr, "max_roughness", 0.9f, 0.0f, 1.0f);
-            target.intensity = finite_value_clamped(
-                ssr, "intensity", 1.0f, 0.0f, 4.0f);
-            target.edge_fade = finite_value_clamped(
-                ssr, "edge_fade", 0.15f, 0.0f, 0.5f);
-            target.jitter = ssr.value("jitter", true);
-            target.debug_view = static_cast<OpenGlSsrDebugView>(std::clamp(
-                ssr.value("debug_view", 0), 0, 2));
-            if (target.debug_view != OpenGlSsrDebugView::Final) {
-                settings.shadow_map.debug_view =
-                    OpenGlShadowDebugView::Final;
-                settings.ambient_occlusion.debug_view =
-                    OpenGlAmbientOcclusionDebugView::Final;
-                settings.ssgi.debug_view = OpenGlSsgiDebugView::Final;
-            }
-        }
+
 }
 
-void restore_ssgi_settings(
+void restore_ssr_settings(
     OpenGlRenderSettings& settings,
-    const nlohmann::json& render) {
+    const nlohmann::json& render,
+    int version) {
     const auto& opengl = render.at("opengl");
-    if (!opengl.contains("ssgi")) {
-        return;
+    const char* key = version >= 6 ? "ssr" :
+        (version >= 5 && opengl.contains("ssgi") ? "ssgi" : "ssr");
+    if (!opengl.contains(key) || !opengl.at(key).is_object()) return;
+    const auto& ssr = opengl.at(key);
+    auto& target = settings.ssr;
+    target.enabled = boolean_value_or_default(ssr, "enabled", true);
+    // Legacy effects become one integrator. Keep it disabled only when both
+    // old effects were disabled, and prefer the old GI sampling controls.
+    if (version < 6) {
+        const bool old_reflections = opengl.contains("ssr") && opengl.at("ssr").is_object()
+            ? boolean_value_or_default(opengl.at("ssr"), "enabled", true) : true;
+        const bool old_gi = version >= 5 && opengl.contains("ssgi") && opengl.at("ssgi").is_object()
+            ? boolean_value_or_default(opengl.at("ssgi"), "enabled", true) : true;
+        target.enabled = old_reflections || old_gi;
     }
-    const auto& ssgi = opengl.at("ssgi");
-    auto& target = settings.ssgi;
-    target.enabled = boolean_value_or_default(ssgi, "enabled", true);
     target.rays_per_pixel = integer_value_or_default_clamped(
-        ssgi, "rays_per_pixel", 2, 1, 8);
+        ssr, "rays_per_pixel", 2, 1, 8);
     target.max_steps = integer_value_or_default_clamped(
-        ssgi, "max_steps", 64, 8, 256);
-    target.refinement_steps = integer_value_or_default_clamped(
-        ssgi, "refinement_steps", 4, 0, 16);
+        ssr, "max_steps", 64, 8, 256);
     target.max_distance_scale = finite_value_or_default_clamped(
-        ssgi, "max_distance_scale", 1.0f, 0.05f, 4.0f);
+        ssr, "max_distance_scale", 1.0f, 0.05f, 4.0f);
     target.thickness_scale = finite_value_or_default_clamped(
-        ssgi, "thickness_scale", 0.01f, 0.0005f, 0.1f);
+        ssr, "thickness_scale", 0.002f, 0.0005f, 0.1f);
     target.edge_fade = finite_value_or_default_clamped(
-        ssgi, "edge_fade", 0.15f, 0.0f, 0.5f);
-    target.strength = finite_value_or_default_clamped(
-        ssgi, "strength", 1.0f, 0.0f, 1.0f);
+        ssr, "edge_fade", 0.15f, 0.0f, 0.5f);
     target.max_history_frames = integer_value_or_default_clamped(
-        ssgi, "max_history_frames", 32, 1, 64);
+        ssr, "max_history_frames", 32, 1, 64);
     target.denoise_passes = integer_value_or_default_clamped(
-        ssgi, "denoise_passes", 3, 0, 4);
+        ssr, "denoise_passes", 3, 0, 4);
     target.denoise_depth_sigma_fraction =
         finite_value_or_default_clamped(
-            ssgi,
+            ssr,
             "denoise_depth_sigma_fraction",
             0.05f,
             0.005f,
             0.5f);
     target.denoise_normal_power = finite_value_or_default_clamped(
-        ssgi, "denoise_normal_power", 16.0f, 1.0f, 64.0f);
-    target.debug_view = static_cast<OpenGlSsgiDebugView>(
+        ssr, "denoise_normal_power", 16.0f, 1.0f, 64.0f);
+    target.debug_view = static_cast<OpenGlSsrDebugView>(
         integer_value_or_default_clamped(
-            ssgi, "debug_view", 0, 0, 5));
-    if (target.debug_view != OpenGlSsgiDebugView::Final) {
+            ssr, "debug_view", 0, 0, 5));
+    if (target.debug_view != OpenGlSsrDebugView::Final) {
         settings.shadow_map.debug_view = OpenGlShadowDebugView::Final;
         settings.ambient_occlusion.debug_view =
             OpenGlAmbientOcclusionDebugView::Final;
-        settings.ssr.debug_view = OpenGlSsrDebugView::Final;
     }
 }
 
@@ -481,11 +457,7 @@ ViewerSessionState ViewerSessionStore::load(
         restore_opengl_settings(
             state.render_settings.opengl,
             render);
-        if (version >= 5) {
-            restore_ssgi_settings(
-                state.render_settings.opengl,
-                render);
-        }
+        restore_ssr_settings(state.render_settings.opengl, render, version);
     }
     if (state.ui.mode == InteractiveRenderMode::Rtrt) {
         std::string reason;
@@ -643,31 +615,17 @@ void ViewerSessionStore::save(
                 {"normal_power", state.render_settings.opengl.ambient_occlusion.denoise.normal_power},
             }},
         }},
-        {"ssgi", {
-            {"enabled", state.render_settings.opengl.ssgi.enabled},
-            {"rays_per_pixel", state.render_settings.opengl.ssgi.rays_per_pixel},
-            {"max_steps", state.render_settings.opengl.ssgi.max_steps},
-            {"refinement_steps", state.render_settings.opengl.ssgi.refinement_steps},
-            {"max_distance_scale", state.render_settings.opengl.ssgi.max_distance_scale},
-            {"thickness_scale", state.render_settings.opengl.ssgi.thickness_scale},
-            {"edge_fade", state.render_settings.opengl.ssgi.edge_fade},
-            {"strength", state.render_settings.opengl.ssgi.strength},
-            {"max_history_frames", state.render_settings.opengl.ssgi.max_history_frames},
-            {"denoise_passes", state.render_settings.opengl.ssgi.denoise_passes},
-            {"denoise_depth_sigma_fraction", state.render_settings.opengl.ssgi.denoise_depth_sigma_fraction},
-            {"denoise_normal_power", state.render_settings.opengl.ssgi.denoise_normal_power},
-            {"debug_view", static_cast<int>(state.render_settings.opengl.ssgi.debug_view)},
-        }},
         {"ssr", {
             {"enabled", state.render_settings.opengl.ssr.enabled},
+            {"rays_per_pixel", state.render_settings.opengl.ssr.rays_per_pixel},
             {"max_steps", state.render_settings.opengl.ssr.max_steps},
-            {"refinement_steps", state.render_settings.opengl.ssr.refinement_steps},
             {"max_distance_scale", state.render_settings.opengl.ssr.max_distance_scale},
             {"thickness_scale", state.render_settings.opengl.ssr.thickness_scale},
-            {"max_roughness", state.render_settings.opengl.ssr.max_roughness},
-            {"intensity", state.render_settings.opengl.ssr.intensity},
             {"edge_fade", state.render_settings.opengl.ssr.edge_fade},
-            {"jitter", state.render_settings.opengl.ssr.jitter},
+            {"max_history_frames", state.render_settings.opengl.ssr.max_history_frames},
+            {"denoise_passes", state.render_settings.opengl.ssr.denoise_passes},
+            {"denoise_depth_sigma_fraction", state.render_settings.opengl.ssr.denoise_depth_sigma_fraction},
+            {"denoise_normal_power", state.render_settings.opengl.ssr.denoise_normal_power},
             {"debug_view", static_cast<int>(state.render_settings.opengl.ssr.debug_view)},
         }},
     };

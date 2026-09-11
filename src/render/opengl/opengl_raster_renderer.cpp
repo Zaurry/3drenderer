@@ -3,7 +3,7 @@
 #include "render/ggx_energy_compensation.h"
 #include "render/opengl/opengl_shader_contract.h"
 #include "render/opengl/opengl_shadow_math.h"
-#include "render/opengl/opengl_ssgi_math.h"
+#include "render/opengl/opengl_ssr_math.h"
 #include "render/opengl/tonal_art_map.h"
 #include "render/shading_constants.h"
 
@@ -729,15 +729,14 @@ public:
             locate_auxiliary_shader("screen_space_gbuffer.frag");
         ao_fragment_path_ = locate_auxiliary_shader("ambient_occlusion.frag");
         ao_denoise_fragment_path_ = locate_auxiliary_shader("ao_denoise.frag");
-        ssr_fragment_path_ = locate_auxiliary_shader("ssr.frag");
-        ssgi_hiz_fragment_path_ = locate_auxiliary_shader("ssgi_hiz.frag");
-        ssgi_trace_fragment_path_ = locate_auxiliary_shader("ssgi_trace.frag");
-        ssgi_temporal_fragment_path_ =
-            locate_auxiliary_shader("ssgi_temporal.frag");
-        ssgi_denoise_fragment_path_ =
-            locate_auxiliary_shader("ssgi_denoise.frag");
-        ssgi_composite_fragment_path_ =
-            locate_auxiliary_shader("ssgi_composite.frag");
+        ssr_hiz_fragment_path_ = locate_auxiliary_shader("ssr_hiz.frag");
+        ssr_trace_fragment_path_ = locate_auxiliary_shader("ssr_trace.frag");
+        ssr_temporal_fragment_path_ =
+            locate_auxiliary_shader("ssr_temporal.frag");
+        ssr_denoise_fragment_path_ =
+            locate_auxiliary_shader("ssr_denoise.frag");
+        ssr_composite_fragment_path_ =
+            locate_auxiliary_shader("ssr_composite.frag");
         sky_vertex_path_ = locate_auxiliary_shader("sky.vert");
         sky_fragment_path_ = locate_auxiliary_shader("sky.frag");
         shadow_vertex_path_ = locate_auxiliary_shader("shadow.vert");
@@ -789,12 +788,11 @@ public:
         screen_space_gbuffer_program_.reset();
         ao_program_.reset();
         ao_denoise_program_.reset();
-        ssr_program_.reset();
-        ssgi_hiz_program_.reset();
-        ssgi_trace_program_.reset();
-        ssgi_temporal_program_.reset();
-        ssgi_denoise_program_.reset();
-        ssgi_composite_program_.reset();
+        ssr_hiz_program_.reset();
+        ssr_trace_program_.reset();
+        ssr_temporal_program_.reset();
+        ssr_denoise_program_.reset();
+        ssr_composite_program_.reset();
         release_scene_resources();
         release_output_resources();
         release_shadow_resources();
@@ -846,7 +844,7 @@ public:
         scene_radius_ = compute_scene_radius(scene);
         shadow_dirty_ = true;
         gpu_lights_dirty_ = true;
-        ssgi_history_valid_ = false;
+        ssr_history_valid_ = false;
     }
 
     void sync_scene(const Scene& scene, SceneChangeSet changes) {
@@ -869,7 +867,7 @@ public:
         }
         if (changes != SceneChange::None) {
             shadow_dirty_ = true;
-            ssgi_history_valid_ = false;
+            ssr_history_valid_ = false;
         }
     }
 
@@ -886,7 +884,7 @@ public:
         if (frame_state.reset_requested || frame_state.framebuffer_resized ||
             frame_state.scene_changes != SceneChange::None ||
             opengl_settings_changed) {
-            ssgi_history_valid_ = false;
+            ssr_history_valid_ = false;
         }
         cached_opengl_settings_ = settings.opengl;
         cached_opengl_settings_valid_ = true;
@@ -899,20 +897,18 @@ public:
         const Mat4 ao_view_projection = view_projection_matrix(
             camera,
             std::max(1.0e-4f, scene_radius_ * 1.0e-4f));
-        const bool ssgi_requested = open_gl_ssgi_requested(settings.opengl);
-        const bool ssgi_active = ssgi_requested &&
-            ssgi_shaders_available_ && ssgi_hiz_framebuffer_ != 0 &&
-            ssgi_trace_framebuffer_ != 0 &&
-            ssgi_temporal_framebuffer_ != 0 &&
-            ssgi_denoise_framebuffer_ != 0 &&
-            ssgi_composite_framebuffer_ != 0;
-        if (ssgi_active && !ssgi_was_active_) {
-            ssgi_history_valid_ = false;
-        }
-        ssgi_was_active_ = ssgi_active;
         const bool ssr_requested = open_gl_ssr_requested(settings.opengl);
         const bool ssr_active = ssr_requested &&
-            ssr_shaders_available_ && ssr_framebuffer_ != 0;
+            ssr_shaders_available_ && ssr_source_available_ &&
+            screen_space_gbuffer_program_ && ssr_hiz_framebuffer_ != 0 &&
+            ssr_trace_framebuffer_ != 0 &&
+            ssr_temporal_framebuffer_ != 0 &&
+            ssr_denoise_framebuffer_ != 0 &&
+            ssr_composite_framebuffer_ != 0;
+        if (ssr_active && !ssr_was_active_) {
+            ssr_history_valid_ = false;
+        }
+        ssr_was_active_ = ssr_active;
         bool gbuffer_active = false;
         const bool ao_active = render_screen_space_techniques(
             scene,
@@ -920,16 +916,16 @@ public:
             settings,
             ao_view_projection,
             ssr_active,
-            ssgi_active,
             gbuffer_active);
 
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer_);
         glViewport(0, 0, settings.width, settings.height);
-        const std::array<GLenum, 4> all_buffers{
+        const std::array<GLenum, 5> all_buffers{
             GL_COLOR_ATTACHMENT0,
             GL_COLOR_ATTACHMENT1,
             GL_COLOR_ATTACHMENT2,
-            GL_COLOR_ATTACHMENT3};
+            GL_COLOR_ATTACHMENT3,
+            GL_COLOR_ATTACHMENT4};
         glDrawBuffers(static_cast<GLsizei>(all_buffers.size()), all_buffers.data());
         glEnable(GL_DEPTH_TEST);
         glDepthFunc(gbuffer_active ? GL_EQUAL : GL_LESS);
@@ -947,6 +943,7 @@ public:
         glClearBufferfv(GL_COLOR, 1, zero.data());
         glClearBufferfv(GL_COLOR, 2, one.data());
         glClearBufferfv(GL_COLOR, 3, zero.data());
+        glClearBufferfv(GL_COLOR, 4, zero.data());
         if (!gbuffer_active) {
             glClear(GL_DEPTH_BUFFER_BIT);
         }
@@ -996,11 +993,12 @@ public:
             npr.sketch_use_uv ? 1 : 0);
         glActiveTexture(GL_TEXTURE16);
         glBindTexture(GL_TEXTURE_2D_ARRAY, tonal_art_map_texture_);
-        const std::array<GLenum, 4> opaque_buffers{
+        const std::array<GLenum, 5> opaque_buffers{
             GL_COLOR_ATTACHMENT0,
             GL_NONE,
             GL_NONE,
-            GL_COLOR_ATTACHMENT3};
+            GL_COLOR_ATTACHMENT3,
+            GL_COLOR_ATTACHMENT4};
         glDrawBuffers(
             static_cast<GLsizei>(opaque_buffers.size()),
             opaque_buffers.data());
@@ -1224,11 +1222,15 @@ public:
             glDrawArrays(GL_TRIANGLES, batch.first, batch.count);
         }
         };
+        // SSR supplies all opaque environment/indirect illumination.
+        set_uniform(uniforms_.ibl_enabled,
+            settings.opengl.ibl_enabled && !ssr_active ? 1 : 0);
         draw_batches(false);
-        const std::array<GLenum, 4> transparency_buffers{
+        const std::array<GLenum, 5> transparency_buffers{
             GL_NONE,
             GL_COLOR_ATTACHMENT1,
             GL_COLOR_ATTACHMENT2,
+            GL_NONE,
             GL_NONE};
         glDrawBuffers(
             static_cast<GLsizei>(transparency_buffers.size()),
@@ -1242,6 +1244,7 @@ public:
         set_uniform(uniforms_.transparent_pass, 1);
         glDepthFunc(GL_LESS);
         glDepthMask(GL_FALSE);
+        set_uniform(uniforms_.ibl_enabled, settings.opengl.ibl_enabled ? 1 : 0);
         draw_batches(true);
         glDepthMask(GL_TRUE);
         glDepthFunc(GL_LESS);
@@ -1250,25 +1253,9 @@ public:
         glDisable(GL_CULL_FACE);
 
         GLuint screen_opaque_texture = opaque_texture_;
-        if (ssgi_active) {
-            render_ssgi(scene, camera, settings, ao_active);
-            screen_opaque_texture = ssgi_output_texture_;
-        }
-
         if (ssr_active) {
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, screen_opaque_texture);
-            glTexParameteri(
-                GL_TEXTURE_2D,
-                GL_TEXTURE_MIN_FILTER,
-                GL_LINEAR_MIPMAP_LINEAR);
-            glGenerateMipmap(GL_TEXTURE_2D);
-            render_screen_space_reflections(
-                scene,
-                camera,
-                settings,
-                ao_active,
-                screen_opaque_texture);
+            render_ssr(scene, camera, settings, ao_active);
+            screen_opaque_texture = ssr_output_texture_;
         }
 
         glBindFramebuffer(GL_FRAMEBUFFER, composite_framebuffer_);
@@ -1284,7 +1271,7 @@ public:
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(
             GL_TEXTURE_2D,
-            ssr_active ? ssr_output_texture_ : screen_opaque_texture);
+            screen_opaque_texture);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, transparency_accum_texture_);
         glActiveTexture(GL_TEXTURE2);
@@ -1309,9 +1296,9 @@ public:
         set_uniform(
             glGetUniformLocation(
                 composite_program_.id(), "u_skip_transparency"),
-            ssgi_active &&
-                    settings.opengl.ssgi.debug_view !=
-                        OpenGlSsgiDebugView::Final
+            ssr_active &&
+                    settings.opengl.ssr.debug_view !=
+                        OpenGlSsrDebugView::Final
                 ? 1
                 : 0);
         glBindVertexArray(vao_);
@@ -1337,21 +1324,20 @@ public:
 
         const auto vertex_write_time = file_write_time(vertex_shader_path_);
         const auto fragment_write_time = file_write_time(fragment_shader_path_);
-        const std::array<std::filesystem::file_time_type, 5>
+        const std::array<std::filesystem::file_time_type, 4>
             screen_space_write_times{
                 file_write_time(fullscreen_vertex_path_),
                 file_write_time(screen_space_gbuffer_fragment_path_),
                 file_write_time(ao_fragment_path_),
-                file_write_time(ao_denoise_fragment_path_),
-                file_write_time(ssr_fragment_path_)};
+                file_write_time(ao_denoise_fragment_path_)};
         const std::array<std::filesystem::file_time_type, 6>
-            ssgi_write_times{
+            ssr_write_times{
                 file_write_time(fullscreen_vertex_path_),
-                file_write_time(ssgi_hiz_fragment_path_),
-                file_write_time(ssgi_trace_fragment_path_),
-                file_write_time(ssgi_temporal_fragment_path_),
-                file_write_time(ssgi_denoise_fragment_path_),
-                file_write_time(ssgi_composite_fragment_path_)};
+                file_write_time(ssr_hiz_fragment_path_),
+                file_write_time(ssr_trace_fragment_path_),
+                file_write_time(ssr_temporal_fragment_path_),
+                file_write_time(ssr_denoise_fragment_path_),
+                file_write_time(ssr_composite_fragment_path_)};
         const std::array<std::filesystem::file_time_type, 5>
             auxiliary_write_times{
                 file_write_time(sky_vertex_path_),
@@ -1366,10 +1352,10 @@ public:
             main_changed || screen_space_write_times != screen_space_write_times_;
         const bool auxiliary_changed =
             main_changed || auxiliary_write_times != auxiliary_write_times_;
-        const bool ssgi_changed = ssgi_write_times != ssgi_write_times_;
+        const bool ssr_changed = ssr_write_times != ssr_write_times_;
         if (!reload_requested_ &&
             !main_changed && !screen_space_changed && !auxiliary_changed &&
-            !ssgi_changed) {
+            !ssr_changed) {
             return;
         }
         const bool reload_all = reload_requested_;
@@ -1377,7 +1363,7 @@ public:
         vertex_write_time_ = vertex_write_time;
         fragment_write_time_ = fragment_write_time;
         screen_space_write_times_ = screen_space_write_times;
-        ssgi_write_times_ = ssgi_write_times;
+        ssr_write_times_ = ssr_write_times;
         auxiliary_write_times_ = auxiliary_write_times;
 
         std::string errors;
@@ -1388,7 +1374,10 @@ public:
                     vertex_shader_path_, fragment_shader_path_, error)) {
                 shader_program_ = std::move(replacement);
                 uniforms_ = find_uniforms(shader_program_.id());
-                ssgi_history_valid_ = false;
+                ssr_source_available_ = glGetFragDataLocation(
+                    shader_program_.id(), "out_direct_lighting") == 3 &&
+                    glGetFragDataLocation(shader_program_.id(), "out_ray_radiance") == 4;
+                ssr_history_valid_ = false;
             } else {
                 errors = "Raster shader: " + error;
             }
@@ -1397,7 +1386,6 @@ public:
             GlShaderProgram gbuffer_replacement;
             GlShaderProgram ao_replacement;
             GlShaderProgram denoise_replacement;
-            GlShaderProgram ssr_replacement;
             std::string error;
             bool valid = gbuffer_replacement.load(
                 vertex_shader_path_, screen_space_gbuffer_fragment_path_, error);
@@ -1413,37 +1401,27 @@ public:
                            error)) {
                 valid = false;
                 error = "AO denoise shader: " + error;
-            } else if (!ssr_replacement.load(
-                           fullscreen_vertex_path_,
-                           ssr_fragment_path_,
-                           error)) {
-                valid = false;
-                error = "SSR evaluation shader: " + error;
             }
             if (valid) {
                 screen_space_gbuffer_program_ = std::move(gbuffer_replacement);
                 ao_program_ = std::move(ao_replacement);
                 ao_denoise_program_ = std::move(denoise_replacement);
-                ssr_program_ = std::move(ssr_replacement);
                 screen_space_gbuffer_uniforms_ =
                     find_uniforms(screen_space_gbuffer_program_.id());
                 ao_shaders_available_ = true;
-                ssr_shaders_available_ = true;
-                ssgi_history_valid_ = false;
+                ssr_history_valid_ = false;
             } else {
                 ao_shaders_available_ =
                     static_cast<bool>(screen_space_gbuffer_program_) &&
                     static_cast<bool>(ao_program_) &&
                     static_cast<bool>(ao_denoise_program_);
-                ssr_shaders_available_ = ao_shaders_available_ &&
-                    static_cast<bool>(ssr_program_);
                 if (!errors.empty()) {
                     errors += '\n';
                 }
                 errors += error;
             }
         }
-        if (reload_all || ssgi_changed) {
+        if (reload_all || ssr_changed) {
             GlShaderProgram hiz_replacement;
             GlShaderProgram trace_replacement;
             GlShaderProgram temporal_replacement;
@@ -1451,49 +1429,49 @@ public:
             GlShaderProgram composite_replacement;
             std::string error;
             bool valid = hiz_replacement.load(
-                fullscreen_vertex_path_, ssgi_hiz_fragment_path_, error);
+                fullscreen_vertex_path_, ssr_hiz_fragment_path_, error);
             if (!valid) {
-                error = "SSGI Hi-Z shader: " + error;
+                error = "SSR Hi-Z shader: " + error;
             } else if (!trace_replacement.load(
                            fullscreen_vertex_path_,
-                           ssgi_trace_fragment_path_,
+                           ssr_trace_fragment_path_,
                            error)) {
                 valid = false;
-                error = "SSGI trace shader: " + error;
+                error = "SSR trace shader: " + error;
             } else if (!temporal_replacement.load(
                            fullscreen_vertex_path_,
-                           ssgi_temporal_fragment_path_,
+                           ssr_temporal_fragment_path_,
                            error)) {
                 valid = false;
-                error = "SSGI temporal shader: " + error;
+                error = "SSR temporal shader: " + error;
             } else if (!denoise_replacement.load(
                            fullscreen_vertex_path_,
-                           ssgi_denoise_fragment_path_,
+                           ssr_denoise_fragment_path_,
                            error)) {
                 valid = false;
-                error = "SSGI denoise shader: " + error;
+                error = "SSR denoise shader: " + error;
             } else if (!composite_replacement.load(
                            fullscreen_vertex_path_,
-                           ssgi_composite_fragment_path_,
+                           ssr_composite_fragment_path_,
                            error)) {
                 valid = false;
-                error = "SSGI composite shader: " + error;
+                error = "SSR composite shader: " + error;
             }
             if (valid) {
-                ssgi_hiz_program_ = std::move(hiz_replacement);
-                ssgi_trace_program_ = std::move(trace_replacement);
-                ssgi_temporal_program_ = std::move(temporal_replacement);
-                ssgi_denoise_program_ = std::move(denoise_replacement);
-                ssgi_composite_program_ = std::move(composite_replacement);
-                ssgi_shaders_available_ = true;
-                ssgi_history_valid_ = false;
+                ssr_hiz_program_ = std::move(hiz_replacement);
+                ssr_trace_program_ = std::move(trace_replacement);
+                ssr_temporal_program_ = std::move(temporal_replacement);
+                ssr_denoise_program_ = std::move(denoise_replacement);
+                ssr_composite_program_ = std::move(composite_replacement);
+                ssr_shaders_available_ = true;
+                ssr_history_valid_ = false;
             } else {
-                ssgi_shaders_available_ =
-                    static_cast<bool>(ssgi_hiz_program_) &&
-                    static_cast<bool>(ssgi_trace_program_) &&
-                    static_cast<bool>(ssgi_temporal_program_) &&
-                    static_cast<bool>(ssgi_denoise_program_) &&
-                    static_cast<bool>(ssgi_composite_program_);
+                ssr_shaders_available_ =
+                    static_cast<bool>(ssr_hiz_program_) &&
+                    static_cast<bool>(ssr_trace_program_) &&
+                    static_cast<bool>(ssr_temporal_program_) &&
+                    static_cast<bool>(ssr_denoise_program_) &&
+                    static_cast<bool>(ssr_composite_program_);
                 if (!errors.empty()) {
                     errors += '\n';
                 }
@@ -1591,12 +1569,11 @@ private:
     std::filesystem::path screen_space_gbuffer_fragment_path_;
     std::filesystem::path ao_fragment_path_;
     std::filesystem::path ao_denoise_fragment_path_;
-    std::filesystem::path ssr_fragment_path_;
-    std::filesystem::path ssgi_hiz_fragment_path_;
-    std::filesystem::path ssgi_trace_fragment_path_;
-    std::filesystem::path ssgi_temporal_fragment_path_;
-    std::filesystem::path ssgi_denoise_fragment_path_;
-    std::filesystem::path ssgi_composite_fragment_path_;
+    std::filesystem::path ssr_hiz_fragment_path_;
+    std::filesystem::path ssr_trace_fragment_path_;
+    std::filesystem::path ssr_temporal_fragment_path_;
+    std::filesystem::path ssr_denoise_fragment_path_;
+    std::filesystem::path ssr_composite_fragment_path_;
     std::filesystem::path sky_vertex_path_;
     std::filesystem::path sky_fragment_path_;
     std::filesystem::path shadow_vertex_path_;
@@ -1606,8 +1583,8 @@ private:
         std::filesystem::file_time_type::min();
     std::filesystem::file_time_type fragment_write_time_ =
         std::filesystem::file_time_type::min();
-    std::array<std::filesystem::file_time_type, 5> screen_space_write_times_{};
-    std::array<std::filesystem::file_time_type, 6> ssgi_write_times_{};
+    std::array<std::filesystem::file_time_type, 4> screen_space_write_times_{};
+    std::array<std::filesystem::file_time_type, 6> ssr_write_times_{};
     std::array<std::filesystem::file_time_type, 5> auxiliary_write_times_{};
     std::chrono::steady_clock::time_point next_shader_check_ =
         std::chrono::steady_clock::time_point::min();
@@ -1619,16 +1596,15 @@ private:
     GlShaderProgram screen_space_gbuffer_program_;
     GlShaderProgram ao_program_;
     GlShaderProgram ao_denoise_program_;
-    GlShaderProgram ssr_program_;
-    GlShaderProgram ssgi_hiz_program_;
-    GlShaderProgram ssgi_trace_program_;
-    GlShaderProgram ssgi_temporal_program_;
-    GlShaderProgram ssgi_denoise_program_;
-    GlShaderProgram ssgi_composite_program_;
+    GlShaderProgram ssr_hiz_program_;
+    GlShaderProgram ssr_trace_program_;
+    GlShaderProgram ssr_temporal_program_;
+    GlShaderProgram ssr_denoise_program_;
+    GlShaderProgram ssr_composite_program_;
     UniformLocations screen_space_gbuffer_uniforms_;
     bool ao_shaders_available_ = false;
     bool ssr_shaders_available_ = false;
-    bool ssgi_shaders_available_ = false;
+    bool ssr_source_available_ = false;
 
     GLuint vao_ = 0;
     GLuint vertex_buffer_ = 0;
@@ -1684,7 +1660,8 @@ private:
     GLuint framebuffer_ = 0;
     GLuint color_texture_ = 0;
     GLuint opaque_texture_ = 0;
-    GLuint diffuse_ibl_texture_ = 0;
+    GLuint direct_lighting_texture_ = 0;
+    GLuint ray_radiance_texture_ = 0;
     GLuint transparency_accum_texture_ = 0;
     GLuint transparency_reveal_texture_ = 0;
     GLuint composite_framebuffer_ = 0;
@@ -1695,33 +1672,32 @@ private:
     GLuint screen_space_linear_depth_texture_ = 0;
     GLuint gbuffer_pbr_texture_ = 0;
     GLuint gbuffer_pbr_aux_texture_ = 0;
-    GLuint gbuffer_ssgi_material_texture_ = 0;
+    GLuint gbuffer_ssr_material_texture_ = 0;
+    GLuint gbuffer_diffuse_fresnel_texture_ = 0;
     GLuint ao_raw_texture_ = 0;
     GLuint ao_temporary_texture_ = 0;
     GLuint ao_filtered_texture_ = 0;
     GLuint ao_resolved_texture_ = 0;
-    GLuint ssr_framebuffer_ = 0;
+    GLuint ssr_hiz_framebuffer_ = 0;
+    GLuint ssr_hiz_texture_ = 0;
+    GLuint ssr_trace_framebuffer_ = 0;
+    GLuint ssr_raw_texture_ = 0;
+    GLuint ssr_temporal_framebuffer_ = 0;
+    std::array<GLuint, 2> ssr_history_textures_{};
+    std::array<GLuint, 2> ssr_moment_textures_{};
+    std::array<GLuint, 2> ssr_history_depth_textures_{};
+    std::array<GLuint, 2> ssr_history_normal_textures_{};
+    GLuint ssr_denoise_framebuffer_ = 0;
+    std::array<GLuint, 2> ssr_denoise_textures_{};
+    GLuint ssr_composite_framebuffer_ = 0;
     GLuint ssr_output_texture_ = 0;
-    GLuint ssgi_hiz_framebuffer_ = 0;
-    GLuint ssgi_hiz_texture_ = 0;
-    GLuint ssgi_trace_framebuffer_ = 0;
-    GLuint ssgi_raw_texture_ = 0;
-    GLuint ssgi_temporal_framebuffer_ = 0;
-    std::array<GLuint, 2> ssgi_history_textures_{};
-    std::array<GLuint, 2> ssgi_moment_textures_{};
-    std::array<GLuint, 2> ssgi_history_depth_textures_{};
-    std::array<GLuint, 2> ssgi_history_normal_textures_{};
-    GLuint ssgi_denoise_framebuffer_ = 0;
-    std::array<GLuint, 2> ssgi_denoise_textures_{};
-    GLuint ssgi_composite_framebuffer_ = 0;
-    GLuint ssgi_output_texture_ = 0;
-    int ssgi_half_width_ = 0;
-    int ssgi_half_height_ = 0;
-    int ssgi_hiz_levels_ = 0;
-    int ssgi_history_index_ = 0;
-    bool ssgi_history_valid_ = false;
-    bool ssgi_was_active_ = false;
-    std::uint32_t ssgi_frame_index_ = 0;
+    int ssr_width_ = 0;
+    int ssr_height_ = 0;
+    int ssr_hiz_levels_ = 0;
+    int ssr_history_index_ = 0;
+    bool ssr_history_valid_ = false;
+    bool ssr_was_active_ = false;
+    std::uint32_t ssr_frame_index_ = 0;
     Vec3 previous_camera_position_ = Vec3::Zero();
     Vec3 previous_camera_forward_ = Vec3(0.0f, 0.0f, -1.0f);
     Vec3 previous_camera_right_ = Vec3(1.0f, 0.0f, 0.0f);
@@ -2876,12 +2852,13 @@ private:
         const Mat4& view_projection) {
         glBindFramebuffer(GL_FRAMEBUFFER, screen_space_gbuffer_framebuffer_);
         glViewport(0, 0, settings.width, settings.height);
-        const std::array<GLenum, 5> gbuffer_outputs{
+        const std::array<GLenum, 6> gbuffer_outputs{
             GL_COLOR_ATTACHMENT0,
             GL_COLOR_ATTACHMENT1,
             GL_COLOR_ATTACHMENT2,
             GL_COLOR_ATTACHMENT3,
-            GL_COLOR_ATTACHMENT4};
+            GL_COLOR_ATTACHMENT4,
+            GL_COLOR_ATTACHMENT5};
         glDrawBuffers(
             static_cast<GLsizei>(gbuffer_outputs.size()),
             gbuffer_outputs.data());
@@ -2895,6 +2872,7 @@ private:
         glClearBufferfv(GL_COLOR, 2, zero.data());
         glClearBufferfv(GL_COLOR, 3, zero.data());
         glClearBufferfv(GL_COLOR, 4, zero.data());
+        glClearBufferfv(GL_COLOR, 5, zero.data());
         glClear(GL_DEPTH_BUFFER_BIT);
 
         glUseProgram(screen_space_gbuffer_program_.id());
@@ -3065,11 +3043,11 @@ private:
         return true;
     }
 
-    void build_ssgi_hiz(const RenderSettings& settings) {
-        glBindFramebuffer(GL_FRAMEBUFFER, ssgi_hiz_framebuffer_);
+    void build_ssr_hiz(const RenderSettings& settings) {
+        glBindFramebuffer(GL_FRAMEBUFFER, ssr_hiz_framebuffer_);
         glDisable(GL_DEPTH_TEST);
         glDepthMask(GL_FALSE);
-        glUseProgram(ssgi_hiz_program_.id());
+        glUseProgram(ssr_hiz_program_.id());
         glBindVertexArray(vao_);
         const GLenum output = GL_COLOR_ATTACHMENT0;
         glDrawBuffers(1, &output);
@@ -3078,29 +3056,29 @@ private:
 
         int source_width = settings.width;
         int source_height = settings.height;
-        for (int level = 0; level < ssgi_hiz_levels_; ++level) {
+        for (int level = 0; level < ssr_hiz_levels_; ++level) {
             const int destination_width = std::max(1, settings.width >> level);
             const int destination_height = std::max(1, settings.height >> level);
             glFramebufferTexture2D(
                 GL_FRAMEBUFFER,
                 GL_COLOR_ATTACHMENT0,
                 GL_TEXTURE_2D,
-                ssgi_hiz_texture_,
+                ssr_hiz_texture_,
                 level);
             glViewport(0, 0, destination_width, destination_height);
             set_uniform(
-                glGetUniformLocation(ssgi_hiz_program_.id(), "u_initialize"),
+                glGetUniformLocation(ssr_hiz_program_.id(), "u_initialize"),
                 level == 0 ? 1 : 0);
             set_uniform(
-                glGetUniformLocation(ssgi_hiz_program_.id(), "u_source_level"),
+                glGetUniformLocation(ssr_hiz_program_.id(), "u_source_level"),
                 std::max(level - 1, 0));
             const GLint source_size = glGetUniformLocation(
-                ssgi_hiz_program_.id(), "u_source_size");
+                ssr_hiz_program_.id(), "u_source_size");
             if (source_size >= 0) {
                 glUniform2i(source_size, source_width, source_height);
             }
             const GLint destination_size = glGetUniformLocation(
-                ssgi_hiz_program_.id(), "u_destination_size");
+                ssr_hiz_program_.id(), "u_destination_size");
             if (destination_size >= 0) {
                 glUniform2i(
                     destination_size,
@@ -3110,7 +3088,7 @@ private:
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(
                 GL_TEXTURE_2D,
-                level == 0 ? 0 : ssgi_hiz_texture_);
+                level == 0 ? 0 : ssr_hiz_texture_);
             glDrawArrays(GL_TRIANGLES, 0, 3);
             // The next reduction level samples the mip just rendered.
             glTextureBarrier();
@@ -3128,10 +3106,9 @@ private:
         const RenderSettings& settings,
         const Mat4& view_projection,
         bool ssr_active,
-        bool ssgi_active,
         bool& gbuffer_active) {
         const bool ao_wants_gbuffer = ambient_occlusion_wants_gbuffer(settings);
-        gbuffer_active = ao_wants_gbuffer || ssr_active || ssgi_active ||
+        gbuffer_active = ao_wants_gbuffer || ssr_active ||
             (open_gl_npr_active(settings.opengl) && screen_space_gbuffer_program_ &&
              screen_space_gbuffer_framebuffer_ != 0);
         if (!gbuffer_active) {
@@ -3139,8 +3116,8 @@ private:
             return false;
         }
         render_screen_space_gbuffer(scene, camera, settings, view_projection);
-        if (ssgi_active) {
-            build_ssgi_hiz(settings);
+        if (ssr_active) {
+            build_ssr_hiz(settings);
         }
         if (!ao_wants_gbuffer) {
             ao_resolved_texture_ = ao_raw_texture_;
@@ -3149,33 +3126,33 @@ private:
         return render_ambient_occlusion(camera, settings);
     }
 
-    void render_ssgi(
+    void render_ssr(
         const Scene& scene,
         const Camera& camera,
         const RenderSettings& settings,
         bool ao_active) {
-        const auto& ssgi = settings.opengl.ssgi;
+        const auto& ssr = settings.opengl.ssr;
         const float max_distance = std::max(
             1.0e-5f,
             scene_radius_ *
-                std::clamp(ssgi.max_distance_scale, 0.05f, 4.0f));
+                std::clamp(ssr.max_distance_scale, 0.05f, 4.0f));
         const float thickness = max_distance *
-            std::clamp(ssgi.thickness_scale, 0.0005f, 0.1f);
+            std::clamp(ssr.thickness_scale, 0.0005f, 0.1f);
         const float depth_sigma = std::max(
             1.0e-5f,
             max_distance * std::clamp(
-                ssgi.denoise_depth_sigma_fraction, 0.005f, 0.5f));
+                ssr.denoise_depth_sigma_fraction, 0.005f, 0.5f));
         const auto set_resolution_uniforms = [this](GLuint program) {
             const GLint full_resolution = glGetUniformLocation(
                 program, "u_full_resolution");
             if (full_resolution >= 0) {
                 glUniform2i(full_resolution, output_width_, output_height_);
             }
-            const GLint half_resolution = glGetUniformLocation(
-                program, "u_half_resolution");
-            if (half_resolution >= 0) {
+            const GLint trace_resolution = glGetUniformLocation(
+                program, "u_trace_resolution");
+            if (trace_resolution >= 0) {
                 glUniform2i(
-                    half_resolution, ssgi_half_width_, ssgi_half_height_);
+                    trace_resolution, ssr_width_, ssr_height_);
             }
         };
 
@@ -3184,86 +3161,79 @@ private:
         glBindVertexArray(vao_);
         const GLenum single_output = GL_COLOR_ATTACHMENT0;
 
-        glBindFramebuffer(GL_FRAMEBUFFER, ssgi_trace_framebuffer_);
-        glViewport(0, 0, ssgi_half_width_, ssgi_half_height_);
+        glBindFramebuffer(GL_FRAMEBUFFER, ssr_trace_framebuffer_);
+        glViewport(0, 0, ssr_width_, ssr_height_);
         glDrawBuffers(1, &single_output);
-        glUseProgram(ssgi_trace_program_.id());
-        set_resolution_uniforms(ssgi_trace_program_.id());
+        glUseProgram(ssr_trace_program_.id());
+        set_resolution_uniforms(ssr_trace_program_.id());
         glUniform2f(
             glGetUniformLocation(
-                ssgi_trace_program_.id(), "u_camera_viewport"),
+                ssr_trace_program_.id(), "u_camera_viewport"),
             camera.viewport_width(),
             camera.viewport_height());
         set_uniform(
-            glGetUniformLocation(ssgi_trace_program_.id(), "u_camera_forward"),
+            glGetUniformLocation(ssr_trace_program_.id(), "u_camera_forward"),
             camera.forward());
         set_uniform(
-            glGetUniformLocation(ssgi_trace_program_.id(), "u_camera_right"),
+            glGetUniformLocation(ssr_trace_program_.id(), "u_camera_right"),
             camera.right());
         set_uniform(
-            glGetUniformLocation(ssgi_trace_program_.id(), "u_camera_up"),
+            glGetUniformLocation(ssr_trace_program_.id(), "u_camera_up"),
             camera.up());
         set_uniform(
-            glGetUniformLocation(ssgi_trace_program_.id(), "u_rays_per_pixel"),
-            std::clamp(ssgi.rays_per_pixel, 1, kOpenGlMaxSsgiRays));
+            glGetUniformLocation(ssr_trace_program_.id(), "u_rays_per_pixel"),
+            std::clamp(ssr.rays_per_pixel, 1, kOpenGlMaxSsrRays));
         set_uniform(
-            glGetUniformLocation(ssgi_trace_program_.id(), "u_max_steps"),
-            std::clamp(ssgi.max_steps, 8, kOpenGlMaxSsgiSteps));
+            glGetUniformLocation(ssr_trace_program_.id(), "u_max_steps"),
+            std::clamp(ssr.max_steps, 8, kOpenGlMaxSsrSteps));
         set_uniform(
-            glGetUniformLocation(
-                ssgi_trace_program_.id(), "u_refinement_steps"),
-            std::clamp(
-                ssgi.refinement_steps,
-                0,
-                kOpenGlMaxSsgiRefinementSteps));
-        set_uniform(
-            glGetUniformLocation(ssgi_trace_program_.id(), "u_max_distance"),
+            glGetUniformLocation(ssr_trace_program_.id(), "u_max_distance"),
             max_distance);
         set_uniform(
-            glGetUniformLocation(ssgi_trace_program_.id(), "u_thickness"),
+            glGetUniformLocation(ssr_trace_program_.id(), "u_thickness"),
             thickness);
         set_uniform(
-            glGetUniformLocation(ssgi_trace_program_.id(), "u_edge_fade"),
-            std::clamp(ssgi.edge_fade, 0.0f, 0.5f));
+            glGetUniformLocation(ssr_trace_program_.id(), "u_edge_fade"),
+            std::clamp(ssr.edge_fade, 0.0f, 0.5f));
         set_uniform(
-            glGetUniformLocation(ssgi_trace_program_.id(), "u_frame_index"),
-            static_cast<int>(ssgi_frame_index_ % 1000000U));
+            glGetUniformLocation(ssr_trace_program_.id(), "u_frame_index"),
+            static_cast<int>(ssr_frame_index_ % 1000000U));
         set_uniform(
-            glGetUniformLocation(ssgi_trace_program_.id(), "u_hiz_levels"),
-            ssgi_hiz_levels_);
+            glGetUniformLocation(ssr_trace_program_.id(), "u_hiz_levels"),
+            ssr_hiz_levels_);
         set_uniform(
-            glGetUniformLocation(ssgi_trace_program_.id(), "u_ao_enabled"),
+            glGetUniformLocation(ssr_trace_program_.id(), "u_ao_enabled"),
             ao_active ? 1 : 0);
         set_uniform(
             glGetUniformLocation(
-                ssgi_trace_program_.id(), "u_environment_color"),
+                ssr_trace_program_.id(), "u_environment_color"),
             scene.environment);
         set_uniform(
             glGetUniformLocation(
-                ssgi_trace_program_.id(), "u_environment_intensity"),
+                ssr_trace_program_.id(), "u_environment_intensity"),
             scene.environment_intensity);
         set_uniform(
             glGetUniformLocation(
-                ssgi_trace_program_.id(),
+                ssr_trace_program_.id(),
                 "u_environment_rotation_radians"),
             scene.environment_rotation_degrees * 0.01745329251994329577f);
         set_uniform(
             glGetUniformLocation(
-                ssgi_trace_program_.id(), "u_has_environment_map"),
+                ssr_trace_program_.id(), "u_has_environment_map"),
             scene.environment_map ? 1 : 0);
         set_uniform(
-            glGetUniformLocation(ssgi_trace_program_.id(), "u_ibl_enabled"),
+            glGetUniformLocation(ssr_trace_program_.id(), "u_ibl_enabled"),
             settings.opengl.ibl_enabled ? 1 : 0);
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, opaque_texture_);
+        glBindTexture(GL_TEXTURE_2D, ray_radiance_texture_);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, screen_space_linear_depth_texture_);
         glActiveTexture(GL_TEXTURE2);
         glBindTexture(GL_TEXTURE_2D, screen_space_view_normal_texture_);
         glActiveTexture(GL_TEXTURE3);
-        glBindTexture(GL_TEXTURE_2D, gbuffer_ssgi_material_texture_);
+        glBindTexture(GL_TEXTURE_2D, gbuffer_ssr_material_texture_);
         glActiveTexture(GL_TEXTURE4);
-        glBindTexture(GL_TEXTURE_2D, ssgi_hiz_texture_);
+        glBindTexture(GL_TEXTURE_2D, ssr_hiz_texture_);
         glActiveTexture(GL_TEXTURE5);
         glBindTexture(
             GL_TEXTURE_2D,
@@ -3274,34 +3244,42 @@ private:
             residual_environment_cube_ != 0
                 ? residual_environment_cube_
                 : environment_cube_);
+        glActiveTexture(GL_TEXTURE7);
+        glBindTexture(GL_TEXTURE_2D, gbuffer_pbr_texture_);
+        glActiveTexture(GL_TEXTURE8);
+        glBindTexture(GL_TEXTURE_2D, gbuffer_pbr_aux_texture_);
+        glActiveTexture(GL_TEXTURE9);
+        glBindTexture(GL_TEXTURE_2D, gbuffer_diffuse_fresnel_texture_);
+        glActiveTexture(GL_TEXTURE10);
+        glBindTexture(GL_TEXTURE_2D, brdf_lut_);
         glDrawArrays(GL_TRIANGLES, 0, 3);
 
-        const int previous_index = ssgi_history_index_;
+        const int previous_index = ssr_history_index_;
         const int write_index = 1 - previous_index;
-        glBindFramebuffer(GL_FRAMEBUFFER, ssgi_temporal_framebuffer_);
+        glBindFramebuffer(GL_FRAMEBUFFER, ssr_temporal_framebuffer_);
         glFramebufferTexture2D(
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT0,
             GL_TEXTURE_2D,
-            ssgi_history_textures_[static_cast<std::size_t>(write_index)],
+            ssr_history_textures_[static_cast<std::size_t>(write_index)],
             0);
         glFramebufferTexture2D(
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT1,
             GL_TEXTURE_2D,
-            ssgi_moment_textures_[static_cast<std::size_t>(write_index)],
+            ssr_moment_textures_[static_cast<std::size_t>(write_index)],
             0);
         glFramebufferTexture2D(
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT2,
             GL_TEXTURE_2D,
-            ssgi_history_depth_textures_[static_cast<std::size_t>(write_index)],
+            ssr_history_depth_textures_[static_cast<std::size_t>(write_index)],
             0);
         glFramebufferTexture2D(
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT3,
             GL_TEXTURE_2D,
-            ssgi_history_normal_textures_[static_cast<std::size_t>(write_index)],
+            ssr_history_normal_textures_[static_cast<std::size_t>(write_index)],
             0);
         const std::array<GLenum, 4> temporal_outputs{
             GL_COLOR_ATTACHMENT0,
@@ -3311,78 +3289,78 @@ private:
         glDrawBuffers(
             static_cast<GLsizei>(temporal_outputs.size()),
             temporal_outputs.data());
-        glUseProgram(ssgi_temporal_program_.id());
-        set_resolution_uniforms(ssgi_temporal_program_.id());
+        glUseProgram(ssr_temporal_program_.id());
+        set_resolution_uniforms(ssr_temporal_program_.id());
         glUniform2f(
             glGetUniformLocation(
-                ssgi_temporal_program_.id(), "u_camera_viewport"),
+                ssr_temporal_program_.id(), "u_camera_viewport"),
             camera.viewport_width(),
             camera.viewport_height());
         set_uniform(
             glGetUniformLocation(
-                ssgi_temporal_program_.id(), "u_camera_position"),
+                ssr_temporal_program_.id(), "u_camera_position"),
             camera.eye());
         set_uniform(
             glGetUniformLocation(
-                ssgi_temporal_program_.id(), "u_camera_forward"),
+                ssr_temporal_program_.id(), "u_camera_forward"),
             camera.forward());
         set_uniform(
             glGetUniformLocation(
-                ssgi_temporal_program_.id(), "u_camera_right"),
+                ssr_temporal_program_.id(), "u_camera_right"),
             camera.right());
         set_uniform(
-            glGetUniformLocation(ssgi_temporal_program_.id(), "u_camera_up"),
+            glGetUniformLocation(ssr_temporal_program_.id(), "u_camera_up"),
             camera.up());
         glUniform2f(
             glGetUniformLocation(
-                ssgi_temporal_program_.id(),
+                ssr_temporal_program_.id(),
                 "u_previous_camera_viewport"),
-            ssgi_history_valid_
+            ssr_history_valid_
                 ? previous_camera_viewport_width_
                 : camera.viewport_width(),
-            ssgi_history_valid_
+            ssr_history_valid_
                 ? previous_camera_viewport_height_
                 : camera.viewport_height());
         set_uniform(
             glGetUniformLocation(
-                ssgi_temporal_program_.id(),
+                ssr_temporal_program_.id(),
                 "u_previous_camera_position"),
-            ssgi_history_valid_
+            ssr_history_valid_
                 ? previous_camera_position_
                 : camera.eye());
         set_uniform(
             glGetUniformLocation(
-                ssgi_temporal_program_.id(),
+                ssr_temporal_program_.id(),
                 "u_previous_camera_forward"),
-            ssgi_history_valid_
+            ssr_history_valid_
                 ? previous_camera_forward_
                 : camera.forward());
         set_uniform(
             glGetUniformLocation(
-                ssgi_temporal_program_.id(),
+                ssr_temporal_program_.id(),
                 "u_previous_camera_right"),
-            ssgi_history_valid_
+            ssr_history_valid_
                 ? previous_camera_right_
                 : camera.right());
         set_uniform(
             glGetUniformLocation(
-                ssgi_temporal_program_.id(), "u_previous_camera_up"),
-            ssgi_history_valid_
+                ssr_temporal_program_.id(), "u_previous_camera_up"),
+            ssr_history_valid_
                 ? previous_camera_up_
                 : camera.up());
         set_uniform(
-            glGetUniformLocation(ssgi_temporal_program_.id(), "u_thickness"),
+            glGetUniformLocation(ssr_temporal_program_.id(), "u_thickness"),
             thickness);
         set_uniform(
             glGetUniformLocation(
-                ssgi_temporal_program_.id(), "u_max_history_frames"),
-            std::clamp(ssgi.max_history_frames, 1, 64));
+                ssr_temporal_program_.id(), "u_max_history_frames"),
+            std::clamp(ssr.max_history_frames, 1, 64));
         set_uniform(
             glGetUniformLocation(
-                ssgi_temporal_program_.id(), "u_history_valid"),
-            ssgi_history_valid_ ? 1 : 0);
+                ssr_temporal_program_.id(), "u_history_valid"),
+            ssr_history_valid_ ? 1 : 0);
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, ssgi_raw_texture_);
+        glBindTexture(GL_TEXTURE_2D, ssr_raw_texture_);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, screen_space_linear_depth_texture_);
         glActiveTexture(GL_TEXTURE2);
@@ -3390,33 +3368,37 @@ private:
         glActiveTexture(GL_TEXTURE3);
         glBindTexture(
             GL_TEXTURE_2D,
-            ssgi_history_textures_[static_cast<std::size_t>(previous_index)]);
+            ssr_history_textures_[static_cast<std::size_t>(previous_index)]);
         glActiveTexture(GL_TEXTURE4);
         glBindTexture(
             GL_TEXTURE_2D,
-            ssgi_moment_textures_[static_cast<std::size_t>(previous_index)]);
+            ssr_moment_textures_[static_cast<std::size_t>(previous_index)]);
         glActiveTexture(GL_TEXTURE5);
         glBindTexture(
             GL_TEXTURE_2D,
-            ssgi_history_depth_textures_[
+            ssr_history_depth_textures_[
                 static_cast<std::size_t>(previous_index)]);
         glActiveTexture(GL_TEXTURE6);
         glBindTexture(
             GL_TEXTURE_2D,
-            ssgi_history_normal_textures_[
+            ssr_history_normal_textures_[
                 static_cast<std::size_t>(previous_index)]);
+        glActiveTexture(GL_TEXTURE7);
+        glBindTexture(GL_TEXTURE_2D, gbuffer_pbr_texture_);
+        glActiveTexture(GL_TEXTURE8);
+        glBindTexture(GL_TEXTURE_2D, gbuffer_ssr_material_texture_);
         glDrawArrays(GL_TRIANGLES, 0, 3);
 
         GLuint filtered_texture =
-            ssgi_history_textures_[static_cast<std::size_t>(write_index)];
+            ssr_history_textures_[static_cast<std::size_t>(write_index)];
         const int denoise_pass_count = std::clamp(
-            ssgi.denoise_passes, 0, kOpenGlMaxSsgiDenoisePasses);
+            ssr.denoise_passes, 0, kOpenGlMaxSsrDenoisePasses);
         for (int pass = 0; pass < denoise_pass_count; ++pass) {
             const int stride = 1 << pass;
             for (int axis = 0; axis < 2; ++axis) {
-                const GLuint target = ssgi_denoise_textures_[
+                const GLuint target = ssr_denoise_textures_[
                     static_cast<std::size_t>(axis)];
-                glBindFramebuffer(GL_FRAMEBUFFER, ssgi_denoise_framebuffer_);
+                glBindFramebuffer(GL_FRAMEBUFFER, ssr_denoise_framebuffer_);
                 glFramebufferTexture2D(
                     GL_FRAMEBUFFER,
                     GL_COLOR_ATTACHMENT0,
@@ -3424,10 +3406,10 @@ private:
                     target,
                     0);
                 glDrawBuffers(1, &single_output);
-                glUseProgram(ssgi_denoise_program_.id());
-                set_resolution_uniforms(ssgi_denoise_program_.id());
+                glUseProgram(ssr_denoise_program_.id());
+                set_resolution_uniforms(ssr_denoise_program_.id());
                 const GLint filter_axis = glGetUniformLocation(
-                    ssgi_denoise_program_.id(), "u_filter_axis");
+                    ssr_denoise_program_.id(), "u_filter_axis");
                 if (filter_axis >= 0) {
                     glUniform2i(
                         filter_axis,
@@ -3436,22 +3418,22 @@ private:
                 }
                 set_uniform(
                     glGetUniformLocation(
-                        ssgi_denoise_program_.id(), "u_stride"),
+                        ssr_denoise_program_.id(), "u_stride"),
                     stride);
                 set_uniform(
                     glGetUniformLocation(
-                        ssgi_denoise_program_.id(), "u_depth_sigma"),
+                        ssr_denoise_program_.id(), "u_depth_sigma"),
                     depth_sigma);
                 set_uniform(
                     glGetUniformLocation(
-                        ssgi_denoise_program_.id(), "u_normal_power"),
-                    std::clamp(ssgi.denoise_normal_power, 1.0f, 64.0f));
+                        ssr_denoise_program_.id(), "u_normal_power"),
+                    std::clamp(ssr.denoise_normal_power, 1.0f, 64.0f));
                 glActiveTexture(GL_TEXTURE0);
                 glBindTexture(GL_TEXTURE_2D, filtered_texture);
                 glActiveTexture(GL_TEXTURE1);
                 glBindTexture(
                     GL_TEXTURE_2D,
-                    ssgi_moment_textures_[
+                    ssr_moment_textures_[
                         static_cast<std::size_t>(write_index)]);
                 glActiveTexture(GL_TEXTURE2);
                 glBindTexture(
@@ -3459,45 +3441,38 @@ private:
                 glActiveTexture(GL_TEXTURE3);
                 glBindTexture(
                     GL_TEXTURE_2D, screen_space_view_normal_texture_);
+                glActiveTexture(GL_TEXTURE4);
+                glBindTexture(GL_TEXTURE_2D, gbuffer_pbr_texture_);
+                glActiveTexture(GL_TEXTURE5);
+                glBindTexture(GL_TEXTURE_2D, gbuffer_ssr_material_texture_);
                 glDrawArrays(GL_TRIANGLES, 0, 3);
                 filtered_texture = target;
             }
         }
 
-        glBindFramebuffer(GL_FRAMEBUFFER, ssgi_composite_framebuffer_);
+        glBindFramebuffer(GL_FRAMEBUFFER, ssr_composite_framebuffer_);
         glViewport(0, 0, output_width_, output_height_);
         glDrawBuffers(1, &single_output);
-        glUseProgram(ssgi_composite_program_.id());
-        set_resolution_uniforms(ssgi_composite_program_.id());
-        set_uniform(
-            glGetUniformLocation(ssgi_composite_program_.id(), "u_strength"),
-            std::clamp(ssgi.strength, 0.0f, 1.0f));
+        glUseProgram(ssr_composite_program_.id());
+        set_resolution_uniforms(ssr_composite_program_.id());
         set_uniform(
             glGetUniformLocation(
-                ssgi_composite_program_.id(), "u_depth_sigma"),
-            depth_sigma);
+                ssr_composite_program_.id(), "u_max_history_frames"),
+            std::clamp(ssr.max_history_frames, 1, 64));
         set_uniform(
             glGetUniformLocation(
-                ssgi_composite_program_.id(), "u_normal_power"),
-            std::clamp(ssgi.denoise_normal_power, 1.0f, 64.0f));
-        set_uniform(
-            glGetUniformLocation(
-                ssgi_composite_program_.id(), "u_max_history_frames"),
-            std::clamp(ssgi.max_history_frames, 1, 64));
-        set_uniform(
-            glGetUniformLocation(
-                ssgi_composite_program_.id(), "u_debug_view"),
-            static_cast<int>(ssgi.debug_view));
+                ssr_composite_program_.id(), "u_debug_view"),
+            static_cast<int>(ssr.debug_view));
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, opaque_texture_);
         glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, diffuse_ibl_texture_);
+        glBindTexture(GL_TEXTURE_2D, direct_lighting_texture_);
         glActiveTexture(GL_TEXTURE2);
-        glBindTexture(GL_TEXTURE_2D, ssgi_raw_texture_);
+        glBindTexture(GL_TEXTURE_2D, ssr_raw_texture_);
         glActiveTexture(GL_TEXTURE3);
         glBindTexture(
             GL_TEXTURE_2D,
-            ssgi_history_textures_[static_cast<std::size_t>(write_index)]);
+            ssr_history_textures_[static_cast<std::size_t>(write_index)]);
         glActiveTexture(GL_TEXTURE4);
         glBindTexture(GL_TEXTURE_2D, filtered_texture);
         glActiveTexture(GL_TEXTURE5);
@@ -3505,142 +3480,18 @@ private:
         glActiveTexture(GL_TEXTURE6);
         glBindTexture(GL_TEXTURE_2D, screen_space_view_normal_texture_);
         glActiveTexture(GL_TEXTURE7);
-        glBindTexture(GL_TEXTURE_2D, gbuffer_ssgi_material_texture_);
+        glBindTexture(GL_TEXTURE_2D, gbuffer_ssr_material_texture_);
         glDrawArrays(GL_TRIANGLES, 0, 3);
 
-        ssgi_history_index_ = write_index;
-        ssgi_history_valid_ = true;
+        ssr_history_index_ = write_index;
+        ssr_history_valid_ = true;
         previous_camera_position_ = camera.eye();
         previous_camera_forward_ = camera.forward();
         previous_camera_right_ = camera.right();
         previous_camera_up_ = camera.up();
         previous_camera_viewport_width_ = camera.viewport_width();
         previous_camera_viewport_height_ = camera.viewport_height();
-        ++ssgi_frame_index_;
-        glDepthMask(GL_TRUE);
-    }
-
-    void render_screen_space_reflections(
-        const Scene& scene,
-        const Camera& camera,
-        const RenderSettings& settings,
-        bool ao_active,
-        GLuint opaque_source_texture) {
-        const auto& ssr_settings = settings.opengl.ssr;
-        const float max_distance = std::max(
-            1.0e-5f,
-            scene_radius_ *
-                std::clamp(ssr_settings.max_distance_scale, 0.05f, 4.0f));
-        const float thickness = max_distance *
-            std::clamp(ssr_settings.thickness_scale, 0.0005f, 0.1f);
-
-        glBindFramebuffer(GL_FRAMEBUFFER, ssr_framebuffer_);
-        glViewport(0, 0, settings.width, settings.height);
-        glDisable(GL_DEPTH_TEST);
-        glDepthMask(GL_FALSE);
-        glUseProgram(ssr_program_.id());
-        glUniform2f(
-            glGetUniformLocation(ssr_program_.id(), "u_camera_viewport"),
-            camera.viewport_width(),
-            camera.viewport_height());
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_camera_forward"),
-            camera.forward());
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_camera_right"),
-            camera.right());
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_camera_up"),
-            camera.up());
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_max_steps"),
-            std::clamp(ssr_settings.max_steps, 1, kOpenGlMaxSsrSteps));
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_refinement_steps"),
-            std::clamp(
-                ssr_settings.refinement_steps,
-                0,
-                kOpenGlMaxSsrRefinementSteps));
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_max_distance"),
-            max_distance);
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_thickness"),
-            thickness);
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_max_roughness"),
-            std::clamp(ssr_settings.max_roughness, 0.0f, 1.0f));
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_intensity"),
-            std::clamp(ssr_settings.intensity, 0.0f, 4.0f));
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_edge_fade"),
-            std::clamp(ssr_settings.edge_fade, 0.0f, 0.5f));
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_jitter"),
-            ssr_settings.jitter ? 1 : 0);
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_environment_color"),
-            scene.environment);
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_environment_intensity"),
-            scene.environment_intensity);
-        set_uniform(
-            glGetUniformLocation(
-                ssr_program_.id(),
-                "u_environment_rotation_radians"),
-            scene.environment_rotation_degrees * 0.01745329251994329577f);
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_environment_mip_count"),
-            static_cast<float>(environment_mip_count_));
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_has_environment_map"),
-            scene.environment_map ? 1 : 0);
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_ibl_enabled"),
-            settings.opengl.ibl_enabled ? 1 : 0);
-        const int active_ao_mode = ao_active
-            ? static_cast<int>(settings.opengl.ambient_occlusion.mode)
-            : static_cast<int>(OpenGlAmbientOcclusionMode::Off);
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_ao_mode"),
-            active_ao_mode);
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_ao_bent_normals_enabled"),
-            ao_active &&
-                    settings.opengl.ambient_occlusion.mode ==
-                        OpenGlAmbientOcclusionMode::Gtao &&
-                    settings.opengl.ambient_occlusion.gtao.bent_normals_enabled
-                ? 1
-                : 0);
-        set_uniform(
-            glGetUniformLocation(ssr_program_.id(), "u_debug_view"),
-            static_cast<int>(ssr_settings.debug_view));
-
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, opaque_source_texture);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, screen_space_linear_depth_texture_);
-        glActiveTexture(GL_TEXTURE2);
-        glBindTexture(GL_TEXTURE_2D, screen_space_view_normal_texture_);
-        glActiveTexture(GL_TEXTURE3);
-        glBindTexture(GL_TEXTURE_2D, gbuffer_pbr_texture_);
-        glActiveTexture(GL_TEXTURE4);
-        glBindTexture(GL_TEXTURE_2D, gbuffer_pbr_aux_texture_);
-        glActiveTexture(GL_TEXTURE5);
-        glBindTexture(
-            GL_TEXTURE_CUBE_MAP,
-            residual_environment_cube_ != 0
-                ? residual_environment_cube_
-                : environment_cube_);
-        glActiveTexture(GL_TEXTURE6);
-        glBindTexture(GL_TEXTURE_2D, brdf_lut_);
-        glActiveTexture(GL_TEXTURE7);
-        glBindTexture(
-            GL_TEXTURE_2D,
-            ao_active ? ao_resolved_texture_ : fallback_texture_);
-        glBindVertexArray(vao_);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
+        ++ssr_frame_index_;
         glDepthMask(GL_TRUE);
     }
 
@@ -3663,12 +3514,12 @@ private:
         glFramebufferTexture2D(
             GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, opaque_texture_, 0);
 
-        glGenTextures(1, &diffuse_ibl_texture_);
-        glBindTexture(GL_TEXTURE_2D, diffuse_ibl_texture_);
+        glGenTextures(1, &direct_lighting_texture_);
+        glBindTexture(GL_TEXTURE_2D, direct_lighting_texture_);
         glTexImage2D(
             GL_TEXTURE_2D,
             0,
-            GL_RGB16F,
+            GL_RGB32F,
             width,
             height,
             0,
@@ -3683,7 +3534,30 @@ private:
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT3,
             GL_TEXTURE_2D,
-            diffuse_ibl_texture_,
+            direct_lighting_texture_,
+            0);
+
+        glGenTextures(1, &ray_radiance_texture_);
+        glBindTexture(GL_TEXTURE_2D, ray_radiance_texture_);
+        glTexImage2D(
+            GL_TEXTURE_2D,
+            0,
+            GL_RGB32F,
+            width,
+            height,
+            0,
+            GL_RGB,
+            GL_FLOAT,
+            nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glFramebufferTexture2D(
+            GL_FRAMEBUFFER,
+            GL_COLOR_ATTACHMENT4,
+            GL_TEXTURE_2D,
+            ray_radiance_texture_,
             0);
 
         glGenTextures(1, &transparency_accum_texture_);
@@ -3807,12 +3681,12 @@ private:
             GL_TEXTURE_2D,
             gbuffer_pbr_aux_texture_,
             0);
-        create_material_texture(gbuffer_ssgi_material_texture_);
+        create_material_texture(gbuffer_ssr_material_texture_);
         glFramebufferTexture2D(
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT4,
             GL_TEXTURE_2D,
-            gbuffer_ssgi_material_texture_,
+            gbuffer_ssr_material_texture_,
             0);
         glFramebufferTexture2D(
             GL_FRAMEBUFFER,
@@ -3820,12 +3694,17 @@ private:
             GL_TEXTURE_2D,
             depth_texture_,
             0);
-        const std::array<GLenum, 5> screen_space_gbuffer_outputs{
+        create_material_texture(gbuffer_diffuse_fresnel_texture_);
+        glFramebufferTexture2D(
+            GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT5, GL_TEXTURE_2D,
+            gbuffer_diffuse_fresnel_texture_, 0);
+        const std::array<GLenum, 6> screen_space_gbuffer_outputs{
             GL_COLOR_ATTACHMENT0,
             GL_COLOR_ATTACHMENT1,
             GL_COLOR_ATTACHMENT2,
             GL_COLOR_ATTACHMENT3,
-            GL_COLOR_ATTACHMENT4};
+            GL_COLOR_ATTACHMENT4,
+            GL_COLOR_ATTACHMENT5};
         glDrawBuffers(
             static_cast<GLsizei>(screen_space_gbuffer_outputs.size()),
             screen_space_gbuffer_outputs.data());
@@ -3888,38 +3767,15 @@ private:
             throw std::runtime_error("OpenGL transparency composite framebuffer is incomplete");
         }
 
-        glGenFramebuffers(1, &ssr_framebuffer_);
-        glBindFramebuffer(GL_FRAMEBUFFER, ssr_framebuffer_);
-        glGenTextures(1, &ssr_output_texture_);
-        glBindTexture(GL_TEXTURE_2D, ssr_output_texture_);
-        glTexImage2D(
-            GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glFramebufferTexture2D(
-            GL_FRAMEBUFFER,
-            GL_COLOR_ATTACHMENT0,
-            GL_TEXTURE_2D,
-            ssr_output_texture_,
-            0);
-        const GLenum ssr_output = GL_COLOR_ATTACHMENT0;
-        glDrawBuffers(1, &ssr_output);
-        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            throw std::runtime_error("OpenGL SSR framebuffer is incomplete");
-        }
+        ssr_width_ = width;
+        ssr_height_ = height;
+        ssr_hiz_levels_ = open_gl_ssr_hiz_level_count(width, height);
 
-        ssgi_half_width_ = open_gl_ssgi_half_resolution_dimension(width);
-        ssgi_half_height_ = open_gl_ssgi_half_resolution_dimension(height);
-        ssgi_hiz_levels_ = open_gl_ssgi_hiz_level_count(width, height);
-
-        glGenTextures(1, &ssgi_hiz_texture_);
-        glBindTexture(GL_TEXTURE_2D, ssgi_hiz_texture_);
+        glGenTextures(1, &ssr_hiz_texture_);
+        glBindTexture(GL_TEXTURE_2D, ssr_hiz_texture_);
         glTexStorage2D(
             GL_TEXTURE_2D,
-            ssgi_hiz_levels_,
+            ssr_hiz_levels_,
             GL_RG32F,
             width,
             height);
@@ -3929,23 +3785,23 @@ private:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexParameteri(
-            GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, ssgi_hiz_levels_ - 1);
-        glGenFramebuffers(1, &ssgi_hiz_framebuffer_);
-        glBindFramebuffer(GL_FRAMEBUFFER, ssgi_hiz_framebuffer_);
+            GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, ssr_hiz_levels_ - 1);
+        glGenFramebuffers(1, &ssr_hiz_framebuffer_);
+        glBindFramebuffer(GL_FRAMEBUFFER, ssr_hiz_framebuffer_);
         glFramebufferTexture2D(
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT0,
             GL_TEXTURE_2D,
-            ssgi_hiz_texture_,
+            ssr_hiz_texture_,
             0);
-        const GLenum ssgi_single_output = GL_COLOR_ATTACHMENT0;
-        glDrawBuffers(1, &ssgi_single_output);
+        const GLenum ssr_single_output = GL_COLOR_ATTACHMENT0;
+        glDrawBuffers(1, &ssr_single_output);
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            throw std::runtime_error("OpenGL SSGI Hi-Z framebuffer is incomplete");
+            throw std::runtime_error("OpenGL SSR Hi-Z framebuffer is incomplete");
         }
 
-        const auto create_ssgi_texture = [this](
+        const auto create_ssr_texture = [this](
             GLuint& texture,
             GLint internal_format,
             GLenum format) {
@@ -3955,8 +3811,8 @@ private:
                 GL_TEXTURE_2D,
                 0,
                 internal_format,
-                ssgi_half_width_,
-                ssgi_half_height_,
+                ssr_width_,
+                ssr_height_,
                 0,
                 format,
                 GL_FLOAT,
@@ -3966,59 +3822,59 @@ private:
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         };
-        create_ssgi_texture(ssgi_raw_texture_, GL_RGBA16F, GL_RGBA);
+        create_ssr_texture(ssr_raw_texture_, GL_RGBA32F, GL_RGBA);
         for (std::size_t index = 0; index < 2; ++index) {
-            create_ssgi_texture(
-                ssgi_history_textures_[index], GL_RGBA16F, GL_RGBA);
-            create_ssgi_texture(
-                ssgi_moment_textures_[index], GL_RG16F, GL_RG);
-            create_ssgi_texture(
-                ssgi_history_depth_textures_[index], GL_R32F, GL_RED);
-            create_ssgi_texture(
-                ssgi_history_normal_textures_[index], GL_RGB16F, GL_RGB);
-            create_ssgi_texture(
-                ssgi_denoise_textures_[index], GL_RGBA16F, GL_RGBA);
+            create_ssr_texture(
+                ssr_history_textures_[index], GL_RGBA32F, GL_RGBA);
+            create_ssr_texture(
+                ssr_moment_textures_[index], GL_RG16F, GL_RG);
+            create_ssr_texture(
+                ssr_history_depth_textures_[index], GL_R32F, GL_RED);
+            create_ssr_texture(
+                ssr_history_normal_textures_[index], GL_RGB16F, GL_RGB);
+            create_ssr_texture(
+                ssr_denoise_textures_[index], GL_RGBA32F, GL_RGBA);
         }
 
-        glGenFramebuffers(1, &ssgi_trace_framebuffer_);
-        glBindFramebuffer(GL_FRAMEBUFFER, ssgi_trace_framebuffer_);
+        glGenFramebuffers(1, &ssr_trace_framebuffer_);
+        glBindFramebuffer(GL_FRAMEBUFFER, ssr_trace_framebuffer_);
         glFramebufferTexture2D(
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT0,
             GL_TEXTURE_2D,
-            ssgi_raw_texture_,
+            ssr_raw_texture_,
             0);
-        glDrawBuffers(1, &ssgi_single_output);
+        glDrawBuffers(1, &ssr_single_output);
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            throw std::runtime_error("OpenGL SSGI trace framebuffer is incomplete");
+            throw std::runtime_error("OpenGL SSR trace framebuffer is incomplete");
         }
 
-        glGenFramebuffers(1, &ssgi_temporal_framebuffer_);
-        glBindFramebuffer(GL_FRAMEBUFFER, ssgi_temporal_framebuffer_);
+        glGenFramebuffers(1, &ssr_temporal_framebuffer_);
+        glBindFramebuffer(GL_FRAMEBUFFER, ssr_temporal_framebuffer_);
         glFramebufferTexture2D(
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT0,
             GL_TEXTURE_2D,
-            ssgi_history_textures_[0],
+            ssr_history_textures_[0],
             0);
         glFramebufferTexture2D(
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT1,
             GL_TEXTURE_2D,
-            ssgi_moment_textures_[0],
+            ssr_moment_textures_[0],
             0);
         glFramebufferTexture2D(
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT2,
             GL_TEXTURE_2D,
-            ssgi_history_depth_textures_[0],
+            ssr_history_depth_textures_[0],
             0);
         glFramebufferTexture2D(
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT3,
             GL_TEXTURE_2D,
-            ssgi_history_normal_textures_[0],
+            ssr_history_normal_textures_[0],
             0);
         const std::array<GLenum, 4> temporal_outputs{
             GL_COLOR_ATTACHMENT0,
@@ -4030,25 +3886,25 @@ private:
             temporal_outputs.data());
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            throw std::runtime_error("OpenGL SSGI temporal framebuffer is incomplete");
+            throw std::runtime_error("OpenGL SSR temporal framebuffer is incomplete");
         }
 
-        glGenFramebuffers(1, &ssgi_denoise_framebuffer_);
-        glBindFramebuffer(GL_FRAMEBUFFER, ssgi_denoise_framebuffer_);
+        glGenFramebuffers(1, &ssr_denoise_framebuffer_);
+        glBindFramebuffer(GL_FRAMEBUFFER, ssr_denoise_framebuffer_);
         glFramebufferTexture2D(
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT0,
             GL_TEXTURE_2D,
-            ssgi_denoise_textures_[0],
+            ssr_denoise_textures_[0],
             0);
-        glDrawBuffers(1, &ssgi_single_output);
+        glDrawBuffers(1, &ssr_single_output);
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            throw std::runtime_error("OpenGL SSGI denoise framebuffer is incomplete");
+            throw std::runtime_error("OpenGL SSR denoise framebuffer is incomplete");
         }
 
-        glGenTextures(1, &ssgi_output_texture_);
-        glBindTexture(GL_TEXTURE_2D, ssgi_output_texture_);
+        glGenTextures(1, &ssr_output_texture_);
+        glBindTexture(GL_TEXTURE_2D, ssr_output_texture_);
         glTexImage2D(
             GL_TEXTURE_2D,
             0,
@@ -4063,25 +3919,25 @@ private:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glGenFramebuffers(1, &ssgi_composite_framebuffer_);
-        glBindFramebuffer(GL_FRAMEBUFFER, ssgi_composite_framebuffer_);
+        glGenFramebuffers(1, &ssr_composite_framebuffer_);
+        glBindFramebuffer(GL_FRAMEBUFFER, ssr_composite_framebuffer_);
         glFramebufferTexture2D(
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT0,
             GL_TEXTURE_2D,
-            ssgi_output_texture_,
+            ssr_output_texture_,
             0);
-        glDrawBuffers(1, &ssgi_single_output);
+        glDrawBuffers(1, &ssr_single_output);
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            throw std::runtime_error("OpenGL SSGI composite framebuffer is incomplete");
+            throw std::runtime_error("OpenGL SSR composite framebuffer is incomplete");
         }
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         output_width_ = width;
         output_height_ = height;
-        ssgi_history_valid_ = false;
-        ssgi_history_index_ = 0;
+        ssr_history_valid_ = false;
+        ssr_history_index_ = 0;
     }
 
     float compute_scene_radius(const Scene& scene) const {
@@ -4147,14 +4003,14 @@ private:
                  &screen_space_linear_depth_texture_,
                  &gbuffer_pbr_texture_,
                  &gbuffer_pbr_aux_texture_,
-                 &gbuffer_ssgi_material_texture_,
+                 &gbuffer_ssr_material_texture_,
+                 &gbuffer_diffuse_fresnel_texture_,
                  &ao_raw_texture_,
                  &ao_temporary_texture_,
                  &ao_filtered_texture_,
-                 &ssr_output_texture_,
-                 &ssgi_hiz_texture_,
-                 &ssgi_raw_texture_,
-                 &ssgi_output_texture_}) {
+                 &ssr_hiz_texture_,
+                 &ssr_raw_texture_,
+                 &ssr_output_texture_}) {
             if (*texture != 0) {
                 glDeleteTextures(1, texture);
                 *texture = 0;
@@ -4162,11 +4018,11 @@ private:
         }
         for (std::size_t index = 0; index < 2; ++index) {
             for (GLuint* texture : {
-                     &ssgi_history_textures_[index],
-                     &ssgi_moment_textures_[index],
-                     &ssgi_history_depth_textures_[index],
-                     &ssgi_history_normal_textures_[index],
-                     &ssgi_denoise_textures_[index]}) {
+                     &ssr_history_textures_[index],
+                     &ssr_moment_textures_[index],
+                     &ssr_history_depth_textures_[index],
+                     &ssr_history_normal_textures_[index],
+                     &ssr_denoise_textures_[index]}) {
                 if (*texture != 0) {
                     glDeleteTextures(1, texture);
                     *texture = 0;
@@ -4182,9 +4038,13 @@ private:
             glDeleteTextures(1, &opaque_texture_);
             opaque_texture_ = 0;
         }
-        if (diffuse_ibl_texture_ != 0) {
-            glDeleteTextures(1, &diffuse_ibl_texture_);
-            diffuse_ibl_texture_ = 0;
+        if (direct_lighting_texture_ != 0) {
+            glDeleteTextures(1, &direct_lighting_texture_);
+            direct_lighting_texture_ = 0;
+        }
+        if (ray_radiance_texture_ != 0) {
+            glDeleteTextures(1, &ray_radiance_texture_);
+            ray_radiance_texture_ = 0;
         }
         if (transparency_accum_texture_ != 0) {
             glDeleteTextures(1, &transparency_accum_texture_);
@@ -4206,16 +4066,12 @@ private:
             glDeleteFramebuffers(1, &screen_space_gbuffer_framebuffer_);
             screen_space_gbuffer_framebuffer_ = 0;
         }
-        if (ssr_framebuffer_ != 0) {
-            glDeleteFramebuffers(1, &ssr_framebuffer_);
-            ssr_framebuffer_ = 0;
-        }
         for (GLuint* framebuffer : {
-                 &ssgi_hiz_framebuffer_,
-                 &ssgi_trace_framebuffer_,
-                 &ssgi_temporal_framebuffer_,
-                 &ssgi_denoise_framebuffer_,
-                 &ssgi_composite_framebuffer_}) {
+                 &ssr_hiz_framebuffer_,
+                 &ssr_trace_framebuffer_,
+                 &ssr_temporal_framebuffer_,
+                 &ssr_denoise_framebuffer_,
+                 &ssr_composite_framebuffer_}) {
             if (*framebuffer != 0) {
                 glDeleteFramebuffers(1, framebuffer);
                 *framebuffer = 0;
@@ -4227,11 +4083,11 @@ private:
         }
         output_width_ = 0;
         output_height_ = 0;
-        ssgi_half_width_ = 0;
-        ssgi_half_height_ = 0;
-        ssgi_hiz_levels_ = 0;
-        ssgi_history_valid_ = false;
-        ssgi_history_index_ = 0;
+        ssr_width_ = 0;
+        ssr_height_ = 0;
+        ssr_hiz_levels_ = 0;
+        ssr_history_valid_ = false;
+        ssr_history_index_ = 0;
     }
 };
 

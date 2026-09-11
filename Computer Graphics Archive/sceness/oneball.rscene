@@ -10,9 +10,9 @@
   "environment": {
     "background_visible": true,
     "color": [
-      1.0,
-      1.0,
-      1.0
+      0.05095541477203369,
+      0.04592478647828102,
+      0.04592478647828102
     ],
     "intensity": 1.5240000486373901,
     "rotation_degrees": 3.5
@@ -174,15 +174,15 @@
             0.0
           ],
           "ior": 1.5,
-          "metallic": 0.0,
+          "metallic": 0.49000000953674316,
           "name": "<default>",
           "normal_scale": 1.0,
           "occlusion_strength": 1.0,
           "opacity": 1.0,
-          "roughness": 0.0,
+          "roughness": 0.4659999907016754,
           "slot": 1,
           "two_sided": true,
-          "type": "metal",
+          "type": "diffuse",
           "use_base_color_texture": false,
           "use_bump_texture": false,
           "use_diffuse_texture": false,

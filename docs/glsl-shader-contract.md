@@ -126,48 +126,76 @@ Kulla–Conty 多次散射波瓣另以 2×2 面积中点积分计算，避免错
 
 ## Screen-space techniques
 
-SSAO/GTAO 与 SSR 使用以下默认辅助 shader，并与主 raster shader 一同参与自动热重载：
+SSR 在本项目中指 **Screen Space Ray Tracing**。旧 reflection pass 与 SSGI 已合并，只有一个完整反射 BRDF 积分器、一个 Hi-Z、一套历史与去噪流程，以及一次间接光合成。
 
-- `fullscreen.vert`
-- `screen_space_gbuffer.frag`
-- `ambient_occlusion.frag`
-- `ao_denoise.frag`
-- `ssr.frag`
+顺序为 G-buffer → Hi-Z/AO → Opaque/Mask 光照与 OIT accumulation → SSR trace/temporal/denoise/composite → OIT composite。透明对象不写追踪深度，也不参与屏幕辐射源。Shadow/AO debug view 旁路 SSR；SSR debug view 旁路透明合成。
 
-SSGI 使用独立的原子热重载组；组内任一 compile/link 失败时保留上一套全部有效 program，首次加载失败则旁路 SSGI：
+辅助 shader：
 
-- `ssgi_hiz.frag`
-- `ssgi_trace.frag`
-- `ssgi_temporal.frag`
-- `ssgi_denoise.frag`
-- `ssgi_composite.frag`
+- `fullscreen.vert`、`screen_space_gbuffer.frag`、`ambient_occlusion.frag`、`ao_denoise.frag`。
+- SSR 原子热重载组：`ssr_hiz.frag`、`ssr_trace.frag`、`ssr_temporal.frag`、`ssr_denoise.frag`、`ssr_composite.frag`。任一编译/链接失败时保留整组旧 program，首次失败则旁路。
 
-Screen-space G-buffer 只绘制 Opaque/Mask，复用材质 UV、normal/bump map、opacity、vertex alpha 和 alpha cutoff；Blend 不参与。资源格式为 `DEPTH_COMPONENT32F` 共享深度、`RGB16F` view normal、`R32F` linear depth、两张 `RGBA16F` SSR 材质纹理、一张 `RGBA16F` SSGI receiver 材质纹理（RGB 为与主 PBR 路径一致的视角相关漫反射响应，A 为材质 occlusion），以及 `RGBA16F` bent-normal/visibility ping-pong。主 Opaque pass 另写 `RGB16F` MRT，记录实际加入颜色的 diffuse IBL；天空、Unlit 和 Blend 写零。SSGI trace 命中时输出“屏幕命中辐射－同一余弦半球方向环境辐射”的有符号 control-variate 残差，未命中输出零。只有残差进入半分辨率时域、à-trous 与双边上采样，原始全分辨率 diffuse IBL 从不被滤波或重采样；最终把滤波残差直接加到 Opaque HDR。这样既不重复叠加 diffuse IBL，也不会模糊原始材质/法线细节；GTAO/Bent Normal 继续负责环境 IBL 的近场遮蔽。
+### 几何与材质
 
-默认 raster shader 仅将 AO 应用于环境 IBL。直接光、LTC、Shadow Map、Emission 和天空背景不乘 AO；GTAO 的 Bent Normal 用于漫反射环境方向，并用 GTSO 近似处理镜面环境遮蔽。自定义 raster fragment shader 如需接收该效果，必须声明 binding 15 及对应 AO uniforms。
+G-buffer 只绘制 Opaque/Mask，复用主材质的 UV、normal/bump、vertex alpha、opacity 和 alpha cutoff。共享深度为 `DEPTH_COMPONENT32F`。六个 color attachment：
 
-SSR 在 view space 同时追踪朝向和远离相机的反射射线；候选交点必须由可见表面的前方跨越到后方，并在二分细化后落入配置的 thickness 区间。逐像素 normal（含 normal/bump map）决定射线方向，逐像素 roughness 决定 sharp/glossy 波瓣。Glossy 命中使用与 Path 一致的 GGX `alpha = roughness²`，以 GGX 中心波瓣的 FWHM 构造反射 footprint；半径随命中距离增长，从而保留接触处锐利、远处模糊的 contact hardening。波瓣在入射平面保持长轴，而垂直方向按 `N·V` 收缩，再经过命中点的透视 Jacobian 投影为定向椭圆；minor axis 选择 opaque HDR mip LOD，最多 9 个 FWHM 加权采样沿 major axis 完成 specular elongation，并将最大各向异性限制为 8。超出椭圆屏幕支持范围时会降低置信度并回退环境项。命中项与被替换的环境项共用 split-sum BRDF 响应和相同的 AO/GTSO 调制。Shadow debug view 会旁路 SSR，Blend 在 SSR 之后合成且不参与反射。
+| Location | 格式 | 内容 |
+|---:|---|---|
+| 0 | RGB16F | view-space shading normal |
+| 1 | R32F | 正线性深度 |
+| 2 | RGBA16F | 镜面 F0、roughness |
+| 3 | RGBA16F | 镜面 F90、材质 AO |
+| 4 | RGBA16F | diffuse color；A 的 bit 0 为 diffuse Fresnel uses-max，bit 1 为 two-sided |
+| 5 | RGBA16F | diffuse Fresnel F0；A 为无色 F90 |
 
-SSGI 顺序为 G-buffer → Hi-Z/AO → Opaque 光照 → SSGI trace/temporal/denoise/composite → SSR → transparent OIT。全分辨率 `RG32F` Hi-Z 的 R/G 分别保存区域内最近/最远的有效线性深度，空区域为 `(FLT_MAX, 0)`；奇数和 NPOT mip 按目标 texel 的实际覆盖归约最多 3×3 个源 texel。追踪在 `(width+1)/2 × (height+1)/2` 执行，每个 2×2 footprint 选择最近有效表面，最多使用 8 rays、256 次 Hi-Z cell visit 和 16 次二分细化。level 0 只接受从可见表面前方到后方的 crossing，并执行 thickness、自交、距离和命中背面验证。
+完整材质输入支持 Metallic-Roughness 和 Specular-Glossiness；漫反射 Fresnel 使用每条射线的 V·H。Unlit/Emissive 材质自身不接收 SSR，但保留发光、遮挡及作为辐射源的作用。
 
-SSGI 半分辨率历史为两套 ping-pong：`RGBA16F` signed residual/history length、`RG16F` signed-luminance moments、`R32F` linear depth 和 `RGB16F` view normal。重投影的四个 bilinear tap 分别用 `max(2×thickness, 1%×predictedDepth)` 与世界法线 dot ≥ 0.85 验证，之后重新归一化；历史残差使用当前 raw residual 的 3×3 YCoCg 邻域和 1.5σ 方差裁剪。默认执行 stride 1/2/4、横纵向 radius-2 的双边 à-trous，再以全分辨率深度/法线/材质响应进行 3×3 双边上采样。无可靠邻居时残差回退零，最终为 `max(opaque + strength × filteredResidual, 0)`。
+### 追踪与积分
 
-命中读取完整的 pre-SSR Opaque HDR；未命中或边缘支持不足保留 raster pass 实际写入的 diffuse IBL，IBL 关闭时该基线及方向环境样本均为黑色。源纹理不含 SSGI/SSR，因此只有一次反弹。相机移动使用历史重投影；首次启用、resize、显式 reset、场景/光照设置变化和 shader 成功重载会使历史失效。SSGI 调试视图旁路 SSR 与透明合成。
+`RG32F` Hi-Z 存储区域最近/最远有效深度，空区域为 `(FLT_MAX, 0)`；奇数/NPOT mip 保守归约最多 3×3 个源 texel。追踪使用全分辨率，默认每像素 2 rays、64 cell visits，上限 8 rays/256 visits。level 0 对 `[depth, depth + thickness]` 深度薄层求解析交点，支持朝向和远离相机的射线；不再需要二分步数、粗糙度截止或反射 footprint 的 HDR mip 模糊。
+
+按波瓣能量在余弦半球与 GGX VNDF 间选择采样，使用混合 PDF 和完整 BRDF 的 `f × N·L / pdf` 权重。GGX 使用 `alpha = roughness²`、height-correlated Smith G2 和与 raster/Path 相同的 Kulla–Conty 能量补偿 LUT。VNDF 落到接收面下方的样本贡献零，不重新采样。参考 [Heitz 2018](https://jcgt.org/published/0007/04/01/) 和 [McGuire/Mara 2014](https://jcgt.org/published/0003/04/04/)。
+
+可见性与辐射可靠度分别处理：
+
+- 已命中：采样本帧 `out_ray_radiance`，不乘接收面 AO。单面背面贡献零、双面材质可贡献辐射；两者都遮挡环境。屏幕边缘淡出只降低命中辐射，不重新加入环境。
+- 未命中/屏外/达到预算：按方向采样剩余环境，乘材质 AO 和 SSAO/GTAO 可见度作为保守回退。IBL 关闭时回退为零。提取为方向主光的环境能量不再出现在剩余环境中。
+- 原始 IBL 不再是每个表面必有的叠加项。SSR 最终颜色为 `directLighting + filteredIndirect`；天空保留 opaque background。
+
+### 光照来源与去重
+
+主 raster 另写两张 RGB32F MRT。`out_direct_lighting` 是本帧直接光 + emission；`out_ray_radiance` 以此为基础，排除与启用的 LTC 矩形灯位置/范围重合、已经由直接光积分器表示的发光辐射。LTC 与屏幕射线不会重复计算同一直接发光连接；没有对应解析灯的发光网格仍可由 SSR 采样。关闭 LTC 时该排除也关闭。
+
+辐射源不包含 IBL、SSR 历史或合成结果，避免把未验证可见性的环境照明带入反弹，也避免两套效果顺序执行造成不一致的反弹次数。当前只传播一次直接光/发光表面连接；没有环境照亮的命中表面再反弹、屏外传播或多次表面反弹。
+
+### 时域与空间滤波
+
+全分辨率 ping-pong：RGBA32F indirect/history length、RG16F luminance moments、R32F linear depth、RGB16F view normal。RGBA32F 保存真实 HDR 辐射，luminance moments 限幅以保持半精度有限。
+
+重投影的四个 bilinear tap 分别验证深度 `max(2×thickness, 1%×predictedDepth)` 和世界法线 dot ≥ 0.85。3×3 YCoCg 历史裁剪排除几何/材质不相容的邻居；相机移动、旋转或 FOV 变化时压低光滑镜面的历史权重。à-trous 默认 stride 1/2/4，使用深度、法线、亮度、diffuse color、F0 和 roughness 权重，光滑镜面旁路空间模糊。没有半分辨率上采样。
+
+首次启用、resize、reset、场景/材质/光照变动、设置变化和 shader 重载会使历史失效。调试枚举依次为 Final、RawIndirect、HitConfidence（实际显示遮挡射线比例）、TemporalIndirect、FilteredIndirect、HistoryLength。
+
+### 设置兼容与边界
+
+仅保留 `OpenGlRenderSettings::ssr`。Viewer 会话 schema v6 写一个 `render.opengl.ssr` 对象；v5 优先继承旧 SSGI 的公共追踪/去噪参数，启用状态为旧 SSR/SSGI 的 OR。v3/v4 继承旧 SSR 的公共参数。旧 reflection intensity、max roughness、jitter、SSGI strength 和 refinement steps 已移除。Benchmark 读取 `ssr`，兼容旧 `ssgi` 参数对象。
+
+默认 raster 在 SSR 关闭/不可用时仍使用原有 SH/prefilter IBL 与 AO/GTSO。屏外、被前景遮挡的几何、透明表面和真实体积厚度无法由单层深度恢复；AO 回退、边缘淡出和去噪仍有偏差。命中辐射来自相机方向的直接光 buffer，因此光泽命中表面的方向性也只是近似。完整物理可见性需要场景空间追踪或 Path backend。
 
 ## 输出
 
-fragment shader 输出必须为线性 HDR：
+自定义 shader 必须输出线性 HDR，不执行 exposure、tone mapping 或 sRGB encoding：
 
 ```glsl
 layout(location = 0) out vec4 out_linear_color;
 layout(location = 1) out vec4 out_transparency_accum;
 layout(location = 2) out float out_transparency_reveal;
-layout(location = 3) out vec3 out_diffuse_ibl;
+layout(location = 3) out vec3 out_direct_lighting;
+layout(location = 4) out vec3 out_ray_radiance;
 ```
 
-场景 shader 不应执行 exposure、tone mapping、gamma 或 sRGB encoding。共享 compositor 在 OpenGL/CUDA Path 都完成后统一做显示变换。
+Opaque pass 的 location 3/4 分别遵循上述直接光/追踪辐射语义，Blend pass 写零。旧自定义 shader 没有名为 `out_direct_lighting` 的 location 3 或 `out_ray_radiance` 的 location 4 时，renderer 自动旁路 SSR，保留该 shader 的 opaque 输出。
 
-SSGI/SSR 都是屏幕空间近似：屏外、被前景遮挡的几何和透明表面不可见；SSGI 不提供透明 GI、镜面 GI、物体运动向量或多次反弹。现有 SSR 仍使用自己的线性 ray march，不读取 SSGI Hi-Z。
 
 ## 启动示例
 

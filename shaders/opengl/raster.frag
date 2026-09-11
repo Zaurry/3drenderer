@@ -120,9 +120,35 @@ in VS_OUT {
 layout(location = 0) out vec4 out_linear_color;
 layout(location = 1) out vec4 out_transparency_accum;
 layout(location = 2) out float out_transparency_reveal;
-layout(location = 3) out vec3 out_diffuse_ibl;
+layout(location = 3) out vec3 out_direct_lighting;
+layout(location = 4) out vec3 out_ray_radiance;
 
-void write_fragment(vec3 color, float opacity, vec3 diffuse_ibl) {
+vec3 analytic_rect_emission(vec3 position) {
+    vec3 represented = vec3(0.0);
+    if (u_ltc_area_lights_enabled == 0) return represented;
+    for (int index = 0; index < u_rect_area_light_count; ++index) {
+        vec3 u = u_rect_area_lights[index].axis_u.xyz;
+        vec3 v = u_rect_area_lights[index].axis_v.xyz;
+        vec3 relative = position - u_rect_area_lights[index].position_two_sided.xyz;
+        vec3 n = cross(u, v);
+        float uu = dot(u, u);
+        float vv = dot(v, v);
+        float uv = dot(u, v);
+        float determinant = uu * vv - uv * uv;
+        if (determinant <= 1.0e-12) continue;
+        float tolerance = 1.0e-4 * max(sqrt(max(uu, vv)), 1.0);
+        if (abs(dot(relative, normalize(n))) > tolerance) continue;
+        vec2 coordinates = vec2(
+            dot(relative, u) * vv - dot(relative, v) * uv,
+            dot(relative, v) * uu - dot(relative, u) * uv) / determinant;
+        if (max(abs(coordinates.x), abs(coordinates.y)) <= 1.0001) {
+            represented += max(u_rect_area_lights[index].radiance.rgb, vec3(0.0));
+        }
+    }
+    return represented;
+}
+
+void write_fragment(vec3 color, float opacity, vec3 direct_lighting, vec3 emission) {
     if (u_transparent_pass != 0) {
         float alpha = clamp(opacity, 0.0, 1.0);
         float depth_weight = pow(max(0.01, 1.0 - gl_FragCoord.z * 0.9), 3.0);
@@ -130,12 +156,19 @@ void write_fragment(vec3 color, float opacity, vec3 diffuse_ibl) {
         out_linear_color = vec4(0.0);
         out_transparency_accum = vec4(color * alpha, alpha) * weight;
         out_transparency_reveal = alpha;
-        out_diffuse_ibl = vec3(0.0);
+        out_direct_lighting = vec3(0.0);
+        out_ray_radiance = vec3(0.0);
     } else {
         out_linear_color = vec4(color, 1.0);
         out_transparency_accum = vec4(0.0);
         out_transparency_reveal = 0.0;
-        out_diffuse_ibl = diffuse_ibl;
+        out_direct_lighting = direct_lighting;
+        // LTC already integrates these emitter connections as direct light.
+        // Preserve their visible emission, but do not sample it a second time.
+        vec3 represented = dot(emission, emission) > 0.0
+            ? min(emission, analytic_rect_emission(fragment_in.world_position))
+            : vec3(0.0);
+        out_ray_radiance = max(direct_lighting - represented, vec3(0.0));
     }
 }
 
@@ -839,7 +872,7 @@ void main() {
     }
     if (u_material_type == 3) {
         write_fragment(u_npr_style == 2 ? sketch_color(emission) : emission,
-            opacity, vec3(0.0));
+            opacity, emission, emission);
         return;
     }
 
@@ -1067,6 +1100,7 @@ void main() {
         }
     }
 
+    vec3 direct_lighting = color;
     if (u_ibl_enabled != 0) {
         float n_dot_v = surface_n_dot_v;
         float screen_ao = 1.0;
@@ -1151,11 +1185,11 @@ void main() {
             }
         }
         write_fragment(
-            vec3(clamp(debug_value, 0.0, 1.0)), opacity, vec3(0.0));
+            vec3(clamp(debug_value, 0.0, 1.0)), opacity, vec3(0.0), vec3(0.0));
         return;
     }
     if (u_npr_style == 2) {
         color = sketch_color(color);
     }
-    write_fragment(color, opacity, applied_diffuse_ibl);
+    write_fragment(color, opacity, direct_lighting, emission);
 }

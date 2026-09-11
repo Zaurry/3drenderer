@@ -30,7 +30,6 @@ void run() {
     // NPR must render its own G-buffer even when all optional effects are off.
     settings.opengl.ambient_occlusion.mode = OpenGlAmbientOcclusionMode::Off;
     settings.opengl.ssr.enabled = false;
-    settings.opengl.ssgi.enabled = false;
     const Camera camera(Vec3(0, 0, 1), Vec3(0, 0, -1), Vec3(0, 1, 0), 45, 1);
     const auto render = [&]() {
         renderer.render(scene, camera, settings, {});
@@ -66,10 +65,9 @@ void run() {
     settings.opengl.npr.style = OpenGlRenderStyle::Realistic;
     check(render() == physical, "Switching back changed the original realistic image");
     settings.opengl.ssr.enabled = true;
-    settings.opengl.ssgi.enabled = true;
     render();
     settings.opengl.npr.style = OpenGlRenderStyle::Sketch;
-    check(render() == sketch, "SSR/SSGI contaminated sketch shading");
+    check(render() == sketch, "SSR contaminated sketch shading");
     settings.opengl.ambient_occlusion.mode = OpenGlAmbientOcclusionMode::Gtao;
     settings.opengl.ambient_occlusion.debug_view = OpenGlAmbientOcclusionDebugView::ViewNormal;
     check(render() != sketch, "NPR hid the diagnostic view");

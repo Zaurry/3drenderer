@@ -627,7 +627,6 @@ int main(int argc, char** argv) {
             settings.opengl.npr.style = *options.style;
             settings.opengl.shadow_map.debug_view = renderer::OpenGlShadowDebugView::Final;
             settings.opengl.ambient_occlusion.debug_view = renderer::OpenGlAmbientOcclusionDebugView::Final;
-            settings.opengl.ssgi.debug_view = renderer::OpenGlSsgiDebugView::Final;
             settings.opengl.ssr.debug_view = renderer::OpenGlSsrDebugView::Final;
         }
         if (!restored_session) {

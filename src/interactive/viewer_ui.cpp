@@ -627,7 +627,6 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     // A style selection should immediately show the final image.
                     render_settings.opengl.shadow_map.debug_view = OpenGlShadowDebugView::Final;
                     render_settings.opengl.ambient_occlusion.debug_view = OpenGlAmbientOcclusionDebugView::Final;
-                    render_settings.opengl.ssgi.debug_view = OpenGlSsgiDebugView::Final;
                     render_settings.opengl.ssr.debug_view = OpenGlSsrDebugView::Final;
                 }
                 if (npr.style != OpenGlRenderStyle::Realistic) {
@@ -900,8 +899,6 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                             OpenGlAmbientOcclusionDebugView::Final;
                         render_settings.opengl.ssr.debug_view =
                             OpenGlSsrDebugView::Final;
-                        render_settings.opengl.ssgi.debug_view =
-                            OpenGlSsgiDebugView::Final;
                     }
                 }
                 ImGui::InputInt(
@@ -1201,8 +1198,6 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                             OpenGlShadowDebugView::Final;
                         render_settings.opengl.ssr.debug_view =
                             OpenGlSsrDebugView::Final;
-                        render_settings.opengl.ssgi.debug_view =
-                            OpenGlSsgiDebugView::Final;
                     }
                 }
                 ImGui::EndDisabled();
@@ -1222,145 +1217,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
             }
 
             if (ImGui::CollapsingHeader(
-                    "Screen Space Global Illumination",
-                    ImGuiTreeNodeFlags_DefaultOpen)) {
-                const bool open_gl_mode =
-                    state.mode == InteractiveRenderMode::OpenGl;
-                auto& ssgi = render_settings.opengl.ssgi;
-                ImGui::BeginDisabled(!open_gl_mode);
-                ImGui::Checkbox("Enable SSGI", &ssgi.enabled);
-                ImGui::BeginDisabled(!ssgi.enabled);
-                ImGui::SliderInt(
-                    "Rays per pixel##SSGI",
-                    &ssgi.rays_per_pixel,
-                    1,
-                    kOpenGlMaxSsgiRays);
-                ImGui::SliderInt(
-                    "Hi-Z cell visits##SSGI",
-                    &ssgi.max_steps,
-                    8,
-                    kOpenGlMaxSsgiSteps);
-                ImGui::SliderInt(
-                    "Refinement steps##SSGI",
-                    &ssgi.refinement_steps,
-                    0,
-                    kOpenGlMaxSsgiRefinementSteps);
-                ImGui::SliderFloat(
-                    "Max distance / scene radius##SSGI",
-                    &ssgi.max_distance_scale,
-                    0.05f,
-                    4.0f,
-                    "%.3f",
-                    ImGuiSliderFlags_Logarithmic);
-                ImGui::SliderFloat(
-                    "Thickness / distance##SSGI",
-                    &ssgi.thickness_scale,
-                    0.0005f,
-                    0.1f,
-                    "%.5f",
-                    ImGuiSliderFlags_Logarithmic);
-                ImGui::SliderFloat(
-                    "Edge fade##SSGI",
-                    &ssgi.edge_fade,
-                    0.0f,
-                    0.5f,
-                    "%.3f");
-                ImGui::SliderFloat(
-                    "Strength##SSGI", &ssgi.strength, 0.0f, 1.0f, "%.2f");
-                ImGui::SliderInt(
-                    "History frames##SSGI",
-                    &ssgi.max_history_frames,
-                    1,
-                    64);
-                ImGui::SliderInt(
-                    "A-trous passes##SSGI",
-                    &ssgi.denoise_passes,
-                    0,
-                    kOpenGlMaxSsgiDenoisePasses);
-                ImGui::SliderFloat(
-                    "Depth sigma / distance##SSGI",
-                    &ssgi.denoise_depth_sigma_fraction,
-                    0.005f,
-                    0.5f,
-                    "%.3f",
-                    ImGuiSliderFlags_Logarithmic);
-                ImGui::SliderFloat(
-                    "Normal power##SSGI",
-                    &ssgi.denoise_normal_power,
-                    1.0f,
-                    64.0f,
-                    "%.1f",
-                    ImGuiSliderFlags_Logarithmic);
-                ImGui::EndDisabled();
-
-                ssgi.rays_per_pixel = std::clamp(
-                    ssgi.rays_per_pixel, 1, kOpenGlMaxSsgiRays);
-                ssgi.max_steps = std::clamp(
-                    ssgi.max_steps, 8, kOpenGlMaxSsgiSteps);
-                ssgi.refinement_steps = std::clamp(
-                    ssgi.refinement_steps,
-                    0,
-                    kOpenGlMaxSsgiRefinementSteps);
-                ssgi.max_distance_scale = std::clamp(
-                    ssgi.max_distance_scale, 0.05f, 4.0f);
-                ssgi.thickness_scale = std::clamp(
-                    ssgi.thickness_scale, 0.0005f, 0.1f);
-                ssgi.edge_fade = std::clamp(ssgi.edge_fade, 0.0f, 0.5f);
-                ssgi.strength = std::clamp(ssgi.strength, 0.0f, 1.0f);
-                ssgi.max_history_frames = std::clamp(
-                    ssgi.max_history_frames, 1, 64);
-                ssgi.denoise_passes = std::clamp(
-                    ssgi.denoise_passes,
-                    0,
-                    kOpenGlMaxSsgiDenoisePasses);
-                ssgi.denoise_depth_sigma_fraction = std::clamp(
-                    ssgi.denoise_depth_sigma_fraction, 0.005f, 0.5f);
-                ssgi.denoise_normal_power = std::clamp(
-                    ssgi.denoise_normal_power, 1.0f, 64.0f);
-
-                constexpr const char* debug_views[] = {
-                    "Final image",
-                    "Raw indirect",
-                    "Hit confidence",
-                    "Temporal indirect",
-                    "Filtered indirect",
-                    "History length"};
-                int debug_view = static_cast<int>(ssgi.debug_view);
-                if (ImGui::Combo(
-                        "SSGI debug view",
-                        &debug_view,
-                        debug_views,
-                        static_cast<int>(std::size(debug_views)))) {
-                    ssgi.debug_view = static_cast<OpenGlSsgiDebugView>(
-                        debug_view);
-                    if (ssgi.debug_view != OpenGlSsgiDebugView::Final) {
-                        render_settings.opengl.shadow_map.debug_view =
-                            OpenGlShadowDebugView::Final;
-                        render_settings.opengl.ambient_occlusion.debug_view =
-                            OpenGlAmbientOcclusionDebugView::Final;
-                        render_settings.opengl.ssr.debug_view =
-                            OpenGlSsrDebugView::Final;
-                    }
-                }
-                ImGui::EndDisabled();
-                ImGui::Text(
-                    "Trace resolution: %d x %d  |  max distance: %.4g",
-                    (render_settings.width + 1) / 2,
-                    (render_settings.height + 1) / 2,
-                    scene_radius(bounds) * ssgi.max_distance_scale);
-                ImGui::TextDisabled(
-                    "One diffuse bounce on opaque/masked surfaces; diffuse IBL remains the baseline.");
-                ImGui::TextDisabled(
-                    "GTAO occludes IBL; only the signed SSGI residual is denoised and upsampled.");
-                if (!render_settings.opengl.ibl_enabled) {
-                    ImGui::TextColored(
-                        ImVec4(1.0f, 0.72f, 0.28f, 1.0f),
-                        "IBL is disabled: off-screen and missed-ray fallback is black.");
-                }
-            }
-
-            if (ImGui::CollapsingHeader(
-                    "Screen Space Reflections",
+                    "SSR - Screen Space Ray Tracing",
                     ImGuiTreeNodeFlags_DefaultOpen)) {
                 const bool open_gl_mode =
                     state.mode == InteractiveRenderMode::OpenGl;
@@ -1369,100 +1226,122 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 ImGui::Checkbox("Enable SSR", &ssr.enabled);
                 ImGui::BeginDisabled(!ssr.enabled);
                 ImGui::SliderInt(
-                    "Ray steps",
+                    "Rays per pixel##SSR",
+                    &ssr.rays_per_pixel,
+                    1,
+                    kOpenGlMaxSsrRays);
+                ImGui::SliderInt(
+                    "Hi-Z cell visits##SSR",
                     &ssr.max_steps,
                     8,
                     kOpenGlMaxSsrSteps);
-                ssr.max_steps = std::clamp(
-                    ssr.max_steps,
-                    8,
-                    kOpenGlMaxSsrSteps);
-                ImGui::SliderInt(
-                    "Refinement steps",
-                    &ssr.refinement_steps,
-                    0,
-                    kOpenGlMaxSsrRefinementSteps);
-                ssr.refinement_steps = std::clamp(
-                    ssr.refinement_steps,
-                    0,
-                    kOpenGlMaxSsrRefinementSteps);
                 ImGui::SliderFloat(
-                    "Max distance / scene radius",
+                    "Max distance / scene radius##SSR",
                     &ssr.max_distance_scale,
                     0.05f,
                     4.0f,
                     "%.3f",
                     ImGuiSliderFlags_Logarithmic);
-                ssr.max_distance_scale = std::clamp(
-                    ssr.max_distance_scale,
-                    0.05f,
-                    4.0f);
                 ImGui::SliderFloat(
-                    "Thickness / distance",
+                    "Thickness / distance##SSR",
                     &ssr.thickness_scale,
                     0.0005f,
                     0.1f,
                     "%.5f",
                     ImGuiSliderFlags_Logarithmic);
-                ssr.thickness_scale = std::clamp(
-                    ssr.thickness_scale,
-                    0.0005f,
-                    0.1f);
                 ImGui::SliderFloat(
-                    "Max roughness",
-                    &ssr.max_roughness,
-                    0.0f,
-                    1.0f,
-                    "%.3f");
-                ssr.max_roughness = std::clamp(ssr.max_roughness, 0.0f, 1.0f);
-                ImGui::SliderFloat(
-                    "Intensity",
-                    &ssr.intensity,
-                    0.0f,
-                    4.0f,
-                    "%.2f");
-                ssr.intensity = std::clamp(ssr.intensity, 0.0f, 4.0f);
-                ImGui::SliderFloat(
-                    "Edge fade",
+                    "Edge fade##SSR",
                     &ssr.edge_fade,
                     0.0f,
                     0.5f,
                     "%.3f");
+                ImGui::SliderInt(
+                    "History frames##SSR",
+                    &ssr.max_history_frames,
+                    1,
+                    64);
+                ImGui::SliderInt(
+                    "A-trous passes##SSR",
+                    &ssr.denoise_passes,
+                    0,
+                    kOpenGlMaxSsrDenoisePasses);
+                ImGui::SliderFloat(
+                    "Depth sigma / distance##SSR",
+                    &ssr.denoise_depth_sigma_fraction,
+                    0.005f,
+                    0.5f,
+                    "%.3f",
+                    ImGuiSliderFlags_Logarithmic);
+                ImGui::SliderFloat(
+                    "Normal power##SSR",
+                    &ssr.denoise_normal_power,
+                    1.0f,
+                    64.0f,
+                    "%.1f",
+                    ImGuiSliderFlags_Logarithmic);
+                ImGui::EndDisabled();
+
+                ssr.rays_per_pixel = std::clamp(
+                    ssr.rays_per_pixel, 1, kOpenGlMaxSsrRays);
+                ssr.max_steps = std::clamp(
+                    ssr.max_steps, 8, kOpenGlMaxSsrSteps);
+                ssr.max_distance_scale = std::clamp(
+                    ssr.max_distance_scale, 0.05f, 4.0f);
+                ssr.thickness_scale = std::clamp(
+                    ssr.thickness_scale, 0.0005f, 0.1f);
                 ssr.edge_fade = std::clamp(ssr.edge_fade, 0.0f, 0.5f);
-                ImGui::Checkbox("Ray jitter", &ssr.jitter);
+                ssr.max_history_frames = std::clamp(
+                    ssr.max_history_frames, 1, 64);
+                ssr.denoise_passes = std::clamp(
+                    ssr.denoise_passes,
+                    0,
+                    kOpenGlMaxSsrDenoisePasses);
+                ssr.denoise_depth_sigma_fraction = std::clamp(
+                    ssr.denoise_depth_sigma_fraction, 0.005f, 0.5f);
+                ssr.denoise_normal_power = std::clamp(
+                    ssr.denoise_normal_power, 1.0f, 64.0f);
 
                 constexpr const char* debug_views[] = {
                     "Final image",
-                    "Reflection",
-                    "Confidence"};
+                    "Raw indirect",
+                    "Occluded ray fraction",
+                    "Temporal indirect",
+                    "Filtered indirect",
+                    "History length"};
                 int debug_view = static_cast<int>(ssr.debug_view);
                 if (ImGui::Combo(
                         "SSR debug view",
                         &debug_view,
                         debug_views,
                         static_cast<int>(std::size(debug_views)))) {
-                    ssr.debug_view = static_cast<OpenGlSsrDebugView>(debug_view);
+                    ssr.debug_view = static_cast<OpenGlSsrDebugView>(
+                        debug_view);
                     if (ssr.debug_view != OpenGlSsrDebugView::Final) {
                         render_settings.opengl.shadow_map.debug_view =
                             OpenGlShadowDebugView::Final;
                         render_settings.opengl.ambient_occlusion.debug_view =
                             OpenGlAmbientOcclusionDebugView::Final;
-                        render_settings.opengl.ssgi.debug_view =
-                            OpenGlSsgiDebugView::Final;
                     }
                 }
                 ImGui::EndDisabled();
-                ImGui::EndDisabled();
-
                 ImGui::Text(
-                    "Max distance: %.4g  |  thickness: %.4g",
-                    scene_radius(bounds) * ssr.max_distance_scale,
-                    scene_radius(bounds) * ssr.max_distance_scale *
-                        ssr.thickness_scale);
+                    "Trace resolution: %d x %d  |  max distance: %.4g",
+                    render_settings.width,
+                    render_settings.height,
+                    scene_radius(bounds) * ssr.max_distance_scale);
                 ImGui::TextDisabled(
-                    "Glossy hits use a contact-hardening, elongated GGX footprint; missing screen support falls back to the environment.");
+                    "Diffuse and glossy indirect lighting share ray visibility on opaque/masked surfaces.");
                 ImGui::TextDisabled(
-                    "Reflections apply to opaque surfaces; transparent objects are composited after and are not reflected.");
+                    "Known blockers replace environment lighting; AO applies only to environment fallback.");
+                if (!render_settings.opengl.ibl_enabled) {
+                    ImGui::TextColored(
+                        ImVec4(1.0f, 0.72f, 0.28f, 1.0f),
+                        "IBL is disabled: off-screen and missed-ray fallback is black.");
+                }
+                if (!open_gl_mode) {
+                    ImGui::TextDisabled(
+                        "Path mode uses traced indirect lighting and does not run SSR.");
+                }
             }
             }
         }

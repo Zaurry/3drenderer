@@ -92,7 +92,8 @@ Renderer hardening 使用以下门槛：
 - `benchmarks/results/baseline-75d1992-hot-cuda/`
 - `benchmarks/results/renderer-hardening-acceptance2-cuda/`
 - [Renderer hardening 报告](output/renderer-hardening-results.md)
-- [OpenGL Temporal Hi-Z SSGI 前后记录](output/opengl-ssgi-results.md)
+- [OpenGL 统一 SSR 验证记录](output/opengl-ssr-results.md)
+- [OpenGL Temporal Hi-Z SSGI 历史记录](output/opengl-ssgi-results.md)
 
 ## Diagnostics 与 Sanitizer
 

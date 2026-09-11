@@ -1566,15 +1566,14 @@ RENDER_TEST(test_render_settings_defaults_are_useful) {
     RENDER_CHECK(settings.opengl.ambient_occlusion.denoise.enabled);
     RENDER_CHECK(
         settings.opengl.ambient_occlusion.denoise.kernel_radius == 2);
-    RENDER_CHECK(settings.opengl.ssgi.enabled);
-    RENDER_CHECK(settings.opengl.ssgi.rays_per_pixel == 2);
-    RENDER_CHECK(settings.opengl.ssgi.max_steps == 64);
-    RENDER_CHECK(settings.opengl.ssgi.refinement_steps == 4);
-    RENDER_CHECK(settings.opengl.ssgi.max_history_frames == 32);
-    RENDER_CHECK(settings.opengl.ssgi.denoise_passes == 3);
+    RENDER_CHECK(settings.opengl.ssr.enabled);
+    RENDER_CHECK(settings.opengl.ssr.rays_per_pixel == 2);
+    RENDER_CHECK(settings.opengl.ssr.max_steps == 64);
+    RENDER_CHECK(settings.opengl.ssr.max_history_frames == 32);
+    RENDER_CHECK(settings.opengl.ssr.denoise_passes == 3);
     RENDER_CHECK(
-        settings.opengl.ssgi.debug_view ==
-        renderer::OpenGlSsgiDebugView::Final);
+        settings.opengl.ssr.debug_view ==
+        renderer::OpenGlSsrDebugView::Final);
 }
 
 bool image_colors_are_finite(const renderer::Image& image) {
@@ -4500,29 +4499,16 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
     state.render_settings.opengl.ambient_occlusion.denoise.kernel_radius = 3;
     state.render_settings.opengl.ambient_occlusion.denoise.depth_sigma_fraction = 0.2f;
     state.render_settings.opengl.ambient_occlusion.denoise.normal_power = 12.0f;
-    state.render_settings.opengl.ssgi.enabled = false;
-    state.render_settings.opengl.ssgi.rays_per_pixel = 7;
-    state.render_settings.opengl.ssgi.max_steps = 144;
-    state.render_settings.opengl.ssgi.refinement_steps = 9;
-    state.render_settings.opengl.ssgi.max_distance_scale = 2.25f;
-    state.render_settings.opengl.ssgi.thickness_scale = 0.03f;
-    state.render_settings.opengl.ssgi.edge_fade = 0.2f;
-    state.render_settings.opengl.ssgi.strength = 0.65f;
-    state.render_settings.opengl.ssgi.max_history_frames = 48;
-    state.render_settings.opengl.ssgi.denoise_passes = 4;
-    state.render_settings.opengl.ssgi.denoise_depth_sigma_fraction = 0.08f;
-    state.render_settings.opengl.ssgi.denoise_normal_power = 24.0f;
-    state.render_settings.opengl.ssgi.debug_view =
-        renderer::OpenGlSsgiDebugView::Final;
     state.render_settings.opengl.ssr.enabled = false;
-    state.render_settings.opengl.ssr.max_steps = 96;
-    state.render_settings.opengl.ssr.refinement_steps = 6;
-    state.render_settings.opengl.ssr.max_distance_scale = 1.75f;
-    state.render_settings.opengl.ssr.thickness_scale = 0.02f;
-    state.render_settings.opengl.ssr.max_roughness = 0.6f;
-    state.render_settings.opengl.ssr.intensity = 1.5f;
-    state.render_settings.opengl.ssr.edge_fade = 0.25f;
-    state.render_settings.opengl.ssr.jitter = false;
+    state.render_settings.opengl.ssr.rays_per_pixel = 7;
+    state.render_settings.opengl.ssr.max_steps = 144;
+    state.render_settings.opengl.ssr.max_distance_scale = 2.25f;
+    state.render_settings.opengl.ssr.thickness_scale = 0.03f;
+    state.render_settings.opengl.ssr.edge_fade = 0.2f;
+    state.render_settings.opengl.ssr.max_history_frames = 48;
+    state.render_settings.opengl.ssr.denoise_passes = 4;
+    state.render_settings.opengl.ssr.denoise_depth_sigma_fraction = 0.08f;
+    state.render_settings.opengl.ssr.denoise_normal_power = 24.0f;
     state.render_settings.opengl.ssr.debug_view =
         renderer::OpenGlSsrDebugView::Final;
     state.camera.eye = renderer::Vec3(4.0f, 5.0f, 6.0f);
@@ -4677,48 +4663,23 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
     RENDER_CHECK(nearly_equal(
         loaded.render_settings.opengl.ambient_occlusion.denoise.normal_power,
         12.0f));
-    RENDER_CHECK(!loaded.render_settings.opengl.ssgi.enabled);
-    RENDER_CHECK(loaded.render_settings.opengl.ssgi.rays_per_pixel == 7);
-    RENDER_CHECK(loaded.render_settings.opengl.ssgi.max_steps == 144);
-    RENDER_CHECK(loaded.render_settings.opengl.ssgi.refinement_steps == 9);
+    RENDER_CHECK(!loaded.render_settings.opengl.ssr.enabled);
+    RENDER_CHECK(loaded.render_settings.opengl.ssr.rays_per_pixel == 7);
+    RENDER_CHECK(loaded.render_settings.opengl.ssr.max_steps == 144);
     RENDER_CHECK(nearly_equal(
-        loaded.render_settings.opengl.ssgi.max_distance_scale, 2.25f));
+        loaded.render_settings.opengl.ssr.max_distance_scale, 2.25f));
     RENDER_CHECK(nearly_equal(
-        loaded.render_settings.opengl.ssgi.thickness_scale, 0.03f));
+        loaded.render_settings.opengl.ssr.thickness_scale, 0.03f));
     RENDER_CHECK(nearly_equal(
-        loaded.render_settings.opengl.ssgi.edge_fade, 0.2f));
-    RENDER_CHECK(nearly_equal(
-        loaded.render_settings.opengl.ssgi.strength, 0.65f));
+        loaded.render_settings.opengl.ssr.edge_fade, 0.2f));
     RENDER_CHECK(
-        loaded.render_settings.opengl.ssgi.max_history_frames == 48);
-    RENDER_CHECK(loaded.render_settings.opengl.ssgi.denoise_passes == 4);
+        loaded.render_settings.opengl.ssr.max_history_frames == 48);
+    RENDER_CHECK(loaded.render_settings.opengl.ssr.denoise_passes == 4);
     RENDER_CHECK(nearly_equal(
-        loaded.render_settings.opengl.ssgi.denoise_depth_sigma_fraction,
+        loaded.render_settings.opengl.ssr.denoise_depth_sigma_fraction,
         0.08f));
     RENDER_CHECK(nearly_equal(
-        loaded.render_settings.opengl.ssgi.denoise_normal_power, 24.0f));
-    RENDER_CHECK(
-        loaded.render_settings.opengl.ssgi.debug_view ==
-        renderer::OpenGlSsgiDebugView::Final);
-    RENDER_CHECK(!loaded.render_settings.opengl.ssr.enabled);
-    RENDER_CHECK(loaded.render_settings.opengl.ssr.max_steps == 96);
-    RENDER_CHECK(loaded.render_settings.opengl.ssr.refinement_steps == 6);
-    RENDER_CHECK(nearly_equal(
-        loaded.render_settings.opengl.ssr.max_distance_scale,
-        1.75f));
-    RENDER_CHECK(nearly_equal(
-        loaded.render_settings.opengl.ssr.thickness_scale,
-        0.02f));
-    RENDER_CHECK(nearly_equal(
-        loaded.render_settings.opengl.ssr.max_roughness,
-        0.6f));
-    RENDER_CHECK(nearly_equal(
-        loaded.render_settings.opengl.ssr.intensity,
-        1.5f));
-    RENDER_CHECK(nearly_equal(
-        loaded.render_settings.opengl.ssr.edge_fade,
-        0.25f));
-    RENDER_CHECK(!loaded.render_settings.opengl.ssr.jitter);
+        loaded.render_settings.opengl.ssr.denoise_normal_power, 24.0f));
     RENDER_CHECK(
         loaded.render_settings.opengl.ssr.debug_view ==
         renderer::OpenGlSsrDebugView::Final);
@@ -4809,68 +4770,72 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
         version_three.render_settings.opengl.ambient_occlusion ==
         renderer::AmbientOcclusionRenderSettings{});
 
-    nlohmann::json version_four_json = saved_json;
-    version_four_json["version"] = 4;
-    version_four_json["render"]["opengl"]["ssgi"]["enabled"] = false;
-    version_four_json["render"]["opengl"]["ssgi"]["rays_per_pixel"] = 8;
+    RENDER_CHECK(!saved_json.at("render").at("opengl").contains("ssgi"));
+    nlohmann::json legacy_transport_json = saved_json;
+    legacy_transport_json["version"] = 5;
+    legacy_transport_json["render"]["opengl"]["ssgi"] = saved_json["render"]["opengl"]["ssr"];
+    legacy_transport_json["render"]["opengl"]["ssr"] = {
+        {"enabled", false}, {"max_steps", 96}, {"intensity", 4.0f}, {"debug_view", 0}};
+    for (bool old_gi_enabled : {false, true}) {
+        legacy_transport_json["render"]["opengl"]["ssgi"]["enabled"] = old_gi_enabled;
+        {
+            std::ofstream output(session_path);
+            output << legacy_transport_json.dump(2) << '\n';
+        }
+        const auto migrated = renderer::ViewerSessionStore::load(session_path);
+        RENDER_CHECK(migrated.render_settings.opengl.ssr.enabled == old_gi_enabled);
+        RENDER_CHECK(migrated.render_settings.opengl.ssr.max_steps == 144);
+        RENDER_CHECK(migrated.render_settings.opengl.ssr.rays_per_pixel == 7);
+    }
+    legacy_transport_json["version"] = 4;
     {
         std::ofstream output(session_path);
-        output << version_four_json.dump(2) << '\n';
+        output << legacy_transport_json.dump(2) << '\n';
     }
-    const renderer::ViewerSessionState version_four =
-        renderer::ViewerSessionStore::load(session_path);
-    RENDER_CHECK(
-        version_four.render_settings.opengl.ssgi ==
-        renderer::SsgiRenderSettings{});
+    const auto old_reflections = renderer::ViewerSessionStore::load(session_path);
+    RENDER_CHECK(old_reflections.render_settings.opengl.ssr.max_steps == 96);
+    RENDER_CHECK(old_reflections.render_settings.opengl.ssr.rays_per_pixel == 2);
 
-    nlohmann::json clamped_ssgi_json = saved_json;
-    auto& clamped_ssgi = clamped_ssgi_json["render"]["opengl"]["ssgi"];
-    clamped_ssgi["rays_per_pixel"] = 99;
-    clamped_ssgi["max_steps"] = -1;
-    clamped_ssgi["refinement_steps"] = 99;
-    clamped_ssgi["max_distance_scale"] = nullptr;
-    clamped_ssgi["thickness_scale"] = 2.0f;
-    clamped_ssgi["edge_fade"] = -1.0f;
-    clamped_ssgi["strength"] = 2.0f;
-    clamped_ssgi["max_history_frames"] = 0;
-    clamped_ssgi["denoise_passes"] = 99;
-    clamped_ssgi["denoise_depth_sigma_fraction"] = 2.0f;
-    clamped_ssgi["denoise_normal_power"] = 0.0f;
-    clamped_ssgi["debug_view"] = 99;
-    clamped_ssgi_json["render"]["opengl"]["shadow_map"]["debug_view"] = 2;
-    clamped_ssgi_json["render"]["opengl"]["ambient_occlusion"]["debug_view"] = 1;
-    clamped_ssgi_json["render"]["opengl"]["ssr"]["debug_view"] = 1;
+    nlohmann::json clamped_ssr_json = saved_json;
+    auto& clamped_ssr = clamped_ssr_json["render"]["opengl"]["ssr"];
+    clamped_ssr["rays_per_pixel"] = 99;
+    clamped_ssr["max_steps"] = -1;
+    clamped_ssr["max_distance_scale"] = nullptr;
+    clamped_ssr["thickness_scale"] = 2.0f;
+    clamped_ssr["edge_fade"] = -1.0f;
+    clamped_ssr["max_history_frames"] = 0;
+    clamped_ssr["denoise_passes"] = 99;
+    clamped_ssr["denoise_depth_sigma_fraction"] = 2.0f;
+    clamped_ssr["denoise_normal_power"] = 0.0f;
+    clamped_ssr["debug_view"] = 99;
+    clamped_ssr_json["render"]["opengl"]["shadow_map"]["debug_view"] = 2;
+    clamped_ssr_json["render"]["opengl"]["ambient_occlusion"]["debug_view"] = 1;
     {
         std::ofstream output(session_path);
-        output << clamped_ssgi_json.dump(2) << '\n';
+        output << clamped_ssr_json.dump(2) << '\n';
     }
-    const renderer::ViewerSessionState clamped_ssgi_state =
+    const renderer::ViewerSessionState clamped_ssr_state =
         renderer::ViewerSessionStore::load(session_path);
-    const auto& loaded_ssgi = clamped_ssgi_state.render_settings.opengl.ssgi;
-    RENDER_CHECK(loaded_ssgi.rays_per_pixel == 8);
-    RENDER_CHECK(loaded_ssgi.max_steps == 8);
-    RENDER_CHECK(loaded_ssgi.refinement_steps == 16);
-    RENDER_CHECK(nearly_equal(loaded_ssgi.max_distance_scale, 1.0f));
-    RENDER_CHECK(nearly_equal(loaded_ssgi.thickness_scale, 0.1f));
-    RENDER_CHECK(nearly_equal(loaded_ssgi.edge_fade, 0.0f));
-    RENDER_CHECK(nearly_equal(loaded_ssgi.strength, 1.0f));
-    RENDER_CHECK(loaded_ssgi.max_history_frames == 1);
-    RENDER_CHECK(loaded_ssgi.denoise_passes == 4);
+    const auto& loaded_ssr = clamped_ssr_state.render_settings.opengl.ssr;
+    RENDER_CHECK(loaded_ssr.rays_per_pixel == 8);
+    RENDER_CHECK(loaded_ssr.max_steps == 8);
+    RENDER_CHECK(nearly_equal(loaded_ssr.max_distance_scale, 1.0f));
+    RENDER_CHECK(nearly_equal(loaded_ssr.thickness_scale, 0.1f));
+    RENDER_CHECK(nearly_equal(loaded_ssr.edge_fade, 0.0f));
+    RENDER_CHECK(loaded_ssr.max_history_frames == 1);
+    RENDER_CHECK(loaded_ssr.denoise_passes == 4);
     RENDER_CHECK(nearly_equal(
-        loaded_ssgi.denoise_depth_sigma_fraction, 0.5f));
-    RENDER_CHECK(nearly_equal(loaded_ssgi.denoise_normal_power, 1.0f));
+        loaded_ssr.denoise_depth_sigma_fraction, 0.5f));
+    RENDER_CHECK(nearly_equal(loaded_ssr.denoise_normal_power, 1.0f));
     RENDER_CHECK(
-        loaded_ssgi.debug_view ==
-        renderer::OpenGlSsgiDebugView::HistoryLength);
+        loaded_ssr.debug_view ==
+        renderer::OpenGlSsrDebugView::HistoryLength);
     RENDER_CHECK(
-        clamped_ssgi_state.render_settings.opengl.shadow_map.debug_view ==
+        clamped_ssr_state.render_settings.opengl.shadow_map.debug_view ==
         renderer::OpenGlShadowDebugView::Final);
     RENDER_CHECK(
-        clamped_ssgi_state.render_settings.opengl.ambient_occlusion.debug_view ==
+        clamped_ssr_state.render_settings.opengl.ambient_occlusion.debug_view ==
         renderer::OpenGlAmbientOcclusionDebugView::Final);
-    RENDER_CHECK(
-        clamped_ssgi_state.render_settings.opengl.ssr.debug_view ==
-        renderer::OpenGlSsrDebugView::Final);
 
     nlohmann::json clamped_ao_json = saved_json;
     auto& clamped_ao =
@@ -6074,4 +6039,3 @@ RENDER_TEST(test_document_sphere_mesh_negative_nonuniform_scale_and_pick) {
         renderer::flatten_render_scene_snapshot(document.render_scene_snapshot()).triangles.size() ==
         snapshot.assets[0].local_scene->triangles.size());
 }
-

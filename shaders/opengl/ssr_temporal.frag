@@ -8,8 +8,11 @@ layout(binding = 4) uniform sampler2D u_history_moments;
 layout(binding = 5) uniform sampler2D u_history_depth;
 layout(binding = 6) uniform sampler2D u_history_normal;
 
+layout(binding = 7) uniform sampler2D u_ssr_pbr;
+layout(binding = 8) uniform sampler2D u_ssr_material;
+
 uniform ivec2 u_full_resolution;
-uniform ivec2 u_half_resolution;
+uniform ivec2 u_trace_resolution;
 uniform vec2 u_camera_viewport;
 uniform vec3 u_camera_position;
 uniform vec3 u_camera_forward;
@@ -55,30 +58,13 @@ vec3 ycocg_to_rgb(vec3 value) {
         value.x - value.y - value.z);
 }
 
-SurfaceSample representative_surface(ivec2 half_pixel) {
+SurfaceSample representative_surface(ivec2 pixel) {
     SurfaceSample result;
-    result.pixel = clamp(half_pixel * 2, ivec2(0), u_full_resolution - 1);
-    result.depth = 0.0;
-    result.normal = vec3(0.0);
-    float nearest = 3.402823466e+38;
-    for (int y = 0; y < 2; ++y) {
-        for (int x = 0; x < 2; ++x) {
-            ivec2 pixel = half_pixel * 2 + ivec2(x, y);
-            if (any(greaterThanEqual(pixel, u_full_resolution))) {
-                continue;
-            }
-            float depth = texelFetch(u_linear_depth, pixel, 0).r;
-            vec3 normal = texelFetch(u_view_normal, pixel, 0).xyz;
-            if (depth > 0.0 && dot(normal, normal) > 1.0e-8 &&
-                depth < nearest) {
-                nearest = depth;
-                result.pixel = pixel;
-                result.depth = depth;
-                result.normal = normalize(normal);
-            }
-        }
-    }
-    result.uv = (vec2(result.pixel) + 0.5) / vec2(u_full_resolution);
+    result.depth = texelFetch(u_linear_depth, pixel, 0).r;
+    result.normal = texelFetch(u_view_normal, pixel, 0).xyz;
+    if (dot(result.normal, result.normal) > 1.0e-8) result.normal = normalize(result.normal);
+    result.pixel = pixel;
+    result.uv = (vec2(pixel) + 0.5) / vec2(u_full_resolution);
     return result;
 }
 
@@ -114,7 +100,7 @@ bool valid_history_sample(
     float predicted_depth,
     vec3 current_world_normal) {
     if (any(lessThan(pixel, ivec2(0))) ||
-        any(greaterThanEqual(pixel, u_half_resolution))) {
+        any(greaterThanEqual(pixel, u_trace_resolution))) {
         return false;
     }
     float depth = texelFetch(u_history_depth, pixel, 0).r;
@@ -142,12 +128,23 @@ void current_neighborhood_statistics(
     vec3 value_sum = vec3(0.0);
     vec3 square_sum = vec3(0.0);
     float sample_count = 0.0;
+    SurfaceSample center_surface = representative_surface(center);
+    vec4 center_pbr = texelFetch(u_ssr_pbr, center, 0);
+    vec3 center_material = texelFetch(u_ssr_material, center, 0).rgb;
     for (int y = -1; y <= 1; ++y) {
         for (int x = -1; x <= 1; ++x) {
             ivec2 pixel = clamp(
                 center + ivec2(x, y),
                 ivec2(0),
-                u_half_resolution - 1);
+                u_trace_resolution - 1);
+            SurfaceSample neighbor = representative_surface(pixel);
+            if (abs(neighbor.depth - center_surface.depth) >
+                    max(2.0 * u_thickness, 0.01 * center_surface.depth) ||
+                dot(neighbor.normal, center_surface.normal) < 0.85 ||
+                length(texelFetch(u_ssr_pbr, pixel, 0) - center_pbr) > 0.1 ||
+                length(texelFetch(u_ssr_material, pixel, 0).rgb - center_material) > 0.1) {
+                continue;
+            }
             vec3 value = rgb_to_ycocg(
                 texelFetch(u_raw_indirect, pixel, 0).rgb);
             value_sum += value;
@@ -162,12 +159,12 @@ void current_neighborhood_statistics(
 }
 
 void main() {
-    ivec2 half_pixel = clamp(
+    ivec2 trace_pixel = clamp(
         ivec2(gl_FragCoord.xy),
         ivec2(0),
-        u_half_resolution - 1);
-    SurfaceSample surface = representative_surface(half_pixel);
-    vec3 current = texelFetch(u_raw_indirect, half_pixel, 0).rgb;
+        u_trace_resolution - 1);
+    SurfaceSample surface = representative_surface(trace_pixel);
+    vec3 current = texelFetch(u_raw_indirect, trace_pixel, 0).rgb;
     // RG16F moments must remain finite even for very bright HDR emitters.
     float current_luminance = clamp(luminance(current), -255.0, 255.0);
     if (surface.depth <= 0.0 || dot(surface.normal, surface.normal) <= 1.0e-8) {
@@ -207,7 +204,7 @@ void main() {
         u_camera_right * surface.normal.x +
         u_camera_up * surface.normal.y -
         u_camera_forward * surface.normal.z);
-    vec2 history_position = previous_uv * vec2(u_half_resolution) - 0.5;
+    vec2 history_position = previous_uv * vec2(u_trace_resolution) - 0.5;
     ivec2 base = ivec2(floor(history_position));
     vec2 fraction = fract(history_position);
     vec3 history_sum = vec3(0.0);
@@ -251,7 +248,7 @@ void main() {
     vec3 neighborhood_mean;
     vec3 neighborhood_sigma;
     current_neighborhood_statistics(
-        half_pixel, neighborhood_mean, neighborhood_sigma);
+        trace_pixel, neighborhood_mean, neighborhood_sigma);
     vec3 sigma = max(
         neighborhood_sigma,
         vec3(history_sigma, 0.5 * history_sigma, 0.5 * history_sigma));
@@ -267,7 +264,13 @@ void main() {
     float history_weight = min(
         history_length / (history_length + 1.0),
         maximum_weight);
-    vec3 accumulated = mix(current, history, history_weight);
+    float roughness = texelFetch(u_ssr_pbr, trace_pixel, 0).a;
+    bool camera_moved = length(u_camera_position - u_previous_camera_position) > 1.0e-6 ||
+        dot(u_camera_forward, u_previous_camera_forward) < 0.999999 ||
+        dot(u_camera_up, u_previous_camera_up) < 0.999999 ||
+        length(u_camera_viewport - u_previous_camera_viewport) > 1.0e-6;
+    if (camera_moved) history_weight *= smoothstep(0.08, 0.5, roughness);
+    vec3 accumulated = max(mix(current, history, history_weight), vec3(0.0));
     vec2 current_moments = vec2(
         current_luminance,
         current_luminance * current_luminance);

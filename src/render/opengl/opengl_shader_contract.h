@@ -11,17 +11,38 @@ inline constexpr int kOpenGlMaxShadowLightSlots = 32;
 inline constexpr int kOpenGlMaxPcssSamples = 64;
 inline constexpr int kOpenGlShadowResolutionMin = 128;
 inline constexpr int kOpenGlShadowResolutionMax = 4096;
+inline constexpr int kOpenGlMaxSsrRays = 8;
 inline constexpr int kOpenGlMaxSsrSteps = 256;
-inline constexpr int kOpenGlMaxSsrRefinementSteps = 16;
-inline constexpr int kOpenGlMaxSsgiRays = 8;
-inline constexpr int kOpenGlMaxSsgiSteps = 256;
-inline constexpr int kOpenGlMaxSsgiRefinementSteps = 16;
-inline constexpr int kOpenGlMaxSsgiDenoisePasses = 4;
+inline constexpr int kOpenGlMaxSsrDenoisePasses = 4;
 
 struct OpenGlShaderBinding {
     int location = -1;
     std::string_view name;
 };
+
+inline constexpr std::array<OpenGlShaderBinding, 5>
+    kOpenGlFragmentOutputContract{{
+        {0, "out_linear_color"},
+        {1, "out_transparency_accum"},
+        {2, "out_transparency_reveal"},
+        {3, "out_direct_lighting"},
+        {4, "out_ray_radiance"},
+    }};
+
+inline constexpr std::array<OpenGlShaderBinding, 11>
+    kOpenGlSsrTraceTextureContract{{
+        {0, "u_ray_radiance"},
+        {1, "u_linear_depth"},
+        {2, "u_view_normal"},
+        {3, "u_ssr_material"},
+        {4, "u_hiz"},
+        {5, "u_ambient_occlusion"},
+        {6, "u_environment_radiance"},
+        {7, "u_ssr_pbr"},
+        {8, "u_ssr_pbr_aux"},
+        {9, "u_diffuse_fresnel"},
+        {10, "u_environment_brdf_lut"},
+    }};
 
 inline constexpr std::array<OpenGlShaderBinding, 6>
     kOpenGlVertexAttributeContract{{
