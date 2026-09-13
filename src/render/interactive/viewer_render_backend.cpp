@@ -1,6 +1,7 @@
 #include "render/interactive/viewer_render_backend.h"
 
 #include "platform/opengl/cuda_opengl_interop.h"
+#include "platform/opengl/rtrt_primary_visibility.h"
 #include "render/realtime/cuda_realtime_renderer.h"
 #include "render/opengl/opengl_raster_renderer.h"
 
@@ -153,6 +154,7 @@ public:
         }
         renderer_ = std::make_unique<CudaRealtimeRenderer>(*device_context);
         renderer_->reset(snapshot, settings);
+        if(!disable_interop_) renderer_->set_primary_visibility(make_opengl_primary_visibility(*device_context));
         framebuffer_->resize(settings.width, settings.height);
         output_ = HostFrameHandle{framebuffer_};
         interop_->initialize(*device_context);

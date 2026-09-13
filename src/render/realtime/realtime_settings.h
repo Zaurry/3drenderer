@@ -3,8 +3,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <string>
 
 namespace renderer {
+
+enum class RealtimeDenoiser : std::uint8_t { Svgf, Optix, Count };
 
 enum class RealtimeDebugView : std::uint8_t {
     Final, Raw, Direct, IndirectDiffuse, Reflection, Transmission,
@@ -13,6 +16,13 @@ enum class RealtimeDebugView : std::uint8_t {
 };
 
 struct RealtimeRenderSettings {
+    // GL/CUDA handoff can cost more than the primary traversal it replaces.
+    // Keep the measured hybrid path opt-in until it wins end-to-end by default.
+    bool raster_primary = false;
+    bool low_discrepancy = true;
+    bool hardware_ray_tracing = true;
+    bool shader_execution_reordering = true;
+    bool split_dielectric = true;
     int samples_per_pixel = 1;
     int max_bounces = 8;
     int roulette_start = 3;
@@ -25,13 +35,14 @@ struct RealtimeRenderSettings {
     bool reflections = true;
     bool transmission = true;
     bool denoise = true;
+    RealtimeDenoiser denoiser = RealtimeDenoiser::Svgf;
     bool temporal = true;
     bool firefly_filter = true;
     float firefly_sigma = 6.0f;
     bool history_clamping = true;
     float history_sigma = 2.0f;
     int diffuse_history = 32;
-    int specular_history = 8;
+    int specular_history = 16;
     int transmission_history = 4;
     float depth_threshold = 0.02f;
     float normal_threshold = 0.85f;
@@ -43,6 +54,7 @@ struct RealtimeRenderSettings {
     float luminance_sigma = 4.0f;
     bool taa = true;
     bool temporal_upscale = true;
+    bool full_resolution_materials = true;
     float taa_current_weight = 0.15f;
     float taa_clip_sigma = 1.5f;
     float sharpening = 0.0f;
@@ -76,13 +88,32 @@ inline RealtimeRenderSettings sanitize_realtime_settings(RealtimeRenderSettings 
     s.taa_current_weight = bounded(s.taa_current_weight, 0.02f, 1.0f, 0.15f);
     s.taa_clip_sigma = bounded(s.taa_clip_sigma, 0.5f, 8.0f, 1.5f);
     s.sharpening = bounded(s.sharpening, 0.0f, 1.0f, 0.0f);
+    if (static_cast<unsigned>(s.denoiser) >= static_cast<unsigned>(RealtimeDenoiser::Count))
+        s.denoiser = RealtimeDenoiser::Svgf;
     if (static_cast<unsigned>(s.debug_view) >= static_cast<unsigned>(RealtimeDebugView::Count))
         s.debug_view = RealtimeDebugView::Final;
     return s;
 }
 
+// Measured on RTX 5080 / 1080p / San Miguel; output materials remain native.
+inline RealtimeRenderSettings realtime_1080p_quality_settings() {
+    RealtimeRenderSettings s;s.internal_scale=.5f;
+    s.taa_current_weight=.03f;s.taa_clip_sigma=3;
+    return s;
+}
+
 struct RealtimeStatistics {
     bool active = false;
+    bool optix_denoiser_active = false;
+    bool optix_denoiser_temporal = false;
+    std::uint64_t optix_denoiser_bytes = 0;
+    std::string optix_denoiser_detail;
+    bool hardware_ray_tracing_active = false;
+    std::uint64_t hardware_ray_tracing_bytes = 0;
+    std::string hardware_ray_tracing_detail;
+    bool raster_primary_active = false;
+    float raster_primary_ms = 0;
+    std::uint64_t raster_primary_bytes = 0;
     std::uint64_t frames = 0;
     std::uint64_t history_resets = 0;
     std::uint64_t framebuffer_bytes = 0;

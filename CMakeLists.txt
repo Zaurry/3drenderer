@@ -275,6 +275,39 @@ if(RENDERER_HAS_CUDA)
     )
 endif()
 
+option(RENDERER_OPTIX "Enable RTRT RT cores and OptiX AI denoising (requires a compatible NVIDIA driver)" ON)
+if(RENDERER_HAS_CUDA AND RENDERER_OPTIX)
+    # OptiX 9.1.0 headers: RT traversal and AOV/Temporal AOV neural denoising.
+    FetchContent_Declare(optix_headers
+        URL https://github.com/NVIDIA/optix-dev/archive/f1f6dd803f3159992d248178f6e09421c6eb8b6d.tar.gz
+        URL_HASH SHA256=c36d6e52289138685dcce77befb8f966d2761c6840556f6a04945b01700c8ebc
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(optix_headers)
+    add_library(renderer_rtrt_ptx OBJECT src/render/realtime/optix_programs.cu)
+    target_link_libraries(renderer_rtrt_ptx PRIVATE renderer_scene renderer_cuda_api)
+    target_include_directories(renderer_rtrt_ptx PRIVATE "${optix_headers_SOURCE_DIR}/include")
+    set_target_properties(renderer_rtrt_ptx PROPERTIES CUDA_PTX_COMPILATION ON
+        CUDA_STANDARD 20 CUDA_STANDARD_REQUIRED ON CUDA_ARCHITECTURES 75-virtual)
+    set(RTRT_PTX_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/rtrt_optix_ptx.h")
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    add_custom_command(OUTPUT "${RTRT_PTX_HEADER}"
+        COMMAND ${CMAKE_COMMAND} "-DINPUT=$<TARGET_OBJECTS:renderer_rtrt_ptx>" "-DOUTPUT=${RTRT_PTX_HEADER}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_optix_ptx.cmake"
+        DEPENDS renderer_rtrt_ptx $<TARGET_OBJECTS:renderer_rtrt_ptx> tools/embed_optix_ptx.cmake
+        VERBATIM)
+    add_library(renderer_rtrt_optix STATIC src/render/realtime/optix_backend.cpp "${RTRT_PTX_HEADER}")
+    target_include_directories(renderer_rtrt_optix PRIVATE "${optix_headers_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    target_link_libraries(renderer_rtrt_optix PUBLIC renderer_scene renderer_cuda_api PRIVATE CUDA::cudart)
+    target_compile_definitions(renderer_cuda_pathtracer PRIVATE RENDERER_HAS_OPTIX=1)
+    target_link_libraries(renderer_cuda_pathtracer PRIVATE renderer_rtrt_optix)
+    file(READ "${optix_headers_SOURCE_DIR}/include/optix_stubs.h" OPTIX_STUBS_SOURCE)
+    string(FIND "${OPTIX_STUBS_SOURCE}" "*/" OPTIX_NOTICE_END)
+    math(EXPR OPTIX_NOTICE_LENGTH "${OPTIX_NOTICE_END}+2")
+    string(SUBSTRING "${OPTIX_STUBS_SOURCE}" 0 ${OPTIX_NOTICE_LENGTH} OPTIX_BSD_NOTICE)
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/OPTIX_BSD_NOTICE.txt" "${OPTIX_BSD_NOTICE}\n")
+endif()
+
 # Session adapter over the interactive CUDA renderer, kept separate so UI
 # libraries never drag in the path tracer.
 add_library(renderer_path_session STATIC
@@ -317,6 +350,7 @@ target_link_libraries(renderer PRIVATE renderer_core)
 if(RENDERER_BUILD_VIEWER)
     set(RENDERER_OPENGL_SOURCES
         src/platform/opengl/gl_shader_program.cpp
+        src/platform/opengl/rtrt_primary_visibility.cpp
         src/render/opengl/opengl_raster_renderer.cpp
         src/render/interactive/viewer_render_backend.cpp
     )
@@ -423,6 +457,10 @@ if(RENDERER_BUILD_VIEWER)
     target_compile_definitions(opengl_transport_tests PRIVATE
         RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     list(APPEND RENDERER_TEST_TARGETS opengl_transport_tests)
+    add_executable(rtrt_hybrid_tests tests/rtrt_hybrid_tests.cpp tests/test_main.cpp)
+    target_link_libraries(rtrt_hybrid_tests PRIVATE renderer_core renderer_opengl renderer_glad ${RENDERER_SDL_TARGET})
+    target_compile_definitions(rtrt_hybrid_tests PRIVATE RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    list(APPEND RENDERER_TEST_TARGETS rtrt_hybrid_tests)
 endif()
 
 if(RENDERER_BUILD_BENCHMARKS)
@@ -587,6 +625,7 @@ add_test(NAME opengl_contract_tests COMMAND opengl_contract_tests)
 add_test(NAME opengl_shader_lint_tests COMMAND opengl_shader_lint_tests)
 if(RENDERER_BUILD_VIEWER)
     add_test(NAME opengl_transport_tests COMMAND opengl_transport_tests)
+    add_test(NAME rtrt_hybrid_tests COMMAND rtrt_hybrid_tests)
 endif()
 add_test(NAME cuda_contract_tests COMMAND cuda_contract_tests)
 add_test(NAME realtime_tests COMMAND realtime_tests)
@@ -651,6 +690,13 @@ endif()
 # this repository and use the exported RendererTargets from the build tree.
 # ---------------------------------------------------------------------------
 include(GNUInstallDirs)
+install(FILES src/render/realtime/PBRT_LICENSE.txt
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/renderer/licenses")
+if(TARGET renderer_rtrt_optix)
+    install(FILES "${optix_headers_SOURCE_DIR}/LICENSE.txt" "${optix_headers_SOURCE_DIR}/license_info.txt"
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/OPTIX_BSD_NOTICE.txt"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/renderer/licenses/optix")
+endif()
 
 set(RENDERER_INSTALL_EXECUTABLES renderer)
 if(RENDERER_BUILD_VIEWER)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/pathtracer/cuda_pathtracer.h"
+#include "render/realtime/primary_visibility.h"
 #include <vector>
 
 namespace renderer {
@@ -19,6 +20,7 @@ public:
     CudaRealtimeRenderer(const CudaRealtimeRenderer&) = delete;
     CudaRealtimeRenderer& operator=(const CudaRealtimeRenderer&) = delete;
     void reset(const RenderSceneSnapshot&, const RenderSettings&);
+    void set_primary_visibility(std::shared_ptr<RealtimePrimaryVisibility>);
     void render_next_frame_to_surface(const RenderSceneSnapshot&, const Camera&,
         const RenderSettings&, const InteractiveFrameState&, CudaSurfaceHandle);
     void render_next_frame(const RenderSceneSnapshot&, const Camera&,

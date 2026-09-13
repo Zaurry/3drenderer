@@ -969,7 +969,8 @@ __device__ unsigned long long pixel_seed(
     return seed;
 }
 
-__device__ DVec3 cosine_weighted_hemisphere(DPcgState& rng) {
+template<class Rng>
+__device__ DVec3 cosine_weighted_hemisphere(Rng& rng) {
     const float r1 = random_float(rng);
     const float r2 = random_float(rng);
     const float phi = 2.0f * kPi * r1;
@@ -2543,9 +2544,10 @@ __device__ float environment_pdf(const DScene& scene, DVec3 world_direction) {
         fmaxf(solid_angle, 1.0e-20f);
 }
 
+template<class Rng>
 __device__ DEnvironmentSample sample_environment(
     const DScene& scene,
-    DPcgState& rng) {
+    Rng& rng) {
     if (scene.environment_cdf == nullptr || scene.environment_pmf == nullptr ||
         scene.environment_width <= 0 || scene.environment_height <= 0) {
         const float y = 1.0f - 2.0f * random_float(rng);
@@ -3188,12 +3190,13 @@ __device__ DVec3 sample_visible_ggx(
         fmaxf(0.0f, micro_normal.z)));
 }
 
+template<class Rng>
 __device__ bool scatter(
     const DRay& ray,
     const DHit& hit,
     const DMaterial& material,
     const DSurface& surface,
-    DPcgState& rng,
+    Rng& rng,
     DVec3& attenuation,
     DRay& scattered,
     float& bsdf_pdf,
@@ -3506,6 +3509,7 @@ __device__ float emissive_light_pdf_for_hit(
         : 0.0f;
 }
 
+template<class Rng>
 __device__ bool sample_emissive_shadow_task(
     const DScene& scene,
     const DHit& hit,
@@ -3513,7 +3517,7 @@ __device__ bool sample_emissive_shadow_task(
     DVec3 outgoing,
     DVec3 throughput,
     int pixel_index,
-    DPcgState& rng,
+    Rng& rng,
     DShadowTask& task) {
     if (scene.emissive_light_count <= 0 || scene.emissive_lights == nullptr) {
         return false;
@@ -3725,6 +3729,7 @@ __device__ bool sample_emissive_shadow_task(
     return task.t_max > 0.0f;
 }
 
+template<class Rng>
 __device__ bool sample_environment_shadow_task(
     const DScene& scene,
     const DHit& hit,
@@ -3732,7 +3737,7 @@ __device__ bool sample_environment_shadow_task(
     DVec3 outgoing,
     DVec3 throughput,
     int pixel_index,
-    DPcgState& rng,
+    Rng& rng,
     DShadowTask& task) {
     const float strategy_probability = environment_strategy_probability(scene);
     if (!(strategy_probability > 0.0f)) {
@@ -3767,6 +3772,7 @@ __device__ bool sample_environment_shadow_task(
     return true;
 }
 
+#if !defined(RTRT_OPTIX_DEVICE)
 __global__ void refit_tlas_kernel(
     DBvh4Node* nodes,
     int node_count,
@@ -5433,5 +5439,6 @@ private:
 };
 
 
+#endif // !RTRT_OPTIX_DEVICE
 }  // namespace
 }  // namespace renderer

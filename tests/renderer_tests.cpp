@@ -4434,6 +4434,7 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
     state.ui.path_accumulation_paused = true;
     state.render_settings.realtime.internal_scale=.5f;
     state.render_settings.realtime.diffuse_history=48;
+    state.render_settings.realtime.denoiser=renderer::RealtimeDenoiser::Optix;
     state.render_settings.realtime.debug_view=renderer::RealtimeDebugView::Variance;
     state.ui.show_point_light_markers = false;
     state.ui.panel_visible = false;

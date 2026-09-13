@@ -3,7 +3,7 @@
 一个 C++20 教学型 3D 渲染器，提供实时预览、实时光追和离线参考渲染：
 
 - `OpenGL`：OpenGL 4.5 Core 实时预览，支持可热重载 GLSL、PBR、IBL、SSAO、GTAO + Bent Normal、时域 Hi-Z SSGI、SSR、Shadow Map/PCSS、环境主光提取、LTC 矩形面光和 weighted blended OIT。
-- `RTRT`：CUDA 首交点与低采样路径追踪，支持 SVGF 时空降噪、TAA / TAAU、分信号历史、真实阴影、反射与透射，以及 CUDA/OpenGL interop。
+- `RTRT`：CUDA / OptiX 首交点与低采样路径追踪，支持可切换的 SVGF / OptiX 9.1 AI 降噪、TAA / TAAU、分信号历史、真实阴影、反射与透射，以及 CUDA/OpenGL interop。
 - 离线 `Path`：保留 CUDA Wavefront 高采样路径追踪，用于参考图和最终离线输出。
 
 CPU Path 已从产品、CLI 和交互会话中删除。没有 CUDA 时仍可构建场景/文档系统、测试和 OpenGL Viewer；RTRT 模式会明确显示不可用原因，并回退到 OpenGL。
@@ -95,7 +95,7 @@ Viewer 只有两种模式：
 | 快捷键 | 模式 | 行为 |
 |---|---|---|
 | `1` | OpenGL | 实时编辑与 GLSL 热重载 |
-| `2` | RTRT | 每帧完整光追、SVGF、TAA / TAAU；无可用 CUDA 时禁用 |
+| `2` | RTRT | 每帧完整光追、SVGF / OptiX AI 降噪、TAA / TAAU；无可用 CUDA 时禁用 |
 
 常用操作：
 

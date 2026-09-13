@@ -18,6 +18,7 @@
 #include <glad/gl.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cctype>
 #include <cmath>
@@ -41,6 +42,9 @@ struct ViewerOptions {
     std::filesystem::path scene_file;
     renderer::InteractiveRenderMode mode = renderer::InteractiveRenderMode::Rtrt;
     std::filesystem::path realtime_config;
+    std::filesystem::path frame_report, camera_preset;
+    int warmup_frames = 60;
+    bool camera_motion = false;
     int width = 960;
     int height = 540;
     int frame_limit = 0;
@@ -141,6 +145,10 @@ void print_help() {
         << "  --width integer    window width, default 960\n"
         << "  --height integer   window height, default 540\n"
         << "  --frames integer   render N frames then exit, default unlimited\n"
+        << "  --frame-report path.json  measure full frames through GPU presentation completion\n"
+        << "  --warmup-frames integer  exclude initial frames from report, default 60\n"
+        << "  --camera-preset path.json  read the camera object from a benchmark case\n"
+        << "  --camera-motion   repeat 600 frames of lateral motion and 300 settled frames\n"
         << "  --style realistic|toon|sketch  OpenGL rendering style\n"
         << "  --capture path.png  save the final render without UI (use with --frames)\n"
         << "  --no-cuda-interop  use host presentation (diagnose interop compatibility)\n"
@@ -233,6 +241,14 @@ ViewerOptions parse_args(int argc, char** argv) {
             options.height = parse_positive_int(require_value(argc, argv, i, arg), arg);
         } else if (arg == "--frames") {
             options.frame_limit = parse_nonnegative_int(require_value(argc, argv, i, arg), arg);
+        } else if (arg == "--frame-report") {
+            options.frame_report = require_value(argc, argv, i, arg);
+        } else if (arg == "--warmup-frames") {
+            options.warmup_frames = parse_nonnegative_int(require_value(argc, argv, i, arg), arg);
+        } else if (arg == "--camera-preset") {
+            options.camera_preset = require_value(argc, argv, i, arg);
+        } else if (arg == "--camera-motion") {
+            options.camera_motion = true;
         } else if (arg == "--cuda-device") {
             options.cuda_device = parse_nonnegative_int(
                 require_value(argc, argv, i, arg),
@@ -515,6 +531,12 @@ ViewerSessionSignature make_session_signature(
 int main(int argc, char** argv) {
     try {
         ViewerOptions options = parse_args(argc, argv);
+        nlohmann::json camera_preset;
+        if(!options.camera_preset.empty()) {
+            std::ifstream input(options.camera_preset);
+            if(!input) throw std::runtime_error("Cannot open camera preset: "+options.camera_preset.string());
+            nlohmann::json document;input>>document;camera_preset=document.at("camera");
+        }
         bool session_enabled = argc == 1 && options.restore_last_session;
         std::filesystem::path session_path;
         std::optional<renderer::ViewerSessionState> restored_session;
@@ -804,6 +826,7 @@ int main(int argc, char** argv) {
         auto session_changed_at = std::chrono::steady_clock::now();
 
         int rendered_frames = 0;
+        nlohmann::json measured_frames=nlohmann::json::array();
         std::string reported_interop_reason;
         bool running = true;
         auto previous_time = std::chrono::steady_clock::now();
@@ -1194,9 +1217,25 @@ int main(int argc, char** argv) {
             }
             frame_state.camera_changed = camera_changed;
 
-            const renderer::Camera camera = ui_state.camera_mode == renderer::ViewerCameraMode::Orbit
+            renderer::Camera camera = ui_state.camera_mode == renderer::ViewerCameraMode::Orbit
                 ? orbit_camera.camera()
                 : free_camera.camera();
+            if(!camera_preset.is_null()) {
+                auto vector=[&](const char* key) {
+                    const auto values=camera_preset.at(key).get<std::array<float,3>>();
+                    return renderer::Vec3(values[0],values[1],values[2]);
+                };
+                camera=renderer::Camera(vector("eye"),vector("eye")+vector("forward"),vector("up"),
+                    camera_preset.at("vertical_fov_degrees").get<float>(),float(settings.width)/settings.height);
+            }
+            const bool scripted_motion=options.camera_motion && rendered_frames%900<600;
+            if(options.camera_motion) {
+                const float shift=scripted_motion?.5f*std::sin(float(rendered_frames%900)*2*3.14159265358979323846f/600):0;
+                const auto eye=camera.eye()+camera.right()*shift;
+                const float fov=2*std::atan(camera.viewport_height()*.5f)*180/3.14159265358979323846f;
+                camera=renderer::Camera(eye,eye+camera.forward(),camera.up(),fov,float(settings.width)/settings.height);
+                frame_state.camera_changed=true;
+            }
             if (input.left_mouse_clicked && mouse_available &&
                 !ui_state.gizmo_hovered && !ui_state.gizmo_was_using) {
                 const float u = std::clamp(
@@ -1286,9 +1325,32 @@ int main(int argc, char** argv) {
             const int path_samples = current_path
                 ? current_path->accumulated_samples
                 : 0;
+            // Profiling only: close the GL/CUDA queue so the measured frame
+            // includes completed rendering, UI composition and swap submission.
+            // Normal interactive rendering remains asynchronous.
+            if(!options.frame_report.empty()) glFinish();
             const auto frame_end = std::chrono::steady_clock::now();
             const float frame_seconds =
                 std::chrono::duration<float>(frame_end - frame_begin).count();
+            if(!options.frame_report.empty() && rendered_frames>options.warmup_frames) {
+                nlohmann::json sample={{"frame",rendered_frames},{"moving",scripted_motion},{"frame_ms",1000*frame_seconds}};
+                const auto statistics=render_backend->statistics();
+                if(const auto* path=std::get_if<renderer::CudaPathViewerStatistics>(&statistics)) {
+                    const auto& rt=path->cuda.realtime;
+                    sample.update({{"cuda_ms",rt.total_ms},{"primary_ms",rt.gbuffer_ms},{"lighting_ms",rt.lighting_ms},
+                        {"hardware_rt",rt.hardware_ray_tracing_active},{"hardware_detail",rt.hardware_ray_tracing_detail},
+                        {"denoiser",!settings.realtime.denoise?"off":(rt.optix_denoiser_active?"optix":"svgf")},
+                        {"optix_denoiser_temporal",rt.optix_denoiser_temporal},{"optix_denoiser_bytes",rt.optix_denoiser_bytes},
+                        {"optix_denoiser_detail",rt.optix_denoiser_detail},
+                        {"temporal_ms",rt.temporal_ms},{"filter_ms",rt.filter_ms},{"reconstruction_ms",rt.reconstruction_ms},
+                        {"raster_ms",rt.raster_primary_ms},{"raster_primary",rt.raster_primary_active},
+                        {"internal_width",path->cuda.internal_width},{"internal_height",path->cuda.internal_height},
+                        {"framebuffer_bytes",rt.framebuffer_bytes},{"hardware_bytes",rt.hardware_ray_tracing_bytes},
+                        {"allocations",path->cuda.allocation_generation},
+                        {"downloads",path->cuda.framebuffer_downloads},{"history_resets",rt.history_resets}});
+                }
+                measured_frames.push_back(std::move(sample));
+            }
             if (frame_rate_counter.tick(frame_seconds) ||
                 mode_changed ||
                 ui_actions.camera_mode_changed ||
@@ -1303,6 +1365,25 @@ int main(int argc, char** argv) {
 
         if (session_enabled) {
             save_session_now();
+        }
+        if(!options.frame_report.empty()) {
+            if(measured_frames.empty()) throw std::runtime_error("Frame report has no samples after warmup");
+            std::vector<double> times;for(const auto& frame:measured_frames)times.push_back(frame.at("frame_ms").get<double>());
+            std::sort(times.begin(),times.end());
+            const auto quantile=[&](double p){return times[std::min(times.size()-1,std::size_t(std::ceil(p*times.size()))-1)];};
+            const auto& scene=current_render_scene_snapshot();std::size_t triangles=0;
+            for(const auto& asset:scene.assets)if(asset.local_scene)triangles+=asset.local_scene->triangles.size();
+            nlohmann::json report={{"width",settings.width},{"height",settings.height},{"scene_file",options.scene_file.generic_string()},
+                {"camera_preset",options.camera_preset.generic_string()},{"camera_motion",options.camera_motion},{"triangles",triangles},
+                {"warmup_frames",options.warmup_frames},{"settings",renderer::realtime_settings_json(settings.realtime)},
+                {"measurement","CPU frame start through GL finish after presentation; swap interval 0"},
+                {"count",times.size()},{"p50_ms",quantile(.5)},{"p95_ms",quantile(.95)},{"p99_ms",quantile(.99)},
+                {"over_16_667_ms",std::count_if(times.begin(),times.end(),[](double ms){return ms>1000.0/60;})},
+                {"samples",std::move(measured_frames)}};
+            if(!options.frame_report.parent_path().empty())std::filesystem::create_directories(options.frame_report.parent_path());
+            std::ofstream output(options.frame_report);output<<report.dump(2);
+            if(!output)throw std::runtime_error("Failed to write frame report");
+            std::cout<<"frame_report count="<<times.size()<<" p50_ms="<<quantile(.5)<<" p95_ms="<<quantile(.95)<<" p99_ms="<<quantile(.99)<<'\n';
         }
         if (!options.capture_path.empty()) {
             const auto output = render_backend->output();
@@ -1354,9 +1435,14 @@ int main(int argc, char** argv) {
                       << path.interop_status;
             const auto& rt = path.cuda.realtime;
             std::cout << " rt_frames=" << rt.frames << " history_resets=" << rt.history_resets
+                      << " hardware_rt=" << rt.hardware_ray_tracing_active << " hardware_detail=" << rt.hardware_ray_tracing_detail
+                      << " denoiser=" << (!settings.realtime.denoise?"off":(rt.optix_denoiser_active?"optix":"svgf"))
+                      << " denoiser_detail=" << rt.optix_denoiser_detail
+                      << " primary=" << (rt.raster_primary_active?"raster":rt.hardware_ray_tracing_active?"optix":"cuda") << " raster_ms=" << rt.raster_primary_ms
+                      << " raster_mib=" << double(rt.raster_primary_bytes)/1048576
                       << " internal=" << path.cuda.internal_width << 'x' << path.cuda.internal_height
                       << " gbuffer_ms=" << rt.gbuffer_ms << " lighting_ms=" << rt.lighting_ms
-                      << " temporal_ms=" << rt.temporal_ms << " atrous_ms=" << rt.filter_ms
+                      << " temporal_ms=" << rt.temporal_ms << " filter_ms=" << rt.filter_ms
                       << " reconstruction_ms=" << rt.reconstruction_ms << " total_ms=" << rt.total_ms
                       << " framebuffer_mib=" << double(rt.framebuffer_bytes)/1048576;
             std::cout << " trace_ms=" << path.cuda.trace_milliseconds

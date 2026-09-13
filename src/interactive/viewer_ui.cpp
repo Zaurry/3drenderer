@@ -570,8 +570,14 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     ImGui::Text("%d SPP/frame | internal %dx%d", render_settings.realtime.samples_per_pixel,
                         cuda_statistics.internal_width, cuda_statistics.internal_height);
                     ImGui::Text("G-buffer %.2f ms | lighting %.2f ms", rt.gbuffer_ms, rt.lighting_ms);
-                    ImGui::Text("Temporal %.2f ms | atrous %.2f ms", rt.temporal_ms, rt.filter_ms);
-                    ImGui::Text("Reconstruction %.2f ms | total %.2f ms", rt.reconstruction_ms, rt.total_ms);
+                    ImGui::Text("Signal preparation %.2f ms | denoising %.2f ms", rt.temporal_ms, rt.filter_ms);
+                    ImGui::Text("Denoiser: %s", !render_settings.realtime.denoise?"Off":
+                        (rt.optix_denoiser_active?(rt.optix_denoiser_temporal?"OptiX AI (temporal)":"OptiX AI (single frame)"):"SVGF"));
+                    if(!rt.optix_denoiser_detail.empty())ImGui::TextWrapped("%s",rt.optix_denoiser_detail.c_str());
+                    ImGui::Text("Reconstruction %.2f ms | CUDA %.2f ms", rt.reconstruction_ms, rt.total_ms);
+                    ImGui::Text("Primary: %s | raster %.2f ms", rt.raster_primary_active?"raster":"CUDA",rt.raster_primary_ms);
+                    ImGui::Text("Ray traversal: %s",rt.hardware_ray_tracing_active?"RT cores (OptiX)":"CUDA BVH");
+                    if(!rt.hardware_ray_tracing_detail.empty())ImGui::TextWrapped("%s",rt.hardware_ray_tracing_detail.c_str());
                     ImGui::Text("Frames %llu | history resets %llu", (unsigned long long)rt.frames, (unsigned long long)rt.history_resets);
                     ImGui::Text("Frame buffers %.1f MiB | downloads %llu", double(rt.framebuffer_bytes)/1048576,
                         (unsigned long long)cuda_statistics.framebuffer_downloads);
