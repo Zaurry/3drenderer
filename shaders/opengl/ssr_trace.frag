@@ -1,4 +1,5 @@
 #version 450 core
+uniform int u_ddgi_enabled;
 
 const float PI = 3.14159265358979323846;
 // Additive R2 recurrence.  Unlike a per-frame hash this keeps consecutive
@@ -313,7 +314,7 @@ void main() {
             (PI * missing_average * max(vec3(1.0) - average_fresnel *
                 missing_average, vec3(1.0e-6)))
         : vec3(0.0);
-    float diffuse_energy = luminance(surface.material.rgb +
+    float diffuse_energy = luminance((u_ddgi_enabled != 0 ? vec3(0.0) : surface.material.rgb) +
         PI * missing_average * multiscatter_scale);
     float specular_energy = luminance(pbr.rgb * energy.r + aux.rgb * energy.g);
     float specular_probability = specular_energy <= 0.0 ? 0.0 :
@@ -357,7 +358,7 @@ void main() {
         vec3 diffuse_weight = (int(surface.material.a + 0.5) & 1) != 0
             ? vec3(1.0 - max(max(fd.r, fd.g), fd.b)) : vec3(1.0) - fd;
         float energy_l = texture(u_environment_brdf_lut, vec2(light.z, roughness)).b;
-        vec3 brdf = diffuse_weight * surface.material.rgb / PI +
+        vec3 brdf = (u_ddgi_enabled != 0 ? vec3(0.0) : diffuse_weight * surface.material.rgb / PI) +
             f * distribution * geometry / max(4.0 * view.z * light.z, 1.0e-8) +
             multiscatter_scale * (1.0 - energy_l);
         vec3 direction = normalize(frame * light);

@@ -1,0 +1,12 @@
+{
+  "ddgi_mse": 0.0005904882087315787,
+  "disabled_mse": 0.1181140905911369,
+  "frames": 96,
+  "reference_spp": 1024,
+  "region_top_left_xyxy": [
+    28,
+    34,
+    68,
+    62
+  ]
+}

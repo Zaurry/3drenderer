@@ -631,6 +631,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 if (ImGui::Combo("Style", &style, "Realistic\0Toon\0Sketch\0")) {
                     npr.style = static_cast<OpenGlRenderStyle>(style);
                     // A style selection should immediately show the final image.
+                    render_settings.opengl.ddgi.debug_view = DdgiDebugView::Final;
                     render_settings.opengl.shadow_map.debug_view = OpenGlShadowDebugView::Final;
                     render_settings.opengl.ambient_occlusion.debug_view = OpenGlAmbientOcclusionDebugView::Final;
                     render_settings.opengl.ssr.debug_view = OpenGlSsrDebugView::Final;
@@ -901,6 +902,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         static_cast<OpenGlShadowDebugView>(debug_view);
                     if (render_settings.opengl.shadow_map.debug_view !=
                         OpenGlShadowDebugView::Final) {
+                        render_settings.opengl.ddgi.debug_view = DdgiDebugView::Final;
                         render_settings.opengl.ambient_occlusion.debug_view =
                             OpenGlAmbientOcclusionDebugView::Final;
                         render_settings.opengl.ssr.debug_view =
@@ -1200,6 +1202,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         ao_debug_view);
                     if (ao.debug_view !=
                         OpenGlAmbientOcclusionDebugView::Final) {
+                        render_settings.opengl.ddgi.debug_view = DdgiDebugView::Final;
                         render_settings.opengl.shadow_map.debug_view =
                             OpenGlShadowDebugView::Final;
                         render_settings.opengl.ssr.debug_view =
@@ -1219,7 +1222,57 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     render_settings.height,
                     scene_radius(bounds) * radius_scale);
                 ImGui::TextDisabled(
-                    "AO affects environment IBL only; direct lights and the sky remain unchanged.");
+                    "AO attenuates indirect lighting, including DDGI and environment IBL.");
+            }
+
+            if (ImGui::CollapsingHeader("DDGI - Dynamic Diffuse GI", ImGuiTreeNodeFlags_DefaultOpen)) {
+                auto& ddgi = render_settings.opengl.ddgi;
+                const auto& diagnostic = shader_state.ddgi;
+                ImGui::Checkbox("Enable DDGI", &ddgi.enabled);
+                ImGui::Text("Probes: %s", diagnostic.status.c_str());
+                if (!diagnostic.detail.empty()) ImGui::TextWrapped("%s", diagnostic.detail.c_str());
+                ImGui::BeginDisabled(!ddgi.enabled);
+                if (ImGui::Checkbox("Fit volume to scene", &ddgi.auto_fit) && !ddgi.auto_fit && diagnostic.layout.count() > 0) {
+                    ddgi.origin = diagnostic.layout.origin;
+                    for (int a = 0; a < 3; ++a) ddgi.extent[a] = diagnostic.layout.spacing[a] * float(diagnostic.layout.counts[a] - 1);
+                }
+                ImGui::BeginDisabled(ddgi.auto_fit);
+                ImGui::DragFloat3("Volume minimum", ddgi.origin.data(), 0.02f);
+                ImGui::DragFloat3("Volume extent", ddgi.extent.data(), 0.02f, 0.001f, 1.0e6f);
+                ImGui::EndDisabled();
+                ImGui::SliderInt3("Probe grid", ddgi.probe_counts.data(), 2, 32);
+                ImGui::SliderInt("Rays per probe", &ddgi.rays_per_probe, 32, 512);
+                ImGui::SliderInt("Probes per frame", &ddgi.probes_per_frame, 1,
+                    ddgi.probe_counts[0] * ddgi.probe_counts[1] * ddgi.probe_counts[2]);
+                ImGui::SliderFloat("History weight", &ddgi.hysteresis, 0, 0.999f, "%.3f");
+                ImGui::SliderFloat("Normal bias / cell", &ddgi.normal_bias, 0, 0.5f);
+                ImGui::SliderFloat("View bias / cell", &ddgi.view_bias, 0, 0.5f);
+                ImGui::SliderFloat("Indirect intensity", &ddgi.intensity, 0, 4);
+                ImGui::Checkbox("Relocate probes", &ddgi.relocation); ImGui::SameLine();
+                ImGui::Checkbox("Classify probes", &ddgi.classification);
+                ImGui::Checkbox("Pause probe updates", &ddgi.paused);
+                ImGui::Checkbox("Show probes", &ddgi.show_probes);
+                if (ImGui::Button("Refit volume")) { ddgi.auto_fit = true; ++ddgi.fit_generation; }
+                ImGui::SameLine(); if (ImGui::Button("Reset probes")) ++ddgi.reset_generation;
+                const char* views[] = {"Final", "Diffuse indirect", "Probe state", "Update age", "Irradiance atlas", "Distance atlas"};
+                int view = static_cast<int>(ddgi.debug_view);
+                if (ImGui::Combo("DDGI debug view", &view, views, 6)) {
+                    ddgi.debug_view = static_cast<DdgiDebugView>(view);
+                    if (view != 0) {
+                        render_settings.opengl.ssr.debug_view = OpenGlSsrDebugView::Final;
+                        render_settings.opengl.shadow_map.debug_view = OpenGlShadowDebugView::Final;
+                        render_settings.opengl.ambient_occlusion.debug_view = OpenGlAmbientOcclusionDebugView::Final;
+                    }
+                }
+                ImGui::EndDisabled();
+                ddgi = normalized_ddgi_settings(ddgi);
+                ImGui::Text("Active %d / %d | updated %d | oldest %d frames", diagnostic.active_probes,
+                    diagnostic.probe_count, diagnostic.updated_probes, diagnostic.maximum_age);
+                ImGui::Text("Trace %.2f ms | blend %.2f ms | export %.2f ms | gather %.2f ms",
+                    diagnostic.trace_ms, diagnostic.blend_ms, diagnostic.export_ms, diagnostic.gather_ms);
+                ImGui::Text("Probe memory %.1f MiB | atlas readbacks %llu",
+                    double(diagnostic.memory_bytes) / 1048576.0, static_cast<unsigned long long>(diagnostic.atlas_downloads));
+                ImGui::TextWrapped("DDGI updates diffuse lighting in world space. SSR supplies glossy reflections. Camera motion keeps the probe history.");
             }
 
             if (ImGui::CollapsingHeader(
@@ -1323,6 +1376,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     ssr.debug_view = static_cast<OpenGlSsrDebugView>(
                         debug_view);
                     if (ssr.debug_view != OpenGlSsrDebugView::Final) {
+                        render_settings.opengl.ddgi.debug_view = DdgiDebugView::Final;
                         render_settings.opengl.shadow_map.debug_view =
                             OpenGlShadowDebugView::Final;
                         render_settings.opengl.ambient_occlusion.debug_view =
@@ -1335,8 +1389,9 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     render_settings.width,
                     render_settings.height,
                     scene_radius(bounds) * ssr.max_distance_scale);
-                ImGui::TextDisabled(
-                    "Diffuse and glossy indirect lighting share ray visibility on opaque/masked surfaces.");
+                ImGui::TextWrapped(render_settings.opengl.ddgi.enabled && shader_state.ddgi.active
+                    ? "DDGI supplies diffuse indirect lighting; SSR traces glossy reflections."
+                    : "Diffuse and glossy indirect lighting share ray visibility on opaque/masked surfaces.");
                 ImGui::TextDisabled(
                     "Known blockers replace environment lighting; AO applies only to environment fallback.");
                 if (!render_settings.opengl.ibl_enabled) {

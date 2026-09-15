@@ -1,0 +1,13 @@
+{
+  "space": "display RGB, PNG 8-bit",
+  "region_top_left_xyxy": [
+    288,
+    102,
+    672,
+    470
+  ],
+  "full_image_mae": 0.0008453991164366981,
+  "region_mae": 0.0031013282804063648,
+  "region_relative_mean_difference": 0.0011295088064170154,
+  "note": "Independent viewer runs use actual elapsed-time hysteresis; deterministic fixed-step GPU parity is checked separately at 1e-5 linear tolerance."
+}

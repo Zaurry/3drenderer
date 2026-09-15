@@ -4,6 +4,7 @@
 #include "platform/opengl/rtrt_primary_visibility.h"
 #include "render/realtime/cuda_realtime_renderer.h"
 #include "render/opengl/opengl_raster_renderer.h"
+#include "render/opengl/opengl_ddgi_pass.h"
 
 #include <stdexcept>
 #include <utility>
@@ -31,10 +32,10 @@ class OpenGlViewerRenderBackend final
 public:
     OpenGlViewerRenderBackend(
         std::filesystem::path vertex_shader_path,
-        std::filesystem::path fragment_shader_path)
+        std::filesystem::path fragment_shader_path, bool disable_interop)
         : renderer_(std::make_shared<OpenGlRasterRenderer>(
               std::move(vertex_shader_path),
-              std::move(fragment_shader_path))) {}
+              std::move(fragment_shader_path))), ddgi_(disable_interop) {}
 
     InteractiveRenderMode mode() const override {
         return InteractiveRenderMode::OpenGl;
@@ -75,11 +76,12 @@ public:
         }
         InteractiveFrameState effective_frame_state = frame_state;
         effective_frame_state.scene_changes = changes;
+        const auto& probes = ddgi_.update(snapshot, settings, effective_frame_state);
         renderer_->render(
             render_scene_,
             camera,
             settings,
-            effective_frame_state);
+            effective_frame_state, &probes);
         update_output();
         return output_;
     }
@@ -96,6 +98,12 @@ public:
         result.shader_vertex_path = renderer_->vertex_shader_path().string();
         result.shader_fragment_path = renderer_->fragment_shader_path().string();
         result.techniques = renderer_->technique_diagnostics();
+        result.ddgi = ddgi_.statistics();
+        result.ddgi.gather_ms = result.techniques.ddgi_gather_ms;
+        if(result.ddgi.active && !result.techniques.ddgi_active) {
+            result.ddgi.active = false;
+            result.ddgi.status = "updating (query bypassed)";
+        }
         return result;
     }
 
@@ -109,6 +117,7 @@ public:
 
 private:
     std::shared_ptr<OpenGlRasterRenderer> renderer_;
+    OpenGlDdgiPass ddgi_;
     Scene render_scene_;
     RenderFrameOutput output_;
     std::uint64_t source_id_ = 0;
@@ -257,7 +266,7 @@ std::unique_ptr<ViewerRenderBackend> make_viewer_render_backend(
     if (mode == InteractiveRenderMode::OpenGl) {
         return std::make_unique<OpenGlViewerRenderBackend>(
             vertex_shader_path,
-            fragment_shader_path);
+            fragment_shader_path, disable_cuda_interop);
     }
     if (mode == InteractiveRenderMode::Rtrt) {
         return std::make_unique<RealtimeViewerRenderBackend>(disable_cuda_interop);

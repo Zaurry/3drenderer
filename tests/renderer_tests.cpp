@@ -4512,6 +4512,15 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
     state.render_settings.opengl.ssr.denoise_normal_power = 24.0f;
     state.render_settings.opengl.ssr.debug_view =
         renderer::OpenGlSsrDebugView::Final;
+    state.render_settings.opengl.ddgi.auto_fit = false;
+    state.render_settings.opengl.ddgi.origin = {-4, -2, -8};
+    state.render_settings.opengl.ddgi.extent = {8, 4, 6};
+    state.render_settings.opengl.ddgi.probe_counts = {8, 6, 10};
+    state.render_settings.opengl.ddgi.rays_per_probe = 192;
+    state.render_settings.opengl.ddgi.probes_per_frame = 120;
+    state.render_settings.opengl.ddgi.hysteresis = 0.9f;
+    state.render_settings.opengl.ddgi.paused = true;
+    state.render_settings.opengl.ddgi.show_probes = true;
     state.camera.eye = renderer::Vec3(4.0f, 5.0f, 6.0f);
     state.camera.forward =
         renderer::Vec3(-1.0f, -0.5f, -2.0f).normalized();
@@ -4530,7 +4539,7 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
         std::ifstream input(session_path);
         input >> saved_json;
     }
-    RENDER_CHECK(saved_json.at("version").get<int>() == 6);
+    RENDER_CHECK(saved_json.at("version").get<int>() == 7);
     const auto& source =
         saved_json.at("document").at("snapshot").at("assets").at(0).at("source");
     RENDER_CHECK(source.at("kind").get<std::string>() == "obj");
@@ -4541,6 +4550,7 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
         renderer::ViewerSessionStore::load(session_path);
     RENDER_CHECK(loaded.window_width == 1400);
     RENDER_CHECK(loaded.render_settings.realtime == state.render_settings.realtime);
+    RENDER_CHECK(loaded.render_settings.opengl.ddgi == state.render_settings.opengl.ddgi);
     RENDER_CHECK(!saved_json.at("view").contains("path_accumulation_paused"));
     RENDER_CHECK(loaded.render_settings.opengl.npr == state.render_settings.opengl.npr);
     RENDER_CHECK(loaded.window_height == 900);
@@ -4756,6 +4766,18 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
         renderer::InteractiveRenderMode::OpenGl);
     state.ui.mode = renderer::InteractiveRenderMode::Path;
 
+    auto version_six_json = saved_json;
+    version_six_json["version"] = 6;
+    version_six_json["render"]["opengl"].erase("ddgi");
+    {
+        std::ofstream output(session_path);
+        output << version_six_json.dump(2) << '\n';
+    }
+    const auto version_six = renderer::ViewerSessionStore::load(session_path);
+    RENDER_CHECK(!version_six.render_settings.opengl.ddgi.enabled);
+    RENDER_CHECK(version_six.render_settings.opengl.ssr == state.render_settings.opengl.ssr);
+    RENDER_CHECK(version_six.render_settings.opengl.ibl_enabled == state.render_settings.opengl.ibl_enabled);
+
     nlohmann::json version_three_json = saved_json;
     version_three_json["version"] = 3;
     version_three_json["render"]["opengl"].erase("ambient_occlusion");
@@ -4897,7 +4919,9 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
     RENDER_CHECK(legacy.ui.rendering_panel_visible);
     RENDER_CHECK(legacy.ui.camera_lighting_panel_visible);
     RENDER_CHECK(legacy.ui.techniques_panel_visible);
-    RENDER_CHECK(legacy.render_settings.opengl == renderer::OpenGlRenderSettings{});
+    renderer::OpenGlRenderSettings legacy_defaults;
+    legacy_defaults.ddgi.enabled = false;
+    RENDER_CHECK(legacy.render_settings.opengl == legacy_defaults);
 
     nlohmann::json version_one_session_json = saved_json;
     version_one_session_json["version"] = 1;
@@ -4914,8 +4938,7 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
     RENDER_CHECK(version_one_session.ui.camera_lighting_panel_visible);
     RENDER_CHECK(version_one_session.ui.techniques_panel_visible);
     RENDER_CHECK(
-        version_one_session.render_settings.opengl ==
-        renderer::OpenGlRenderSettings{});
+        version_one_session.render_settings.opengl == legacy_defaults);
     if (renderer::cuda_path_backend_available()) {
         RENDER_CHECK(
             version_one_session.ui.mode ==

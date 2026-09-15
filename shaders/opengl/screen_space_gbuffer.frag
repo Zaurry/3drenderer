@@ -62,6 +62,7 @@ layout(location = 3) out vec4 out_ssr_pbr_aux;
 layout(location = 4) out vec4 out_ssr_material;
 // RGB = diffuse Fresnel f0, A = achromatic diffuse Fresnel f90.
 layout(location = 5) out vec4 out_ssr_diffuse_fresnel;
+layout(location = 6) out vec4 out_geometric_normal;
 
 float luminance(vec3 color) {
     return dot(color, vec3(0.2126, 0.7152, 0.0722));
@@ -199,6 +200,10 @@ void main() {
     }
 
     vec3 world_normal = surface_normal();
+    vec3 geometric = normalize(cross(dFdx(fragment_in.world_position), dFdy(fragment_in.world_position)));
+    if (dot(geometric, fragment_in.normal) < 0.0) geometric = -geometric;
+    if (!gl_FrontFacing && u_two_sided != 0) geometric = -geometric;
+    out_geometric_normal = vec4(geometric, 1.0);
     out_view_normal = normalize(vec3(
         dot(world_normal, u_camera_right),
         dot(world_normal, u_camera_up),

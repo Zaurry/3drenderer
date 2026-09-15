@@ -1,4 +1,5 @@
 #version 450 core
+uniform int u_ddgi_enabled;
 
 const float PI = 3.14159265358979323846;
 
@@ -1159,7 +1160,7 @@ void main() {
                 screen_ao,
                 n_dot_v);
         }
-        applied_diffuse_ibl = diffuse_ibl * (occlusion * screen_ao);
+        applied_diffuse_ibl = u_ddgi_enabled != 0 ? vec3(0.0) : diffuse_ibl * (occlusion * screen_ao);
         if (u_npr_style == 1) {
             float irradiance = max(luminance(diffuse_irradiance), 0.0);
             vec3 light_tint = diffuse_irradiance / max(irradiance, 1.0e-5);

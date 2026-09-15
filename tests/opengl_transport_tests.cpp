@@ -246,14 +246,18 @@ RENDER_TEST(test_gpu_ssr_miss_fallback_and_diffuse_ggx_white_furnace) {
     RENDER_CHECK(nearly_equal(diffuse[1], 0.4f, 1.0e-5f));
     // Unit-Fresnel GGX plus energy compensation integrates to one across
     // roughness and view angle, including rejected below-horizon samples.
+    for (int ddgi : {0, 1}) {
+    f.integer(f.trace.id(), "u_ddgi_enabled", ddgi);
     for (float roughness : {0.02f, 0.3f, 0.65f, 1.0f}) {
         f.setup(0, {0.6f, 0, 0.8f, 0});
         f.fill(7, {1, 1, 1, roughness});
         float mean = 0;
         for (int frame = 0; frame < 128; ++frame) mean += f.render(frame)[0] / 128.0f;
-        std::cout << "GGX furnace roughness=" << roughness << " mean=" << mean << '\n';
+        std::cout << "GGX furnace ddgi=" << ddgi << " roughness=" << roughness << " mean=" << mean << '\n';
         RENDER_CHECK(nearly_equal(mean, 1.0f, 0.035f));
     }
+    }
+    f.integer(f.trace.id(), "u_ddgi_enabled", 0);
     // A sloped plane in a white environment cannot occlude its own outgoing
     // reflection, including at a grazing angle to the camera.
     const Pixel plane_normal{0.9238795f, 0, 0.3826834f, 0};

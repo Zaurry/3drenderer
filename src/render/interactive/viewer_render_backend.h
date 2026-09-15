@@ -20,6 +20,7 @@ struct OpenGlViewerStatistics {
     std::string shader_vertex_path;
     std::string shader_fragment_path;
     OpenGlTechniqueDiagnostics techniques;
+    DdgiStatistics ddgi;
 };
 
 struct CudaPathViewerStatistics {

@@ -1,0 +1,2 @@
+frame_report count=240 p50_ms=10.8374 p95_ms=13.1024 p99_ms=14.0648
+viewer mode=opengl frames=300 size=960x540 shader=active ddgi=fallback probe_frames=300 probes=1152/1152 updated=256 probe_resets=1 probe_trace_ms=0.186368 probe_blend_ms=0.372736 probe_export_ms=3.7801 probe_gather_ms=0.193536 atlas_downloads=300

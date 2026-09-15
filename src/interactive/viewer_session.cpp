@@ -2,6 +2,7 @@
 
 #include "core/io/atomic_file.h"
 #include "render/realtime/realtime_settings_json.h"
+#include "render/ddgi/ddgi_settings_json.h"
 #include "render/pathtracer/cuda_pathtracer.h"
 
 #include <nlohmann/json.hpp>
@@ -16,9 +17,9 @@ namespace renderer {
 
 // Current viewer session schema version. Load applies version-gated
 // upgrades oldest-first (v1 legacy backend note, v3 OpenGL techniques,
-// v5 temporal SSGI, v6 RTRT and unified screen-space ray tracing);
+// v5 temporal SSGI, v6 RTRT and unified screen-space ray tracing, v7 DDGI);
 // save() always writes this version.
-constexpr int kViewerSessionVersion = 6;
+constexpr int kViewerSessionVersion = 7;
 
 namespace {
 
@@ -453,11 +454,20 @@ ViewerSessionState ViewerSessionStore::load(
     if (version >= 6 && render.contains("realtime")) {
         state.render_settings.realtime = parse_realtime_settings(render.at("realtime"));
     }
+    if (version < 7) state.render_settings.opengl.ddgi.enabled = false;
     if (version >= 3 && render.contains("opengl")) {
         restore_opengl_settings(
             state.render_settings.opengl,
             render);
         restore_ssr_settings(state.render_settings.opengl, render, version);
+        if (version >= 7 && render.at("opengl").contains("ddgi")) {
+            state.render_settings.opengl.ddgi = parse_ddgi_settings(render.at("opengl").at("ddgi"));
+            if (state.render_settings.opengl.ddgi.debug_view != DdgiDebugView::Final) {
+                state.render_settings.opengl.shadow_map.debug_view = OpenGlShadowDebugView::Final;
+                state.render_settings.opengl.ambient_occlusion.debug_view = OpenGlAmbientOcclusionDebugView::Final;
+                state.render_settings.opengl.ssr.debug_view = OpenGlSsrDebugView::Final;
+            }
+        }
     }
     if (state.ui.mode == InteractiveRenderMode::Rtrt) {
         std::string reason;
@@ -615,6 +625,7 @@ void ViewerSessionStore::save(
                 {"normal_power", state.render_settings.opengl.ambient_occlusion.denoise.normal_power},
             }},
         }},
+        {"ddgi", ddgi_settings_json(state.render_settings.opengl.ddgi)},
         {"ssr", {
             {"enabled", state.render_settings.opengl.ssr.enabled},
             {"rays_per_pixel", state.render_settings.opengl.ssr.rays_per_pixel},

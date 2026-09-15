@@ -103,7 +103,7 @@ RENDER_TEST(test_opengl_shader_source_contract_lint) {
     RENDER_CHECK(fragment.find("gtso_visibility") != std::string::npos);
     RENDER_CHECK(fragment.find("out_direct_lighting") != std::string::npos);
     RENDER_CHECK(fragment.find(
-        "applied_diffuse_ibl = diffuse_ibl * (occlusion * screen_ao)") !=
+        "applied_diffuse_ibl = u_ddgi_enabled != 0 ? vec3(0.0) : diffuse_ibl * (occlusion * screen_ao)") !=
         std::string::npos);
     RENDER_CHECK(screen_space_gbuffer.find("u_alpha_cutoff") != std::string::npos);
     RENDER_CHECK(screen_space_gbuffer.find("u_has_normal_texture") != std::string::npos);

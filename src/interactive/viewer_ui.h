@@ -79,6 +79,7 @@ inline void select_viewer_object(
 }
 
 struct OpenGlShaderUiState {
+    DdgiStatistics ddgi;
     std::string vertex_path;
     std::string fragment_path;
     std::string error;

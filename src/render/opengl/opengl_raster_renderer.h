@@ -2,6 +2,7 @@
 
 #include "render/interactive/interactive_render_session.h"
 #include "render/interactive/render_frame_output.h"
+#include "render/ddgi/ddgi_types.h"
 
 #include <filesystem>
 #include <memory>
@@ -10,6 +11,8 @@
 namespace renderer {
 
 struct OpenGlTechniqueDiagnostics {
+    bool ddgi_active = false;
+    float ddgi_gather_ms = 0;
     int active_shadow_slots = 0;
     int budget_excluded_lights = 0;
     int hardware_excluded_lights = 0;
@@ -58,7 +61,8 @@ public:
         const Scene& scene,
         const Camera& camera,
         const RenderSettings& settings,
-        const InteractiveFrameState& frame_state);
+        const InteractiveFrameState& frame_state,
+        const DdgiFrameResources* ddgi = nullptr);
 
     unsigned int output_texture() const;
     int output_width() const;

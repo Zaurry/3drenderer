@@ -1,0 +1,1 @@
+viewer mode=opengl frames=120 size=960x540 shader=active ddgi=unavailable probe_frames=0 probes=0/0 updated=0 probe_resets=0 probe_trace_ms=0 probe_blend_ms=0 probe_export_ms=0 probe_gather_ms=0 atlas_downloads=0 ddgi_detail=renderer was built without CUDA support

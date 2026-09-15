@@ -784,6 +784,7 @@ public:
     }
 
     ~Impl() {
+        if (ddgi_query_) glDeleteQueries(1, &ddgi_query_);
         shader_program_.reset();
         screen_space_gbuffer_program_.reset();
         ao_program_.reset();
@@ -875,9 +876,18 @@ public:
         const Scene& scene,
         const Camera& camera,
         const RenderSettings& settings,
-        const InteractiveFrameState& frame_state) {
+        const InteractiveFrameState& frame_state,
+        const DdgiFrameResources* probes) {
         reload_shader_if_needed();
+        if (probes && probes->active) reload_ddgi_shader();
         ensure_output(settings.width, settings.height);
+        ddgi_resources_ = probes ? *probes : DdgiFrameResources{};
+        const bool previous_ddgi_active = ddgi_active_;
+        ddgi_active_ = ddgi_resources_.active && settings.opengl.ddgi.enabled &&
+            settings.opengl.npr.style == OpenGlRenderStyle::Realistic && ddgi_program_ &&
+            screen_space_gbuffer_program_ && settings.opengl.shadow_map.debug_view == OpenGlShadowDebugView::Final &&
+            settings.opengl.ambient_occlusion.debug_view == OpenGlAmbientOcclusionDebugView::Final;
+        if (previous_ddgi_active != ddgi_active_) ssr_history_valid_ = false;
         const bool opengl_settings_changed =
             !cached_opengl_settings_valid_ ||
             cached_opengl_settings_ != settings.opengl;
@@ -897,7 +907,8 @@ public:
         const Mat4 ao_view_projection = view_projection_matrix(
             camera,
             std::max(1.0e-4f, scene_radius_ * 1.0e-4f));
-        const bool ssr_requested = open_gl_ssr_requested(settings.opengl);
+        const bool ssr_requested = open_gl_ssr_requested(settings.opengl) &&
+            !(ddgi_active_ && settings.opengl.ddgi.debug_view != DdgiDebugView::Final);
         const bool ssr_active = ssr_requested &&
             ssr_shaders_available_ && ssr_source_available_ &&
             screen_space_gbuffer_program_ && ssr_hiz_framebuffer_ != 0 &&
@@ -1223,6 +1234,7 @@ public:
         }
         };
         // SSR supplies all opaque environment/indirect illumination.
+        set_uniform(glGetUniformLocation(shader_program_.id(), "u_ddgi_enabled"), ddgi_active_ ? 1 : 0);
         set_uniform(uniforms_.ibl_enabled,
             settings.opengl.ibl_enabled && !ssr_active ? 1 : 0);
         draw_batches(false);
@@ -1242,6 +1254,7 @@ public:
         glBlendFunci(1, GL_ONE, GL_ONE);
         glBlendFunci(2, GL_ZERO, GL_ONE_MINUS_SRC_COLOR);
         set_uniform(uniforms_.transparent_pass, 1);
+        set_uniform(glGetUniformLocation(shader_program_.id(), "u_ddgi_enabled"), 0);
         glDepthFunc(GL_LESS);
         glDepthMask(GL_FALSE);
         set_uniform(uniforms_.ibl_enabled, settings.opengl.ibl_enabled ? 1 : 0);
@@ -1253,6 +1266,10 @@ public:
         glDisable(GL_CULL_FACE);
 
         GLuint screen_opaque_texture = opaque_texture_;
+        if (ddgi_active_) {
+            render_ddgi(scene, camera, settings, ao_active);
+            screen_opaque_texture = ddgi_color_texture_;
+        }
         if (ssr_active) {
             render_ssr(scene, camera, settings, ao_active);
             screen_opaque_texture = ssr_output_texture_;
@@ -1296,13 +1313,14 @@ public:
         set_uniform(
             glGetUniformLocation(
                 composite_program_.id(), "u_skip_transparency"),
-            ssr_active &&
+            (ddgi_active_ && settings.opengl.ddgi.debug_view != DdgiDebugView::Final) || (ssr_active &&
                     settings.opengl.ssr.debug_view !=
-                        OpenGlSsrDebugView::Final
+                        OpenGlSsrDebugView::Final)
                 ? 1
                 : 0);
         glBindVertexArray(vao_);
         glDrawArrays(GL_TRIANGLES, 0, 3);
+        if (ddgi_active_ && settings.opengl.ddgi.show_probes) draw_ddgi_probes(camera, settings);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
@@ -1548,6 +1566,8 @@ public:
 
     OpenGlTechniqueDiagnostics technique_diagnostics() const {
         OpenGlTechniqueDiagnostics result;
+        result.ddgi_active = ddgi_active_;
+        result.ddgi_gather_ms = ddgi_active_ ? ddgi_gather_ms_ : 0;
         result.active_shadow_slots = static_cast<int>(shadow_slots_.size());
         result.budget_excluded_lights = shadow_budget_excluded_count_;
         result.hardware_excluded_lights = shadow_hardware_excluded_count_;
@@ -1594,6 +1614,13 @@ private:
     GlShaderProgram shader_program_;
     UniformLocations uniforms_;
     GlShaderProgram screen_space_gbuffer_program_;
+    GlShaderProgram ddgi_program_, ddgi_probe_program_;
+    std::filesystem::file_time_type ddgi_shader_time_{};
+    DdgiFrameResources ddgi_resources_;
+    bool ddgi_active_ = false, ddgi_query_pending_ = false;
+    GLuint ddgi_color_texture_ = 0, ddgi_ray_texture_ = 0, ddgi_framebuffer_ = 0;
+    GLuint ddgi_geometric_normal_texture_ = 0, ddgi_query_ = 0;
+    float ddgi_gather_ms_ = 0;
     GlShaderProgram ao_program_;
     GlShaderProgram ao_denoise_program_;
     GlShaderProgram ssr_hiz_program_;
@@ -2852,13 +2879,13 @@ private:
         const Mat4& view_projection) {
         glBindFramebuffer(GL_FRAMEBUFFER, screen_space_gbuffer_framebuffer_);
         glViewport(0, 0, settings.width, settings.height);
-        const std::array<GLenum, 6> gbuffer_outputs{
+        const std::array<GLenum, 7> gbuffer_outputs{
             GL_COLOR_ATTACHMENT0,
             GL_COLOR_ATTACHMENT1,
             GL_COLOR_ATTACHMENT2,
             GL_COLOR_ATTACHMENT3,
             GL_COLOR_ATTACHMENT4,
-            GL_COLOR_ATTACHMENT5};
+            GL_COLOR_ATTACHMENT5, GL_COLOR_ATTACHMENT6};
         glDrawBuffers(
             static_cast<GLsizei>(gbuffer_outputs.size()),
             gbuffer_outputs.data());
@@ -2873,6 +2900,7 @@ private:
         glClearBufferfv(GL_COLOR, 3, zero.data());
         glClearBufferfv(GL_COLOR, 4, zero.data());
         glClearBufferfv(GL_COLOR, 5, zero.data());
+        glClearBufferfv(GL_COLOR, 6, zero.data());
         glClear(GL_DEPTH_BUFFER_BIT);
 
         glUseProgram(screen_space_gbuffer_program_.id());
@@ -2927,6 +2955,9 @@ private:
             scene_radius_ * std::clamp(radius_scale, 0.005f, 0.5f));
 
         glBindFramebuffer(GL_FRAMEBUFFER, ao_framebuffer_);
+        // SSR's Hi-Z reduction leaves the viewport at its final 1x1 mip.
+        // AO and its filters must cover the entire receiver buffer each frame.
+        glViewport(0, 0, settings.width, settings.height);
         glFramebufferTexture2D(
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT0,
@@ -3108,7 +3139,7 @@ private:
         bool ssr_active,
         bool& gbuffer_active) {
         const bool ao_wants_gbuffer = ambient_occlusion_wants_gbuffer(settings);
-        gbuffer_active = ao_wants_gbuffer || ssr_active ||
+        gbuffer_active = ao_wants_gbuffer || ssr_active || ddgi_active_ ||
             (open_gl_npr_active(settings.opengl) && screen_space_gbuffer_program_ &&
              screen_space_gbuffer_framebuffer_ != 0);
         if (!gbuffer_active) {
@@ -3124,6 +3155,95 @@ private:
             return false;
         }
         return render_ambient_occlusion(camera, settings);
+    }
+
+    void reload_ddgi_shader() {
+        const auto path = fullscreen_vertex_path_.parent_path() / "ddgi_resolve.frag";
+        const auto probe_vertex = fullscreen_vertex_path_.parent_path() / "ddgi_probes.vert";
+        const auto probe_fragment = fullscreen_vertex_path_.parent_path() / "ddgi_probes.frag";
+        const auto stamp = std::max({file_write_time(path), file_write_time(probe_vertex), file_write_time(probe_fragment)});
+        if (ddgi_program_ && (!auto_reload_ || stamp == ddgi_shader_time_)) return;
+        GlShaderProgram replacement, markers; std::string error;
+        if (replacement.load(fullscreen_vertex_path_, path, error) && markers.load(probe_vertex, probe_fragment, error)) {
+            ddgi_program_ = std::move(replacement); ddgi_probe_program_ = std::move(markers);
+            ddgi_shader_time_ = stamp;
+        } else shader_error_ = "DDGI: " + error;
+    }
+
+    void set_ddgi_volume_uniforms(GLuint program) {
+        const auto& layout = ddgi_resources_.layout;
+        glUniform3iv(glGetUniformLocation(program, "u_counts"), 1, layout.counts.data());
+        glUniform3fv(glGetUniformLocation(program, "u_origin"), 1, layout.origin.data());
+        glUniform3fv(glGetUniformLocation(program, "u_spacing"), 1, layout.spacing.data());
+        set_uniform(glGetUniformLocation(program, "u_columns"), layout.columns);
+    }
+
+    void render_ddgi(const Scene& scene, const Camera& camera, const RenderSettings& settings, bool ao_active) {
+        if (ddgi_query_pending_) {
+            GLint ready = 0; glGetQueryObjectiv(ddgi_query_, GL_QUERY_RESULT_AVAILABLE, &ready);
+            if (ready) { GLuint64 elapsed = 0; glGetQueryObjectui64v(ddgi_query_, GL_QUERY_RESULT, &elapsed);
+                ddgi_gather_ms_ = static_cast<float>(elapsed) * 1e-6f; ddgi_query_pending_ = false; }
+        }
+        if (!ddgi_framebuffer_) {
+            glGenFramebuffers(1, &ddgi_framebuffer_); glBindFramebuffer(GL_FRAMEBUFFER, ddgi_framebuffer_);
+            const std::array<GLuint*, 2> targets{&ddgi_color_texture_, &ddgi_ray_texture_};
+            for (int i = 0; i < 2; ++i) {
+                glGenTextures(1, targets[i]); glBindTexture(GL_TEXTURE_2D, *targets[i]);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, output_width_, output_height_, 0, GL_RGBA, GL_FLOAT, nullptr);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D, *targets[i], 0);
+            }
+            if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) throw std::runtime_error("DDGI framebuffer incomplete");
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, ddgi_framebuffer_);
+        const std::array<GLenum, 2> outputs{GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
+        glDrawBuffers(2, outputs.data()); glViewport(0, 0, output_width_, output_height_);
+        glDisable(GL_DEPTH_TEST); glDisable(GL_BLEND);
+        const GLuint program = ddgi_program_.id(); glUseProgram(program); set_ddgi_volume_uniforms(program);
+        set_uniform(glGetUniformLocation(program, "u_camera_position"), camera.eye());
+        set_uniform(glGetUniformLocation(program, "u_camera_forward"), camera.forward());
+        set_uniform(glGetUniformLocation(program, "u_camera_right"), camera.right());
+        set_uniform(glGetUniformLocation(program, "u_camera_up"), camera.up());
+        glUniform2f(glGetUniformLocation(program, "u_camera_viewport"), camera.viewport_width(), camera.viewport_height());
+        const auto config = normalized_ddgi_settings(settings.opengl.ddgi);
+        set_uniform(glGetUniformLocation(program, "u_normal_bias"), config.normal_bias);
+        set_uniform(glGetUniformLocation(program, "u_view_bias"), config.view_bias);
+        set_uniform(glGetUniformLocation(program, "u_intensity"), config.intensity);
+        set_uniform(glGetUniformLocation(program, "u_debug"), static_cast<int>(config.debug_view));
+        set_uniform(glGetUniformLocation(program, "u_ao_enabled"), ao_active ? 1 : 0);
+        set_uniform(glGetUniformLocation(program, "u_ibl_enabled"), settings.opengl.ibl_enabled ? 1 : 0);
+        set_uniform(glGetUniformLocation(program, "u_has_environment_map"), scene.environment_map ? 1 : 0);
+        set_uniform(glGetUniformLocation(program, "u_environment_color"), scene.environment);
+        set_uniform(glGetUniformLocation(program, "u_environment_intensity"), scene.environment_intensity);
+        set_uniform(glGetUniformLocation(program, "u_environment_rotation"), scene.environment_rotation_degrees * 0.01745329252f);
+        const std::array<GLuint, 12> textures{opaque_texture_, ray_radiance_texture_, screen_space_linear_depth_texture_,
+            screen_space_view_normal_texture_, ddgi_geometric_normal_texture_, gbuffer_ssr_material_texture_,
+            gbuffer_diffuse_fresnel_texture_, gbuffer_pbr_aux_texture_, ao_active ? ao_resolved_texture_ : fallback_texture_,
+            ddgi_resources_.irradiance, ddgi_resources_.distance, ddgi_resources_.metadata};
+        for (std::size_t i = 0; i < textures.size(); ++i) {
+            glActiveTexture(GL_TEXTURE0 + static_cast<GLenum>(i)); glBindTexture(GL_TEXTURE_2D, textures[i]);
+        }
+        glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_CUBE_MAP, residual_environment_cube_ ? residual_environment_cube_ : environment_cube_);
+        const bool measure = !ddgi_query_pending_;
+        if (!ddgi_query_) glGenQueries(1, &ddgi_query_);
+        if (measure) glBeginQuery(GL_TIME_ELAPSED, ddgi_query_);
+        glBindVertexArray(vao_); glDrawArrays(GL_TRIANGLES, 0, 3);
+        if (measure) { glEndQuery(GL_TIME_ELAPSED); ddgi_query_pending_ = true; }
+    }
+
+    void draw_ddgi_probes(const Camera& camera, const RenderSettings& settings) {
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depth_texture_, 0);
+        glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LEQUAL); glDepthMask(GL_FALSE); glEnable(GL_PROGRAM_POINT_SIZE);
+        const GLuint program = ddgi_probe_program_.id(); glUseProgram(program); set_ddgi_volume_uniforms(program);
+        const Mat4 matrix = view_projection_matrix(camera, std::max(1e-4f, scene_radius_ * 1e-4f));
+        glUniformMatrix4fv(glGetUniformLocation(program, "u_view_projection"), 1, GL_FALSE, matrix.data());
+        set_uniform(glGetUniformLocation(program, "u_screen_height"), static_cast<float>(settings.height));
+        glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, ddgi_resources_.metadata);
+        glDrawArrays(GL_POINTS, 0, ddgi_resources_.layout.count());
+        glDepthMask(GL_TRUE); glDisable(GL_PROGRAM_POINT_SIZE); glDisable(GL_DEPTH_TEST);
     }
 
     void render_ssr(
@@ -3165,6 +3285,7 @@ private:
         glViewport(0, 0, ssr_width_, ssr_height_);
         glDrawBuffers(1, &single_output);
         glUseProgram(ssr_trace_program_.id());
+        set_uniform(glGetUniformLocation(ssr_trace_program_.id(), "u_ddgi_enabled"), ddgi_active_ ? 1 : 0);
         set_resolution_uniforms(ssr_trace_program_.id());
         glUniform2f(
             glGetUniformLocation(
@@ -3225,7 +3346,7 @@ private:
             glGetUniformLocation(ssr_trace_program_.id(), "u_ibl_enabled"),
             settings.opengl.ibl_enabled ? 1 : 0);
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, ray_radiance_texture_);
+        glBindTexture(GL_TEXTURE_2D, ddgi_active_ ? ddgi_ray_texture_ : ray_radiance_texture_);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, screen_space_linear_depth_texture_);
         glActiveTexture(GL_TEXTURE2);
@@ -3466,7 +3587,7 @@ private:
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, opaque_texture_);
         glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, direct_lighting_texture_);
+        glBindTexture(GL_TEXTURE_2D, ddgi_active_ ? ddgi_color_texture_ : direct_lighting_texture_);
         glActiveTexture(GL_TEXTURE2);
         glBindTexture(GL_TEXTURE_2D, ssr_raw_texture_);
         glActiveTexture(GL_TEXTURE3);
@@ -3698,13 +3819,15 @@ private:
         glFramebufferTexture2D(
             GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT5, GL_TEXTURE_2D,
             gbuffer_diffuse_fresnel_texture_, 0);
-        const std::array<GLenum, 6> screen_space_gbuffer_outputs{
+        create_material_texture(ddgi_geometric_normal_texture_);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT6, GL_TEXTURE_2D, ddgi_geometric_normal_texture_, 0);
+        const std::array<GLenum, 7> screen_space_gbuffer_outputs{
             GL_COLOR_ATTACHMENT0,
             GL_COLOR_ATTACHMENT1,
             GL_COLOR_ATTACHMENT2,
             GL_COLOR_ATTACHMENT3,
             GL_COLOR_ATTACHMENT4,
-            GL_COLOR_ATTACHMENT5};
+            GL_COLOR_ATTACHMENT5, GL_COLOR_ATTACHMENT6};
         glDrawBuffers(
             static_cast<GLsizei>(screen_space_gbuffer_outputs.size()),
             screen_space_gbuffer_outputs.data());
@@ -4005,6 +4128,7 @@ private:
                  &gbuffer_pbr_aux_texture_,
                  &gbuffer_ssr_material_texture_,
                  &gbuffer_diffuse_fresnel_texture_,
+                 &ddgi_geometric_normal_texture_, &ddgi_color_texture_, &ddgi_ray_texture_,
                  &ao_raw_texture_,
                  &ao_temporary_texture_,
                  &ao_filtered_texture_,
@@ -4067,6 +4191,7 @@ private:
             screen_space_gbuffer_framebuffer_ = 0;
         }
         for (GLuint* framebuffer : {
+                 &ddgi_framebuffer_,
                  &ssr_hiz_framebuffer_,
                  &ssr_trace_framebuffer_,
                  &ssr_temporal_framebuffer_,
@@ -4114,8 +4239,9 @@ void OpenGlRasterRenderer::render(
     const Scene& scene,
     const Camera& camera,
     const RenderSettings& settings,
-    const InteractiveFrameState& frame_state) {
-    impl_->render(scene, camera, settings, frame_state);
+    const InteractiveFrameState& frame_state,
+    const DdgiFrameResources* probes) {
+    impl_->render(scene, camera, settings, frame_state, probes);
 }
 
 unsigned int OpenGlRasterRenderer::output_texture() const {

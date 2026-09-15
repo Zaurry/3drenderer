@@ -272,6 +272,9 @@ struct DCamera {
 };
 
 struct DScene {
+    // DDGI must observe backfaces to identify probes inside closed geometry.
+    // Ordinary camera and shadow traversal retain the existing culling policy.
+    int probe_backfaces = 0;
     const DMaterial* materials;
     int material_count;
     int stochastic_alpha_test;
@@ -1188,7 +1191,7 @@ __device__ bool triangle_candidate_visible(
         return true;
     }
     const DMaterial material = scene.materials[material_id];
-    if (!material.two_sided) {
+    if (!material.two_sided && !scene.probe_backfaces) {
         const DTraversalTriangle& geometry =
             scene.traversal_triangles[primitive_index];
         const DVec3 outward = cross(geometry.edge1, geometry.edge2);
@@ -1282,7 +1285,7 @@ __device__ bool sphere_candidate_visible(
     const bool front_face =
         dot(world_direction, outward) < 0.0f;
     const DMaterial material = scene.materials[material_id];
-    if (!material.two_sided && !front_face) {
+    if (!material.two_sided && !front_face && !scene.probe_backfaces) {
         return false;
     }
     const int alpha_mode = material.type == static_cast<int>(MaterialType::Pbr)

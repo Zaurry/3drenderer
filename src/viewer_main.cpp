@@ -4,6 +4,7 @@
 #include "interactive/viewer_session.h"
 #include "interactive/viewer_ui.h"
 #include "platform/opengl/cuda_opengl_interop.h"
+#include "render/ddgi/ddgi_settings_json.h"
 #include "platform/sdl/sdl_display_backend.h"
 #include "render/interactive/render_mode.h"
 #include "render/interactive/viewer_render_backend.h"
@@ -35,6 +36,7 @@
 namespace {
 
 struct ViewerOptions {
+    std::optional<bool> ddgi;
     std::optional<renderer::OpenGlRenderStyle> style;
     std::filesystem::path capture_path;
     std::string scene = "asset";
@@ -145,6 +147,7 @@ void print_help() {
         << "  --width integer    window width, default 960\n"
         << "  --height integer   window height, default 540\n"
         << "  --frames integer   render N frames then exit, default unlimited\n"
+        << "  --ddgi on|off      enable or disable OpenGL dynamic irradiance probes\n"
         << "  --frame-report path.json  measure full frames through GPU presentation completion\n"
         << "  --warmup-frames integer  exclude initial frames from report, default 60\n"
         << "  --camera-preset path.json  read the camera object from a benchmark case\n"
@@ -153,7 +156,7 @@ void print_help() {
         << "  --capture path.png  save the final render without UI (use with --frames)\n"
         << "  --no-cuda-interop  use host presentation (diagnose interop compatibility)\n"
         << "  --rtrt-config path.json  RTRT settings object (same fields as session render.realtime)\n"
-        << "  --cuda-device N    CUDA device index for RTRT mode; default GL-compatible\n"
+        << "  --cuda-device N    CUDA device index for RTRT/DDGI; default GL-compatible\n"
         << "  --gl-vertex-shader path    OpenGL vertex shader override\n"
         << "  --gl-fragment-shader path  OpenGL fragment shader override\n"
         << "  --no-restore-last  start the default scene without restoring the last session\n"
@@ -233,6 +236,10 @@ ViewerOptions parse_args(int argc, char** argv) {
             else if (style == "toon") options.style = renderer::OpenGlRenderStyle::Toon;
             else if (style == "sketch") options.style = renderer::OpenGlRenderStyle::Sketch;
             else throw std::invalid_argument("--style must be realistic, toon, or sketch");
+        } else if (arg == "--ddgi") {
+            const auto value = require_value(argc, argv, i, arg);
+            if (value != "on" && value != "off") throw std::invalid_argument("--ddgi expects on or off");
+            options.ddgi = value == "on";
         } else if (arg == "--capture") {
             options.capture_path = require_value(argc, argv, i, arg);
         } else if (arg == "--width") {
@@ -639,6 +646,7 @@ int main(int argc, char** argv) {
         settings.width = scaled_dimension(window_width, ui_state.render_scale);
         settings.height = scaled_dimension(window_height, ui_state.render_scale);
         settings.path.samples_per_pixel = 1;
+        if (options.ddgi) settings.opengl.ddgi.enabled = *options.ddgi;
         if (!options.realtime_config.empty()) {
             std::ifstream config_file(options.realtime_config);
             if (!config_file) throw std::runtime_error("cannot open RTRT config");
@@ -948,6 +956,7 @@ int main(int argc, char** argv) {
                 shader_ui_state.valid = gl->shader_valid;
                 shader_ui_state.error = gl->shader_error;
                 technique_diagnostics = gl->techniques;
+                shader_ui_state.ddgi = gl->ddgi;
                 if (!gl->shader_vertex_path.empty()) {
                     shader_ui_state.vertex_path = gl->shader_vertex_path;
                 }
@@ -1349,6 +1358,13 @@ int main(int argc, char** argv) {
                         {"allocations",path->cuda.allocation_generation},
                         {"downloads",path->cuda.framebuffer_downloads},{"history_resets",rt.history_resets}});
                 }
+                if(const auto* gl=std::get_if<renderer::OpenGlViewerStatistics>(&statistics)) {
+                    const auto& d=gl->ddgi;
+                    sample.update({{"ddgi",d.status},{"probe_trace_ms",d.trace_ms},{"probe_blend_ms",d.blend_ms},
+                        {"probe_gather_ms",d.gather_ms},{"probe_export_ms",d.export_ms},{"probe_count",d.probe_count},{"active_probes",d.active_probes},
+                        {"updated_probes",d.updated_probes},{"maximum_probe_age",d.maximum_age},
+                        {"probe_memory_bytes",d.memory_bytes},{"atlas_downloads",d.atlas_downloads},{"probe_resets",d.reset_count}});
+                }
                 measured_frames.push_back(std::move(sample));
             }
             if (frame_rate_counter.tick(frame_seconds) ||
@@ -1380,6 +1396,8 @@ int main(int argc, char** argv) {
                 {"count",times.size()},{"p50_ms",quantile(.5)},{"p95_ms",quantile(.95)},{"p99_ms",quantile(.99)},
                 {"over_16_667_ms",std::count_if(times.begin(),times.end(),[](double ms){return ms>1000.0/60;})},
                 {"samples",std::move(measured_frames)}};
+            report["mode"] = mode_name(ui_state.mode);
+            report["ddgi_settings"] = renderer::ddgi_settings_json(settings.opengl.ddgi);
             if(!options.frame_report.parent_path().empty())std::filesystem::create_directories(options.frame_report.parent_path());
             std::ofstream output(options.frame_report);output<<report.dump(2);
             if(!output)throw std::runtime_error("Failed to write frame report");
@@ -1425,6 +1443,13 @@ int main(int argc, char** argv) {
                 std::get<renderer::OpenGlViewerStatistics>(final_statistics);
             std::cout << " shader="
                       << (gl.shader_valid ? "active" : "invalid");
+            std::cout << " ddgi=" << gl.ddgi.status << " probe_frames=" << gl.ddgi.frame_index
+                      << " probes=" << gl.ddgi.active_probes << '/' << gl.ddgi.probe_count
+                      << " updated=" << gl.ddgi.updated_probes << " probe_resets=" << gl.ddgi.reset_count
+                      << " probe_trace_ms=" << gl.ddgi.trace_ms << " probe_blend_ms=" << gl.ddgi.blend_ms
+                      << " probe_export_ms=" << gl.ddgi.export_ms << " probe_gather_ms=" << gl.ddgi.gather_ms
+                      << " atlas_downloads=" << gl.ddgi.atlas_downloads;
+            if (!gl.ddgi.detail.empty()) std::cout << " ddgi_detail=" << gl.ddgi.detail;
             if (!gl.shader_error.empty()) {
                 std::cerr << "\nshader error: " << gl.shader_error;
             }

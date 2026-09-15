@@ -1,0 +1,36 @@
+{
+  "frames_per_sweep": 4,
+  "results": [
+    {
+      "change": "move-light",
+      "converged_mean": 1.2508447170257568,
+      "mean_after_8_sweeps": 1.2502127885818481,
+      "relative_error": 0.0005052013439126313
+    },
+    {
+      "change": "disable-light",
+      "converged_mean": 0.010297860950231552,
+      "mean_after_8_sweeps": 0.010513304732739925,
+      "relative_error": 0.020921217277646065
+    },
+    {
+      "change": "material",
+      "converged_mean": 0.7473559379577637,
+      "mean_after_8_sweeps": 0.7472843527793884,
+      "relative_error": 9.578458411851898e-05
+    },
+    {
+      "change": "environment",
+      "converged_mean": 0.8881416320800781,
+      "mean_after_8_sweeps": 0.8885704874992371,
+      "relative_error": 0.000482868286781013
+    },
+    {
+      "change": "move-occluder",
+      "converged_mean": 0.7966561317443848,
+      "mean_after_8_sweeps": 0.7961795926094055,
+      "relative_error": 0.0005981741705909371
+    }
+  ],
+  "sweeps": 8
+}

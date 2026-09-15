@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "render/ddgi/ddgi_settings.h"
 #include "render/realtime/realtime_settings.h"
 
 namespace renderer {
@@ -162,6 +163,7 @@ struct OpenGlRenderSettings {
     DominantLightExtractionRenderSettings dominant_light;
     AmbientOcclusionRenderSettings ambient_occlusion;
     SsrRenderSettings ssr;
+    DdgiSettings ddgi;
 
     bool operator==(const OpenGlRenderSettings&) const = default;
 };

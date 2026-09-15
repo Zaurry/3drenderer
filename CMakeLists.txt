@@ -344,6 +344,17 @@ target_link_libraries(renderer_core INTERFACE
     renderer_path_session
     renderer_interactive)
 
+if(RENDERER_HAS_CUDA)
+    add_library(renderer_ddgi STATIC src/render/ddgi/cuda_ddgi_volume.cu)
+    target_link_libraries(renderer_ddgi PRIVATE CUDA::cudart)
+    set_target_properties(renderer_ddgi PROPERTIES CUDA_STANDARD 20
+        CUDA_STANDARD_REQUIRED ON CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}")
+else()
+    add_library(renderer_ddgi STATIC src/render/ddgi/cuda_ddgi_volume_stub.cpp)
+endif()
+target_include_directories(renderer_ddgi PUBLIC ${RENDERER_PUBLIC_INCLUDE_DIRECTORIES})
+target_link_libraries(renderer_ddgi PUBLIC renderer_scene renderer_render_common renderer_cuda_api)
+
 add_executable(renderer src/main.cpp)
 target_link_libraries(renderer PRIVATE renderer_core)
 
@@ -352,6 +363,7 @@ if(RENDERER_BUILD_VIEWER)
         src/platform/opengl/gl_shader_program.cpp
         src/platform/opengl/rtrt_primary_visibility.cpp
         src/render/opengl/opengl_raster_renderer.cpp
+        src/render/opengl/opengl_ddgi_pass.cpp
         src/render/interactive/viewer_render_backend.cpp
     )
     if(RENDERER_HAS_CUDA)
@@ -371,6 +383,7 @@ if(RENDERER_BUILD_VIEWER)
     # the final binaries link the (normal or diagnostics) pathtracer variant.
     target_link_libraries(renderer_opengl PUBLIC
         renderer_interactive
+        renderer_ddgi
         renderer_cuda_api
         renderer_glad)
     if(RENDERER_HAS_CUDA)
@@ -458,6 +471,10 @@ if(RENDERER_BUILD_VIEWER)
         RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     list(APPEND RENDERER_TEST_TARGETS opengl_transport_tests)
     add_executable(rtrt_hybrid_tests tests/rtrt_hybrid_tests.cpp tests/test_main.cpp)
+    add_executable(ddgi_tests tests/ddgi_tests.cpp tests/test_main.cpp)
+    target_link_libraries(ddgi_tests PRIVATE renderer_core renderer_opengl renderer_ddgi renderer_glad ${RENDERER_SDL_TARGET})
+    target_compile_definitions(ddgi_tests PRIVATE RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    list(APPEND RENDERER_TEST_TARGETS ddgi_tests)
     target_link_libraries(rtrt_hybrid_tests PRIVATE renderer_core renderer_opengl renderer_glad ${RENDERER_SDL_TARGET})
     target_compile_definitions(rtrt_hybrid_tests PRIVATE RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     list(APPEND RENDERER_TEST_TARGETS rtrt_hybrid_tests)
@@ -625,6 +642,7 @@ add_test(NAME opengl_contract_tests COMMAND opengl_contract_tests)
 add_test(NAME opengl_shader_lint_tests COMMAND opengl_shader_lint_tests)
 if(RENDERER_BUILD_VIEWER)
     add_test(NAME opengl_transport_tests COMMAND opengl_transport_tests)
+    add_test(NAME ddgi_tests COMMAND ddgi_tests)
     add_test(NAME rtrt_hybrid_tests COMMAND rtrt_hybrid_tests)
 endif()
 add_test(NAME cuda_contract_tests COMMAND cuda_contract_tests)

@@ -1,0 +1,32 @@
+========= COMPUTE-SANITIZER
+[RUN] test_ddgi_settings_layout_and_session_fields
+[RUN] test_ddgi_constant_environment_hdr_and_octahedral_borders
+DDGI light removal residual=0
+[RUN] test_ddgi_inside_geometry_classification_relocation_and_reactivation
+[RUN] test_ddgi_instanced_motion_refits_without_moving_volume
+[RUN] test_ddgi_opengl_energy_interop_fallback_and_switches
+DDGI GL active mean=0.124686 0.249373 0.997491
+DDGI GL fallback mean=0.124686 0.249373 0.997491
+[RUN] test_ddgi_analytic_emitter_partition_and_alpha_mask
+[RUN] test_ddgi_dominant_environment_residual_and_rotation
+[RUN] test_ddgi_cornell_multibounce_against_offline_reference
+Cornell DDGI ROI MSE=0.000590488 disabled=0.118114 mean=0.446564 0.348156 0.206602
+[RUN] test_ddgi_viewer_document_default_ao_ssr_combinations
+DDGI viewer initial default mean=0.339975
+DDGI viewer document SSR/AO=0 mean=0.336212
+DDGI viewer document SSR/AO=1 mean=0.340379
+DDGI viewer document SSR/AO=2 mean=0.336318
+DDGI viewer document SSR/AO=3 mean=0.334114
+[RUN] test_ddgi_two_rooms_visibility_and_offscreen_emitter
+DDGI separated rooms lit=0.333261 dark=0.000399452 leakage=0.00119862
+DDGI enclosed diffuse=0.0159443 0.0156983 0.0154524
+[RUN] test_ddgi_dynamic_changes_converge_within_eight_sweeps
+DDGI dynamic move-light actual=1.25021 expected=1.25084 relative_error=0.000505201
+DDGI dynamic disable-light actual=0.0105133 expected=0.0102979 relative_error=0.0209212
+DDGI dynamic material actual=0.747284 expected=0.747356 relative_error=9.57846e-05
+DDGI dynamic environment actual=0.88857 expected=0.888142 relative_error=0.000482868
+DDGI dynamic move-occluder actual=0.79618 expected=0.796656 relative_error=0.000598174
+[RUN] test_ddgi_lifecycle_and_unavailable_device
+tests: 12 passed, 0 failed, 0 skipped
+========= LEAK SUMMARY: 0 bytes leaked in 0 allocations
+========= ERROR SUMMARY: 0 errors
