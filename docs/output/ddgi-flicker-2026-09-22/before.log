@@ -1,0 +1,6 @@
+[RUN] test_ddgi_static_lighting_is_stable_across_update_budgets
+DDGI static budget=64 mean=0.329039 relative_sd=0.0295577 frame_rms=0.0362032 peak_frame_rms=0.183065
+DDGI static budget=256 mean=0.330984 relative_sd=0.00961987 frame_rms=0.0210133 peak_frame_rms=0.0551279
+DDGI static budget=1152 mean=0.334503 relative_sd=0.00979511 frame_rms=0.0104835 peak_frame_rms=0.015874
+tests: 0 passed, 1 failed, 0 skipped
+[FAIL] test_ddgi_static_lighting_is_stable_across_update_budgets: D:\Github\3drenderer\tests\ddgi_tests.cpp:842 check failed: result.at("relative_sd").get<double>() < .01

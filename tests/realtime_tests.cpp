@@ -1,5 +1,5 @@
 #include "test_framework.h"
-#include "render/realtime/cuda_realtime_renderer.h"
+#include "render/optix/optix_realtime_renderer.h"
 #include "render/realtime/realtime_settings_json.h"
 #include "core/image.h"
 #include "scene/scene_document.h"
@@ -17,7 +17,10 @@ using namespace renderer;
 namespace {
 CudaDeviceContext device() {
     std::string reason;
-    if (!cuda_path_backend_available(0, &reason)) RENDER_SKIP(reason);
+    if (!optix_realtime_available(0, &reason)) {
+        if(std::getenv("RTRT_REQUIRE_OPTIX"))throw TestFailure{reason};
+        RENDER_SKIP(reason);
+    }
     return CudaDeviceContext::create(0);
 }
 Camera front_camera(float x=0) { return Camera(Vec3(x,0,0),Vec3(x,0,-3),Vec3::UnitY(),45,1); }
@@ -87,7 +90,7 @@ double block_difference(const Framebuffer& a,const Framebuffer& b) {
 RENDER_TEST(test_realtime_settings_roundtrip_and_sanitization) {
     RealtimeRenderSettings s; s.internal_scale=.5f; s.diffuse_history=48; s.specular_iterations=0;
     s.transmission=false; s.debug_view=RealtimeDebugView::Motion; s.sharpening=.3f;
-    s.raster_primary=false; s.low_discrepancy=false;s.hardware_ray_tracing=false;s.full_resolution_materials=false;s.shader_execution_reordering=false;
+    s.low_discrepancy=false;s.full_resolution_materials=false;s.shader_execution_reordering=false;
     s.split_dielectric=false;
     s.denoiser=RealtimeDenoiser::Optix;
     RENDER_CHECK(parse_realtime_settings(realtime_settings_json(s))==s);
@@ -107,7 +110,7 @@ RENDER_TEST(test_realtime_settings_roundtrip_and_sanitization) {
 }
 
 RENDER_TEST(test_realtime_constant_preservation_resize_and_resident_output) {
-    CudaRealtimeRenderer r(device()); auto s=small_settings();
+    OptixRealtimeRenderer r(device()); auto s=small_settings();
     Scene scene; scene.environment=Color(.3f,.6f,2); auto snapshot=make_render_scene_snapshot(scene);
     Framebuffer f(1,1); InteractiveFrameState state;
     for(int i=0;i<8;++i) r.render_next_frame_to_surface(snapshot,front_camera(),s,state,0);
@@ -132,7 +135,7 @@ RENDER_TEST(test_realtime_constant_preservation_resize_and_resident_output) {
 }
 
 RENDER_TEST(test_realtime_motion_jitter_slope_cut_and_object_history) {
-    CudaRealtimeRenderer r(device()); auto s=small_settings();
+    OptixRealtimeRenderer r(device()); auto s=small_settings();
     auto snapshot=make_render_scene_snapshot(plane_scene(true,true));
     Framebuffer f(1,1); InteractiveFrameState state;
     for(int i=0;i<10;++i) r.render_next_frame(snapshot,front_camera(),s,state,f);
@@ -154,7 +157,7 @@ RENDER_TEST(test_realtime_motion_jitter_slope_cut_and_object_history) {
 }
 
 RENDER_TEST(test_realtime_disocclusion_rejects_old_surface) {
-    CudaRealtimeRenderer r(device()); auto s=small_settings();
+    OptixRealtimeRenderer r(device()); auto s=small_settings();
     Scene scene; Material m; m.type=MaterialType::Emissive;m.emission=Color(2,0,0);scene.materials.push_back(m);
     scene.spheres.emplace_back(Vec3(0,0,-2),.5f,0);scene.environment=Color(0,0,1);
     auto snapshot=make_render_scene_snapshot(scene);Framebuffer f(1,1);InteractiveFrameState state;
@@ -177,7 +180,7 @@ RENDER_TEST(test_realtime_punctual_and_area_shadow_switches) {
         if(kind==1) scene.directional_lights.push_back(DirectionalLight{Vec3(-1,0,-2),Color::Constant(3)});
         if(kind==2) {SpotLight l;l.position=Vec3(1,0,-1);l.direction=Vec3(-1,0,-2);l.intensity=Color::Constant(15);scene.spot_lights.push_back(l);}
         if(kind==3) {RectAreaLight l;l.position=Vec3(1,0,-1);l.axis_u=Vec3(.05f,0,0);l.axis_v=Vec3(0,.05f,0);l.radiance=Color::Constant(500);l.two_sided=true;scene.rect_area_lights.push_back(l);}
-        CudaRealtimeRenderer r(context);Framebuffer shadow(1,1),lit(1,1);InteractiveFrameState state;
+        OptixRealtimeRenderer r(context);Framebuffer shadow(1,1),lit(1,1);InteractiveFrameState state;
         auto snapshot=make_render_scene_snapshot(scene);
         r.render_next_frame(snapshot,front_camera(),s,state,shadow);
         for(auto& l:scene.point_lights) l.casts_shadows=false;
@@ -194,7 +197,7 @@ RENDER_TEST(test_realtime_punctual_and_area_shadow_switches) {
 }
 
 RENDER_TEST(test_realtime_light_change_reacts_without_full_reset) {
-    CudaRealtimeRenderer r(device());auto s=small_settings();s.realtime.max_bounces=1;s.realtime.taa=false;
+    OptixRealtimeRenderer r(device());auto s=small_settings();s.realtime.max_bounces=1;s.realtime.taa=false;
     auto scene=plane_scene();scene.directional_lights.push_back(DirectionalLight{Vec3(0,0,-1),Color::Ones()});
     auto snapshot=make_render_scene_snapshot(scene);Framebuffer f(1,1);InteractiveFrameState state;
     for(int i=0;i<16;++i) r.render_next_frame(snapshot,front_camera(),s,state,f);
@@ -208,7 +211,7 @@ RENDER_TEST(test_realtime_light_change_reacts_without_full_reset) {
 
 RENDER_TEST(test_realtime_moving_shadow_responds_without_reset) {
     for(bool upscale:{false,true}) {
-    auto context=device(); CudaRealtimeRenderer r(context); auto s=small_settings(64);
+    auto context=device(); OptixRealtimeRenderer r(context); auto s=small_settings(64);
     if(upscale)s.realtime=realtime_1080p_quality_settings();
     s.realtime.max_bounces=1;s.realtime.soft_shadows=false;
     auto scene=plane_scene(); scene.spheres.emplace_back(Vec3(.5f,0,-2),.22f,0);
@@ -254,7 +257,7 @@ RENDER_TEST(test_realtime_offscreen_reflection_glass_and_alpha) {
     // This emitter is behind the camera and can only be seen in reflection.
     scene.triangles.emplace_back(Vec3(-8,-8,1),Vec3(8,8,1),Vec3(8,-8,1),1);
     scene.triangles.emplace_back(Vec3(-8,-8,1),Vec3(-8,8,1),Vec3(8,8,1),1);
-    auto snapshot=make_render_scene_snapshot(scene);CudaRealtimeRenderer r(context);Framebuffer f(1,1);InteractiveFrameState state;
+    auto snapshot=make_render_scene_snapshot(scene);OptixRealtimeRenderer r(context);Framebuffer f(1,1);InteractiveFrameState state;
     r.render_next_frame(snapshot,front_camera(),s,state,f);
     RENDER_CHECK(f.pixel(16,16).x()>.8f);export_frame("offscreen-mirror.png",f);
     s.realtime.reflections=false;r.render_next_frame(snapshot,front_camera(),s,state,f);
@@ -276,7 +279,7 @@ RENDER_TEST(test_realtime_offscreen_reflection_glass_and_alpha) {
 }
 
 RENDER_TEST(test_realtime_rough_reflection_noise_does_not_reject_history) {
-    CudaRealtimeRenderer r(device()); auto s=small_settings(64);
+    OptixRealtimeRenderer r(device()); auto s=small_settings(64);
     s.realtime.direct_lighting=false; s.realtime.max_bounces=3;
     auto scene=plane_scene(); scene.environment=Color::Ones();
     scene.materials[0].type=MaterialType::Metal;
@@ -321,7 +324,7 @@ RENDER_TEST(test_realtime_performance_distribution) {
     const auto snapshot=make_render_scene_snapshot(make_cornell_box_scene());
     nlohmann::json cases=nlohmann::json::array();
     for(float scale:{1.0f,.5f}) for(bool moving:{false,true}) {
-        CudaRealtimeRenderer r(context); auto s=small_settings();
+        OptixRealtimeRenderer r(context); auto s=small_settings();
         s.width=960;s.height=540;s.realtime.internal_scale=scale;
         std::vector<double> gpu,wall,temporal,filter,reconstruction,lighting;
         InteractiveFrameState state;
@@ -361,7 +364,7 @@ RENDER_TEST(test_realtime_performance_distribution) {
 RENDER_TEST(test_realtime_secondary_reflection_motion_responds_without_reset) {
     for(float roughness:{.45f,.02f}) {
     for(bool upscale:{false,true}) {
-    CudaRealtimeRenderer renderer(device());auto settings=small_settings(64);
+    OptixRealtimeRenderer renderer(device());auto settings=small_settings(64);
     if(upscale)settings.realtime=realtime_1080p_quality_settings();
     settings.realtime.direct_lighting=false;settings.realtime.max_bounces=3;
     auto scene=plane_scene();scene.environment=Color::Zero();
@@ -406,7 +409,7 @@ RENDER_TEST(test_realtime_optix_denoiser_quality_against_offline_reference) {
     // Keep the output TAA off so this verifies the neural denoiser itself.
     s.realtime.taa=false;s.realtime.temporal_upscale=false;
     s.realtime.denoiser=RealtimeDenoiser::Optix;
-    CudaRealtimeRenderer probe(context);Framebuffer frame(1,1);InteractiveFrameState state;
+    OptixRealtimeRenderer probe(context);Framebuffer frame(1,1);InteractiveFrameState state;
     probe.render_next_frame(snapshot,camera,s,state,frame);
     if(!probe.statistics().realtime.optix_denoiser_active) {
         if(std::getenv("RTRT_REQUIRE_OPTIX_DENOISER"))throw TestFailure{probe.statistics().realtime.optix_denoiser_detail};
@@ -422,12 +425,12 @@ RENDER_TEST(test_realtime_optix_denoiser_quality_against_offline_reference) {
     for(int variant=0;variant<4;++variant) {
         s.realtime.temporal=variant!=0;s.realtime.internal_scale=variant>=2?.5f:1.0f;
         s.realtime.full_resolution_materials=variant!=3;
-        CudaRealtimeRenderer raw_renderer(context);auto raw_settings=s;raw_settings.realtime.denoise=false;
+        OptixRealtimeRenderer raw_renderer(context);auto raw_settings=s;raw_settings.realtime.denoise=false;
         Framebuffer raw(1,1);raw_renderer.render_next_frame(snapshot,camera,raw_settings,state,raw);
         // Compare to the same resolution/material reconstruction, not a native
         // input when evaluating a lower-resolution denoising configuration.
         export_frame(("optix-input-"+std::to_string(variant)+".png").c_str(),raw);
-        CudaRealtimeRenderer r(context);Framebuffer previous(1,1);double flicker=0,error=0,raw_error=0;
+        OptixRealtimeRenderer r(context);Framebuffer previous(1,1);double flicker=0,error=0,raw_error=0;
         double surface_error=0,raw_surface_error=0;int surface_pixels=0;
         for(int i=0;i<16;++i) {
             r.render_next_frame(snapshot,camera,s,state,frame);check_finite(frame);
@@ -468,11 +471,11 @@ RENDER_TEST(test_realtime_svgf_quality_against_offline_reference) {
     const auto reference=render_cuda_path(snapshot,camera,s);
     Framebuffer ref(96,96);for(int y=0;y<96;++y)for(int x=0;x<96;++x)ref.set_pixel(x,y,reference.image.pixel(x,y));
     export_frame("cornell-reference-1024spp.png",ref);
-    CudaRealtimeRenderer r(context);Framebuffer raw(1,1),filtered(1,1),native(1,1);InteractiveFrameState state;
+    OptixRealtimeRenderer r(context);Framebuffer raw(1,1),filtered(1,1),native(1,1);InteractiveFrameState state;
     s.realtime.debug_view=RealtimeDebugView::Raw;
     r.render_next_frame(snapshot,camera,s,state,raw);check_finite(raw);export_frame("cornell-raw-1spp.png",raw);
     s.realtime.debug_view=RealtimeDebugView::Final;
-    CudaRealtimeRenderer raw_renderer(context);auto raw_settings=s;raw_settings.realtime.debug_view=RealtimeDebugView::Raw;
+    OptixRealtimeRenderer raw_renderer(context);auto raw_settings=s;raw_settings.realtime.debug_view=RealtimeDebugView::Raw;
     double flicker=0,raw_flicker=0;Framebuffer last=raw,last_raw=raw,current_raw(1,1);
     for(int i=0;i<48;++i) {
         r.render_next_frame(snapshot,camera,s,state,filtered);
@@ -508,7 +511,7 @@ RENDER_TEST(test_realtime_low_discrepancy_convergence) {
     nlohmann::json results=nlohmann::json::array();
     double total_error[2]{};
     for(int seed=0;seed<4;++seed) for(int sobol=0;sobol<2;++sobol) {
-        CudaRealtimeRenderer renderer(context);
+        OptixRealtimeRenderer renderer(context);
         settings.path.sample_seed_offset=seed*101;
         settings.realtime.low_discrepancy=sobol!=0;
         settings.realtime.denoise=false;settings.realtime.debug_view=RealtimeDebugView::Raw;
@@ -535,9 +538,9 @@ RENDER_TEST(test_realtime_low_discrepancy_convergence) {
 }
 
 RENDER_TEST(test_realtime_hardware_material_updates_and_instancing) {
-    const auto context=device();CudaRealtimeRenderer hardware(context),software(context);
-    // Jitter avoids the legacy software traversal's non-watertight shared
-    // triangle diagonal. Watertight constant coverage is checked separately.
+    const auto context=device();OptixRealtimeRenderer hardware(context);
+    // Exercise updates across the jitter sequence; exact shared-edge coverage
+    // is checked independently by optix_interop_tests.
     auto settings=small_settings(37);settings.realtime.denoise=false;
     settings.realtime.debug_view=RealtimeDebugView::Raw;settings.realtime.max_bounces=3;
     Scene scene=plane_scene(true);scene.environment=Color(.2f,.4f,.1f);
@@ -572,8 +575,11 @@ RENDER_TEST(test_realtime_hardware_material_updates_and_instancing) {
         if(variant==0 && !hardware.statistics().realtime.hardware_ray_tracing_active)
             RENDER_SKIP(hardware.statistics().realtime.hardware_ray_tracing_detail);
         RENDER_CHECK(hardware.statistics().realtime.hardware_ray_tracing_active);
-        auto reference=settings;reference.realtime.hardware_ray_tracing=false;
-        software.render_next_frame(snapshot,front_camera(),reference,state,b);
+        // Compare incremental updates against a fresh acceleration build at
+        // the same sample index, without retaining a second traversal backend.
+        OptixRealtimeRenderer rebuilt(context);
+        for(int frame=0;frame<=variant;++frame)
+            rebuilt.render_next_frame(snapshot,front_camera(),settings,state,b);
         check_finite(a);double error=0;
         for(int y=0;y<37;++y)for(int x=0;x<37;++x)error+=(a.pixel(x,y)-b.pixel(x,y)).squaredNorm();
         std::cout<<"hardware material variant="<<variant<<" mse="<<error/(37*37*3)<<'\n';
@@ -597,7 +603,7 @@ RENDER_TEST(test_realtime_full_resolution_texture_reconstruction) {
     const auto snapshot=make_render_scene_snapshot(scene);auto settings=small_settings(64);
     settings.realtime.max_bounces=1;settings.realtime.taa=false;settings.realtime.temporal_upscale=false;
     Framebuffer reference(1,1),low(1,1),full(1,1);InteractiveFrameState state;
-    CudaRealtimeRenderer native(context),old(context),detail(context);
+    OptixRealtimeRenderer native(context),old(context),detail(context);
     native.render_next_frame(snapshot,front_camera(),settings,state,reference);
     settings.realtime.internal_scale=.5f;settings.realtime.full_resolution_materials=false;
     old.render_next_frame(snapshot,front_camera(),settings,state,low);
@@ -617,7 +623,7 @@ RENDER_TEST(test_realtime_shader_reordering_preserves_paths) {
     auto settings=small_settings(48);settings.realtime.debug_view=RealtimeDebugView::Raw;
     settings.realtime.samples_per_pixel=4;
     const Camera camera(Vec3(0,.15f,1.5f),Vec3(0,.15f,-2),Vec3::UnitY(),45,1);
-    CudaRealtimeRenderer ordinary(context),reordered(context);Framebuffer a(1,1),b(1,1);InteractiveFrameState state;
+    OptixRealtimeRenderer ordinary(context),reordered(context);Framebuffer a(1,1),b(1,1);InteractiveFrameState state;
     for(int frame=0;frame<8;++frame) {
         settings.realtime.shader_execution_reordering=false;ordinary.render_next_frame(snapshot,camera,settings,state,a);
         if(!ordinary.statistics().realtime.hardware_ray_tracing_active)RENDER_SKIP(ordinary.statistics().realtime.hardware_ray_tracing_detail);
@@ -662,7 +668,7 @@ RENDER_TEST(test_realtime_san_miguel_quality) {
         if(variant>=5){settings.realtime.taa_current_weight=.05f;settings.realtime.taa_clip_sigma=2.5f;}
         if(variant==6){settings.realtime.normal_power=16;settings.realtime.diffuse_iterations=3;}
         if(variant==7)settings.realtime=realtime_1080p_quality_settings();
-        CudaRealtimeRenderer renderer(context);Framebuffer frame(1,1),previous(1,1);InteractiveFrameState state;
+        OptixRealtimeRenderer renderer(context);Framebuffer frame(1,1),previous(1,1);InteractiveFrameState state;
         double flicker=0,blocks=0;
         for(int f=0;f<96;++f) {
             renderer.render_next_frame(snapshot,camera,settings,state,frame);check_finite(frame);
@@ -696,7 +702,7 @@ RENDER_TEST(test_realtime_glass_split_preserves_fresnel_energy) {
     settings.realtime.debug_view=RealtimeDebugView::Raw;settings.realtime.max_bounces=4;
     InteractiveFrameState state;double errors[2]{};
     for(int split=0;split<2;++split) {
-        settings.realtime.split_dielectric=split!=0;CudaRealtimeRenderer renderer(context);Framebuffer frame(1,1);
+        settings.realtime.split_dielectric=split!=0;OptixRealtimeRenderer renderer(context);Framebuffer frame(1,1);
         for(int f=0;f<16;++f) {
             renderer.render_next_frame(snapshot,front_camera(),settings,state,frame);
             for(int y=4;y<28;++y)for(int x=4;x<28;++x) {
@@ -716,12 +722,12 @@ RENDER_TEST(test_realtime_glass_split_preserves_fresnel_energy) {
     // Emission is attached to the visible interface, so branch splitting must
     // count it once. Fully transparent alpha coverage must not multiply paths.
     scene.materials[0].emission=Color(1,2,3);
-    CudaRealtimeRenderer emitting(context);Framebuffer lit(1,1);
+    OptixRealtimeRenderer emitting(context);Framebuffer lit(1,1);
     emitting.render_next_frame(make_render_scene_snapshot(scene),front_camera(),settings,state,lit);
     const Color expected=.04f*light.emission+.96f*scene.environment+scene.materials[0].emission;
     RENDER_CHECK((lit.pixel(16,16)-expected).norm()<1e-4f);
     scene.materials[0].alpha_mode=AlphaMode::Blend;scene.materials[0].opacity=0;
-    CudaRealtimeRenderer transparent(context);
+    OptixRealtimeRenderer transparent(context);
     transparent.render_next_frame(make_render_scene_snapshot(scene),front_camera(),settings,state,lit);
     RENDER_CHECK((lit.pixel(16,16)-scene.environment).norm()<1e-5f);
 }
@@ -754,10 +760,10 @@ Scene specular_firefly_scene(int material_case) {
 
 RENDER_TEST(test_realtime_native_optics_dense_and_empty_worklists) {
     const auto context=device();
-    for(bool hardware:{true,false}) {
-    CudaRealtimeRenderer native(context),upscaled(context);
+    for(bool reorder:{true,false}) {
+    OptixRealtimeRenderer native(context),upscaled(context);
     auto settings=small_settings(513);settings.height=257;
-    settings.realtime.hardware_ray_tracing=hardware;
+    settings.realtime.shader_execution_reordering=reorder;
     settings.realtime.denoise=false;settings.realtime.taa=false;settings.realtime.temporal_upscale=false;
     settings.realtime.direct_lighting=false;settings.realtime.max_bounces=2;
     InteractiveFrameState state;Framebuffer expected(1,1),actual(1,1);
@@ -783,8 +789,8 @@ RENDER_TEST(test_realtime_native_optics_dense_and_empty_worklists) {
 }
 
 RENDER_TEST(test_realtime_optix_denoiser_switch_resize_and_resident_output) {
-    CudaRealtimeRenderer r(device());auto s=small_settings(32);
-    s.realtime.hardware_ray_tracing=false;s.realtime.denoiser=RealtimeDenoiser::Optix;
+    OptixRealtimeRenderer r(device());auto s=small_settings(32);
+    s.realtime.denoiser=RealtimeDenoiser::Optix;
     Scene scene;scene.environment=Color(.3f,.6f,2);auto snapshot=make_render_scene_snapshot(scene);
     InteractiveFrameState state;Framebuffer f(1,1);
     r.render_next_frame(snapshot,front_camera(),s,state,f);
@@ -794,7 +800,7 @@ RENDER_TEST(test_realtime_optix_denoiser_switch_resize_and_resident_output) {
             throw TestFailure{r.statistics().realtime.optix_denoiser_detail};
         RENDER_SKIP(r.statistics().realtime.optix_denoiser_detail);
     }
-    RENDER_CHECK(!r.statistics().realtime.hardware_ray_tracing_active);
+    RENDER_CHECK(r.statistics().realtime.hardware_ray_tracing_active);
     RENDER_CHECK(r.statistics().realtime.optix_denoiser_temporal);
     const auto generation=r.statistics().allocation_generation,bytes=r.statistics().realtime.optix_denoiser_bytes;
     RENDER_CHECK(bytes>0);
@@ -846,7 +852,7 @@ RENDER_TEST(test_realtime_optix_denoiser_native_glass_and_mirror) {
         const auto snapshot=make_render_scene_snapshot(scene);auto settings=small_settings(37);
         settings.realtime.denoiser=RealtimeDenoiser::Optix;settings.realtime.internal_scale=scale;
         settings.realtime.direct_lighting=false;settings.realtime.max_bounces=4;
-        CudaRealtimeRenderer r(context);
+        OptixRealtimeRenderer r(context);
         for(int i=0;i<6;++i) {
             r.render_next_frame(snapshot,front_camera(),settings,state,frame);check_finite(frame);
             if(!r.statistics().realtime.optix_denoiser_active) {
@@ -861,32 +867,93 @@ RENDER_TEST(test_realtime_optix_denoiser_native_glass_and_mirror) {
     }
 }
 
-RENDER_TEST(test_realtime_optix_denoiser_unavailable_uses_svgf) {
-    const auto context=device();auto s=small_settings(32);
-    s.realtime.hardware_ray_tracing=false;s.realtime.denoiser=RealtimeDenoiser::Optix;
-    auto scene=plane_scene();scene.environment=Color(.3f,.2f,.1f);
-    const auto snapshot=make_render_scene_snapshot(scene);InteractiveFrameState state;Framebuffer actual(1,1),expected(1,1);
-    CudaRealtimeRenderer fallback(context),svgf(context);
-    auto reference=s;reference.realtime.denoiser=RealtimeDenoiser::Svgf;
-    for(int i=0;i<3;++i) {
-        fallback.render_next_frame(snapshot,front_camera(),s,state,actual);
-        if(fallback.statistics().realtime.optix_denoiser_active)
-            RENDER_SKIP("OptiX available; run this fallback check with RENDERER_OPTIX=OFF");
-        svgf.render_next_frame(snapshot,front_camera(),reference,state,expected);
-        RENDER_CHECK(!fallback.statistics().realtime.optix_denoiser_detail.empty());
-        check_finite(actual);
-        for(int y=0;y<32;++y)for(int x=0;x<32;++x)
-            RENDER_CHECK((actual.pixel(x,y)-expected.pixel(x,y)).squaredNorm()<1e-12f);
+RENDER_TEST(test_realtime_availability_contract) {
+    std::string reason;
+    const bool available=optix_realtime_available(0,&reason);
+    RENDER_CHECK(available==reason.empty());
+    if(std::getenv("RTRT_REQUIRE_OPTIX"))RENDER_CHECK(available);
+#if !RENDERER_HAS_OPTIX
+    RENDER_CHECK(!available);
+    bool threw=false;
+    try {OptixRealtimeRenderer renderer{CudaDeviceContext{}};}
+    catch(const std::runtime_error& e){threw=std::string(e.what()).find("OptiX")!=std::string::npos;}
+    RENDER_CHECK(threw);
+#endif
+    // Removed selectors must not restore a software or raster tracing path.
+    const auto old=parse_realtime_settings({{"hardware_ray_tracing",false},{"raster_primary",true}});
+    const auto saved=realtime_settings_json(old);
+    RENDER_CHECK(!saved.contains("hardware_ray_tracing") && !saved.contains("raster_primary"));
+}
+
+RENDER_TEST(test_realtime_optix_empty_first_frame) {
+    OptixRealtimeRenderer r(device());
+    Scene scene;scene.environment=Color(.12f,.4f,.8f);
+    auto settings=small_settings(17);settings.realtime.denoise=false;
+    settings.realtime.taa=false;settings.realtime.temporal_upscale=false;
+    Framebuffer image(1,1);InteractiveFrameState state;
+    auto snapshot=make_render_scene_snapshot(scene);
+    for(float scale:{1.0f,.5f}) {
+        settings.realtime.internal_scale=scale;
+        r.render_next_frame(snapshot,front_camera(),settings,state,image);
+        for(int y=0;y<17;++y)for(int x=0;x<17;++x)
+            RENDER_CHECK((image.pixel(x,y)-scene.environment).norm()<1e-5f);
     }
-    RENDER_CHECK(fallback.statistics().realtime.history_resets==1);
-    s.realtime.denoiser=RealtimeDenoiser::Svgf;
-    fallback.render_next_frame(snapshot,front_camera(),s,state,actual);
-    RENDER_CHECK(fallback.statistics().realtime.optix_denoiser_detail.empty());
+    snapshot.environment_background_visible=false;++snapshot.revisions.environment;
+    r.render_next_frame(snapshot,front_camera(),settings,state,image);
+    for(int y=0;y<17;++y)for(int x=0;x<17;++x)RENDER_CHECK(image.pixel(x,y).norm()<1e-5f);
+    RENDER_CHECK(r.statistics().realtime.hardware_ray_tracing_active);
+    RENDER_CHECK(r.statistics().realtime.gas_builds==0 && r.statistics().realtime.ias_builds==0);
+}
+
+RENDER_TEST(test_realtime_optix_analytic_spheres_and_incremental_acceleration) {
+    const auto context=device();OptixRealtimeRenderer r(context);
+    Scene scene;Material sphere;sphere.type=MaterialType::Emissive;sphere.emission=Color(1,.2f,.1f);
+    Material back=sphere;back.emission=Color(.1f,.3f,1);scene.materials={sphere,back};
+    scene.triangles.emplace_back(Vec3(-5,-5,-4),Vec3(5,-5,-4),Vec3(5,5,-4),1);
+    scene.triangles.emplace_back(Vec3(-5,-5,-4),Vec3(5,5,-4),Vec3(-5,5,-4),1);
+    auto snapshot=make_render_scene_snapshot(scene);
+    auto local=std::make_shared<Scene>(*snapshot.assets[0].local_scene);
+    local->spheres.emplace_back(Vec3(0,0,-2),.5f,0);
+    snapshot.assets[0].local_scene=local;snapshot.assets[0].sphere_material_slots={MaterialSlot::bound(0)};
+    ++snapshot.assets[0].geometry_revision;++snapshot.revisions.geometry;
+    auto settings=small_settings(33);settings.realtime.denoise=false;settings.realtime.taa=false;
+    settings.realtime.temporal_upscale=false;settings.realtime.debug_view=RealtimeDebugView::Raw;
+    Framebuffer image(1,1);InteractiveFrameState state;
+    const auto render=[&]{r.render_next_frame(snapshot,front_camera(),settings,state,image);check_finite(image);};
+    render();
+    RENDER_CHECK((image.pixel(16,16)-sphere.emission).norm()<1e-5f);
+    RENDER_CHECK(std::abs(r.download_diagnostics()[16*33+16].depth-1.5f)<1e-5f);
+    RENDER_CHECK(r.statistics().realtime.hardware_ray_tracing_active && r.statistics().realtime.gas_builds==2);
+    RENDER_CHECK(r.statistics().blas_build_count==0 && r.statistics().tlas_build_count==0);
+    const auto builds=r.statistics().realtime.gas_builds;
+    snapshot.instances[0].materials[0].emission=Color(.3f,.7f,.4f);++snapshot.revisions.materials;
+    render();
+    RENDER_CHECK((image.pixel(16,16)-Color(.3f,.7f,.4f)).norm()<1e-5f);
+    RENDER_CHECK(r.statistics().realtime.gas_builds==builds);
+    // Mirrored and nonuniformly scaled instances keep sphere parameterization
+    // and share the triangle/sphere material tables of the logical instance.
+    auto& instance=snapshot.instances[0];
+    instance.object_to_world(0,0)=-1.4f;instance.object_to_world(1,1)=.75f;
+    instance.world_to_object=instance.object_to_world.inverse();
+    instance.normal_to_world=instance.world_to_object.topLeftCorner<3,3>().transpose();
+    ++snapshot.revisions.transforms;render();
+    RENDER_CHECK((image.pixel(16,16)-Color(.3f,.7f,.4f)).norm()<1e-5f);
+    RENDER_CHECK(r.statistics().realtime.gas_builds==builds && r.statistics().realtime.ias_updates==1);
+    // Only the sphere's acceptance class changes; the triangle GAS is reused.
+    instance.materials[0].opacity=0;++snapshot.revisions.materials;render();
+    RENDER_CHECK((image.pixel(16,16)-back.emission).norm()<1e-5f);
+    RENDER_CHECK(r.statistics().realtime.gas_builds==builds+1);
+    instance.materials[0].opacity=1;++snapshot.revisions.materials;render();
+    RENDER_CHECK((image.pixel(16,16)-Color(.3f,.7f,.4f)).norm()<1e-5f);
+    // Empty topology still produces the environment using the same OptiX path.
+    snapshot.instances.clear();++snapshot.revisions.topology;++snapshot.revisions.geometry;render();
+    RENDER_CHECK((image.pixel(16,16)-snapshot.environment).norm()<1e-5f);
+    RENDER_CHECK(r.statistics().realtime.hardware_ray_tracing_active);
 }
 
 RENDER_TEST(test_realtime_optix_denoiser_scene_changes_and_disocclusion) {
-    CudaRealtimeRenderer r(device());auto s=small_settings(64);
-    s.realtime.denoiser=RealtimeDenoiser::Optix;s.realtime.hardware_ray_tracing=false;
+    OptixRealtimeRenderer r(device());auto s=small_settings(64);
+    s.realtime.denoiser=RealtimeDenoiser::Optix;
     auto scene=plane_scene(true);scene.environment=Color(0,0,.2f);
     auto snapshot=make_render_scene_snapshot(scene);InteractiveFrameState state;Framebuffer f(1,1);
     for(int i=0;i<6;++i)r.render_next_frame(snapshot,front_camera(),s,state,f);
@@ -921,7 +988,7 @@ RENDER_TEST(test_realtime_thin_mirror_highlight_preserves_energy) {
     const auto reference=render_cuda_path(snapshot,front_camera(),settings).image;
     for(bool upscale:{false,true}) {
         settings.realtime=upscale?realtime_1080p_quality_settings():RealtimeRenderSettings{};
-        CudaRealtimeRenderer renderer(context);Framebuffer frame(1,1);InteractiveFrameState state;
+        OptixRealtimeRenderer renderer(context);Framebuffer frame(1,1);InteractiveFrameState state;
         double error=0,energy=0,reference_energy=0;int count=0;
         for(int f=0;f<64;++f) {
             renderer.render_next_frame(snapshot,front_camera(),settings,state,frame);
@@ -965,7 +1032,7 @@ RENDER_TEST(test_realtime_specular_firefly_stress) {
             if(std::getenv("RTRT_FIREFLY_NO_TEMPORAL"))settings.realtime.temporal=false;
             if(const char* view=std::getenv("RTRT_FIREFLY_VIEW"))
                 settings.realtime.debug_view=static_cast<RealtimeDebugView>(std::atoi(view));
-            CudaRealtimeRenderer renderer(context);Framebuffer frame(1,1),previous(1,1);InteractiveFrameState state;
+            OptixRealtimeRenderer renderer(context);Framebuffer frame(1,1),previous(1,1);InteractiveFrameState state;
             double error=0,flicker=0,energy=0,reference_energy=0,excess=0;std::uint64_t spikes=0,pixels_measured=0;
             for(int f=0;f<96;++f) {
                 renderer.render_next_frame(snapshot,camera,settings,state,frame);check_finite(frame);

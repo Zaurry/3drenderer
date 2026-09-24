@@ -1,0 +1,36 @@
+{
+  "frames_per_sweep": 4,
+  "results": [
+    {
+      "change": "move-light",
+      "converged_mean": 1.2508459091186523,
+      "mean_after_8_sweeps": 1.2519397735595703,
+      "relative_error": 0.0008744997321628034
+    },
+    {
+      "change": "disable-light",
+      "converged_mean": 0.010325617156922817,
+      "mean_after_8_sweeps": 0.010409017093479633,
+      "relative_error": 0.008076992817223072
+    },
+    {
+      "change": "material",
+      "converged_mean": 0.7464638352394104,
+      "mean_after_8_sweeps": 0.7439534068107605,
+      "relative_error": 0.003363094525411725
+    },
+    {
+      "change": "environment",
+      "converged_mean": 0.8874495625495911,
+      "mean_after_8_sweeps": 0.8847300410270691,
+      "relative_error": 0.0030644237995147705
+    },
+    {
+      "change": "move-occluder",
+      "converged_mean": 0.7957468628883362,
+      "mean_after_8_sweeps": 0.7926337122917175,
+      "relative_error": 0.003912237472832203
+    }
+  ],
+  "sweeps": 8
+}

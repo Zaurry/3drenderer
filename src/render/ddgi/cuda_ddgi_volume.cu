@@ -12,6 +12,7 @@ struct DdgiProbe {
     int state = 0; // -1 inside geometry, 0 uninitialized, 1 valid
     float time = 0;
     unsigned int frame = 0, updates = 0;
+    unsigned int geometry_epoch = 0;
     int relocated = 0;
 };
 struct DdgiRay {
@@ -31,7 +32,7 @@ struct DdgiGpu {
     DVec3 origin, spacing;
     int nx, ny, nz, columns, rows, count;
     int ray_count, update_count;
-    unsigned int frame;
+    unsigned int frame, geometry_epoch;
     float time, hysteresis, normal_bias, view_bias, far_distance;
     int fast, relocation, classification, shadows;
     const int *indices;
@@ -330,7 +331,9 @@ __global__ void trace_illumination(DdgiGpu f) {
         return;
     const int local = job / f.ray_count, ray_index = job % f.ray_count, index = f.indices[local];
     const auto probe = f.next[index];
-    const DVec3 dir = rotated_direction(ray_index, f.ray_count, index, f.frame);
+    // Advance the sampling sequence only when this probe receives new samples.
+    // Frame-based seeds subsample a different sequence at every update budget.
+    const DVec3 dir = rotated_direction(ray_index, f.ray_count, index, probe.updates);
     DdgiRay result{dir, v3(0, 0, 0), f.far_distance, 0};
     if (probe.state < 0) {
         f.rays[local * (f.ray_count + 32) + 32 + ray_index] = result;
@@ -350,7 +353,7 @@ __global__ void trace_illumination(DdgiGpu f) {
                 if (material.type != int(MaterialType::Dielectric) &&
                     material.type != int(MaterialType::Emissive)) {
                     DPcgState rng;
-                    pcg_seed(rng, (static_cast<unsigned long long>(f.frame) << 32) ^
+                    pcg_seed(rng, (static_cast<unsigned long long>(probe.updates) << 32) ^
                                       unsigned(index * f.ray_count + ray_index));
                     const DVec3 outgoing = mul(dir, -1);
                     result.radiance =
@@ -415,13 +418,21 @@ __global__ void blend_probes(DdgiGpu f, float4 *output, int n) {
     const int pitch = f.columns * (n + 2), x = index % f.columns * (n + 2) + texel % n + 1,
               y = index / f.columns * (n + 2) + texel / n + 1;
     const int address = y * pitch + x;
+    // A delayed update still contains only one batch of rays. It must not
+    // replace several missing batches worth of history with that noisy sample.
+    // Keep the configured per-measurement noise floor, while correcting faster
+    // than 60 Hz updates so their temporal response remains time based.
     float h = p.updates > 0 && p.state == 1 && !p.relocated
-                  ? powf(f.hysteresis, fmaxf(1.f / 60, f.time - p.time) * 60)
+                  ? powf(f.hysteresis, fminf(1.f, fmaxf(0.f, f.time - p.time) * 60))
                   : 0;
     // Do not retain the previous measurement during the first eight sweeps after
     // a transport change. The recursive history remains immutable for this frame,
     // but stale multibounce energy must be allowed to decay when a light turns off.
-    if (f.fast)
+    if (n == 8 && f.fast)
+        h = 0;
+    // Lighting changes do not change visibility. Refresh stale geometry (also
+    // including alpha/material edits) once, then keep accumulating distances.
+    if (n == 16 && p.geometry_epoch != f.geometry_epoch)
         h = 0;
     const float4 old = (n == 8 ? f.irradiance : f.distance)[address];
     output[address] = make_float4(value.x * (1 - h) + old.x * h, value.y * (1 - h) + old.y * h,
@@ -460,6 +471,7 @@ __global__ void finish_probes(DdgiGpu f) {
     }
     p.frame = f.frame;
     p.time = f.time;
+    p.geometry_epoch = f.geometry_epoch;
 }
 __global__ void probe_counters(const DdgiProbe *probes, int count, unsigned int frame,
                                unsigned int *counters) {
@@ -568,6 +580,12 @@ class CudaDdgiVolume::Impl {
             layout_ = make_ddgi_layout(snapshot, config);
         if (reset)
             initialize();
+        if (reset || has_scene_change(changes, SceneChange::Geometry) ||
+            has_scene_change(changes, SceneChange::InstanceTransforms) ||
+            has_scene_change(changes, SceneChange::MaterialBindings) ||
+            has_scene_change(changes, SceneChange::Materials) ||
+            has_scene_change(changes, SceneChange::Textures))
+            ++geometry_epoch_;
         if (changes != SceneChange::None || transport_changed ||
             config.relocation != cached_.ddgi.relocation ||
             config.classification != cached_.ddgi.classification)
@@ -663,6 +681,7 @@ class CudaDdgiVolume::Impl {
         f.ray_count = config.rays_per_probe;
         f.update_count = budget;
         f.frame = frame_;
+        f.geometry_epoch = geometry_epoch_;
         f.time = time_;
         f.hysteresis = config.hysteresis;
         f.normal_bias = config.normal_bias;
@@ -831,7 +850,7 @@ class CudaDdgiVolume::Impl {
     bool has_settings_ = false;
     SceneRevisions revisions_;
     std::uint64_t source_id_ = 0;
-    unsigned int frame_ = 0;
+    unsigned int frame_ = 0, geometry_epoch_ = 0;
     float time_ = 0;
     int current_ = 0, cursor_ = 0, fast_remaining_ = 0;
     std::deque<int> priority_;

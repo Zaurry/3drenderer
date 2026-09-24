@@ -1,8 +1,8 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include "render/realtime/optix_backend.h"
-#include "render/realtime/optix_denoiser.h"
+#include "render/optix/optix_backend.h"
+#include "render/optix/optix_denoiser.h"
 #include <cuda.h>
 #include <cuda_runtime_api.h>
 #include <optix.h>
@@ -18,6 +18,9 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
+#include <unordered_map>
+#include <unordered_set>
+#include "render/optix/optix_realtime_renderer.h"
 
 namespace renderer {
 namespace {
@@ -47,6 +50,8 @@ struct Buffer {
         if(size)cuda_check(cudaMalloc(reinterpret_cast<void**>(&pointer),size),"allocate OptiX buffer");
         bytes=size;
     }
+    void reserve(std::size_t size) { if(size>bytes)resize(size); }
+    void swap(Buffer& other) noexcept {std::swap(pointer,other.pointer);std::swap(bytes,other.bytes);}
     void upload(const void* data,std::size_t size,cudaStream_t stream) {
         resize(size);if(size)cuda_check(cudaMemcpyAsync(reinterpret_cast<void*>(pointer),data,size,cudaMemcpyHostToDevice,stream),"upload OptiX data");
     }
@@ -76,10 +81,13 @@ class OptixRealtimeBackend::Impl {
 public:
     explicit Impl(CudaDeviceContext device):device_(device) {}
     ~Impl() {
-        device_.activate();cudaDeviceSynchronize();
+        device_.activate();cudaStreamSynchronize(last_stream_);
         if(pipeline_)optixPipelineDestroy(pipeline_);
         for(auto group:groups_)if(group)optixProgramGroupDestroy(group);
         if(module_)optixModuleDestroy(module_);
+        if(sphere_module_)optixModuleDestroy(sphere_module_);
+        if(accel_start_)cudaEventDestroy(accel_start_);
+        if(accel_end_)cudaEventDestroy(accel_end_);
         if(context_)optixDeviceContextDestroy(context_);
     }
     bool initialize() {
@@ -92,11 +100,18 @@ public:
             const bool validation=std::getenv("RTRT_OPTIX_VALIDATE")!=nullptr;
             if(validation)context_options.validationMode=OPTIX_DEVICE_CONTEXT_VALIDATION_MODE_ALL;
             optix_check(optixDeviceContextCreate(nullptr,&context_options,&context_),"create OptiX context");
+            optix_check(optixDeviceContextGetProperty(context_,OPTIX_DEVICE_PROPERTY_RTCORE_VERSION,&rt_core_version_,sizeof(rt_core_version_)),"query RT Core capability");
+            if(!rt_core_version_)throw std::runtime_error("RTRT requires an RT Core capable device");
+            unsigned ser=0;
+            optix_check(optixDeviceContextGetProperty(context_,OPTIX_DEVICE_PROPERTY_SHADER_EXECUTION_REORDERING,&ser,sizeof(ser)),"query SER capability");
+            ser_supported_=(ser&OPTIX_DEVICE_PROPERTY_SHADER_EXECUTION_REORDERING_FLAG_STANDARD)!=0;
+            cuda_check(cudaEventCreate(&accel_start_),"create acceleration timer");
+            cuda_check(cudaEventCreate(&accel_end_),"create acceleration timer");
             OptixPipelineCompileOptions compile{};
             compile.traversableGraphFlags=OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
             compile.numPayloadValues=2;compile.numAttributeValues=2;
             compile.pipelineLaunchParamsVariableName="rt_optix_params";
-            compile.usesPrimitiveTypeFlags=OPTIX_PRIMITIVE_TYPE_FLAGS_TRIANGLE;
+            compile.usesPrimitiveTypeFlags=OPTIX_PRIMITIVE_TYPE_FLAGS_TRIANGLE|OPTIX_PRIMITIVE_TYPE_FLAGS_SPHERE;
             if(validation)compile.exceptionFlags=OPTIX_EXCEPTION_FLAG_STACK_OVERFLOW|OPTIX_EXCEPTION_FLAG_TRACE_DEPTH;
             OptixModuleCompileOptions module_options{};
             module_options.optLevel=validation?OPTIX_COMPILE_OPTIMIZATION_LEVEL_0:OPTIX_COMPILE_OPTIMIZATION_LEVEL_3;
@@ -104,19 +119,29 @@ public:
             // backtraces. Keep it opt-in so production shader code is unchanged.
             module_options.debugLevel=validation?OPTIX_COMPILE_DEBUG_LEVEL_FULL:OPTIX_COMPILE_DEBUG_LEVEL_NONE;
             std::array<char,8192> log{};std::size_t log_size=log.size();
-            auto result=optixModuleCreate(context_,&module_options,&compile,kRtrtOptixPtx,sizeof(kRtrtOptixPtx)-1,log.data(),&log_size,&module_);
+            auto result=optixModuleCreate(context_,&module_options,&compile,reinterpret_cast<const char*>(kRtrtOptixPtx),sizeof(kRtrtOptixPtx)-1,log.data(),&log_size,&module_);
             optix_check(result,"compile RTRT OptiX programs",log.data());
-            std::array<OptixProgramGroupDesc,5> descriptors{};
+            OptixBuiltinISOptions sphere_options{};
+            sphere_options.builtinISModuleType=OPTIX_PRIMITIVE_TYPE_SPHERE;
+            sphere_options.buildFlags=gas_flags;
+            optix_check(optixBuiltinISModuleGet(context_,&module_options,&compile,&sphere_options,&sphere_module_),"create sphere intersection module");
+            std::array<OptixProgramGroupDesc,9> descriptors{};
             const char* raygens[]={"__raygen__primary","__raygen__lighting","__raygen__native_optics"};
             for(int i=0;i<3;++i) {
                 descriptors[i].kind=OPTIX_PROGRAM_GROUP_KIND_RAYGEN;descriptors[i].raygen.module=module_;
                 descriptors[i].raygen.entryFunctionName=raygens[i];
             }
-            descriptors[3].kind=OPTIX_PROGRAM_GROUP_KIND_MISS;
-            descriptors[3].miss.module=module_;descriptors[3].miss.entryFunctionName="__miss__scene";
-            descriptors[4].kind=OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
-            descriptors[4].hitgroup.moduleCH=module_;descriptors[4].hitgroup.entryFunctionNameCH="__closesthit__scene";
-            descriptors[4].hitgroup.moduleAH=module_;descriptors[4].hitgroup.entryFunctionNameAH="__anyhit__scene";
+            for(int ray=0;ray<2;++ray) {
+                descriptors[3+ray].kind=OPTIX_PROGRAM_GROUP_KIND_MISS;
+                descriptors[3+ray].miss.module=module_;
+                descriptors[3+ray].miss.entryFunctionName=ray?"__miss__occlusion":"__miss__radiance";
+                for(int primitive=0;primitive<2;++primitive) {
+                    auto& d=descriptors[5+2*primitive+ray];d.kind=OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
+                    if(!ray) {d.hitgroup.moduleCH=module_;d.hitgroup.entryFunctionNameCH="__closesthit__scene";}
+                    d.hitgroup.moduleAH=module_;d.hitgroup.entryFunctionNameAH=ray?"__anyhit__occlusion":"__anyhit__radiance";
+                    if(primitive)d.hitgroup.moduleIS=sphere_module_;
+                }
+            }
             OptixProgramGroupOptions group_options{};log_size=log.size();
             result=optixProgramGroupCreate(context_,descriptors.data(),unsigned(descriptors.size()),&group_options,log.data(),&log_size,groups_.data());
             optix_check(result,"create OptiX programs",log.data());
@@ -127,131 +152,210 @@ public:
             unsigned traversal=0,state=0,continuation=0;
             optix_check(optixUtilComputeStackSizes(&sizes,1,0,0,&traversal,&state,&continuation),"compute OptiX stack");
             optix_check(optixPipelineSetStackSize(pipeline_,traversal,state,continuation,2),"configure OptiX stack");
-            for(int i=0;i<7;++i)optix_check(optixSbtRecordPackHeader(groups_[std::min(i,4)],&records_host_[i]),"pack OptiX shader record");
+            for(int i=0;i<5;++i)optix_check(optixSbtRecordPackHeader(groups_[i],&records_host_[i]),"pack OptiX shader record");
+            for(int primitive=0;primitive<2;++primitive)for(int kind=0;kind<3;++kind)for(int ray=0;ray<2;++ray)
+                optix_check(optixSbtRecordPackHeader(groups_[5+primitive*2+ray],&records_host_[5+primitive*6+kind*2+ray]),"pack OptiX hit record");
             records_.upload(records_host_.data(),sizeof(records_host_),nullptr);
             cuda_check(cudaStreamSynchronize(nullptr),"finish OptiX program records");
             reason_.clear();return true;
         } catch(const std::exception& error) {reason_=error.what();failed_=true;return false;}
     }
-    bool sync(const RenderSceneSnapshot& scene,cudaStream_t stream) {
-        for(const auto& asset:scene.assets)if(asset.local_scene && !asset.local_scene->spheres.empty()) {
-            reason_="Analytic sphere assets use CUDA traversal";return false;
+    static constexpr unsigned gas_flags=OPTIX_BUILD_FLAG_PREFER_FAST_TRACE|OPTIX_BUILD_FLAG_ALLOW_COMPACTION;
+    struct Geometry {
+        Buffer vertices,classes,gas,compacted_size;
+        OptixTraversableHandle handle=0;
+        std::vector<float> vertices_host;
+        std::vector<unsigned char> classes_host;
+    };
+    struct Asset {
+        Geometry triangles,spheres;
+        std::uint64_t revision=0;
+        std::shared_ptr<const Scene> source;
+    };
+    std::vector<unsigned char> classify(const RenderSceneSnapshot& scene,std::size_t index,bool spheres) {
+        const auto& input=scene.assets[index];
+        const auto& slots=spheres?input.sphere_material_slots:input.triangle_material_slots;
+        const auto count=spheres?input.local_scene->spheres.size():input.local_scene->triangles.size();
+        std::vector<unsigned char> classes(count,3);
+        for(const auto& instance:scene.instances)if(instance.asset_index==int(index)) {
+            for(std::size_t t=0;t<count;++t) {
+                unsigned char kind=1;
+                if(t<slots.size() && slots[t].has_value() && slots[t].value()<instance.materials.size()) {
+                    const auto& m=instance.materials[slots[t].value()];
+                    const bool opaque=m.type==MaterialType::Pbr?m.alpha_mode==AlphaMode::Opaque:
+                        m.opacity_texture_id<0 && m.opacity>=1;
+                    kind=opaque?(m.two_sided?1:0):2;
+                }
+                auto& previous=classes[t];previous=previous==3?kind:(previous==kind?kind:2);
+            }
         }
+        for(auto& kind:classes)if(kind==3)kind=1;
+        return classes;
+    }
+    void build_geometry(Geometry& geometry,const Scene& scene,bool spheres,cudaStream_t stream) {
+        geometry.handle=0;
+        const std::size_t count=spheres?scene.spheres.size():scene.triangles.size();
+        if(!count) {geometry.gas.resize(0);return;}
+        if(count>std::size_t(UINT_MAX/3))throw std::runtime_error("OptiX mesh exceeds primitive limits");
+        auto& positions=geometry.vertices_host;positions.clear();positions.reserve(count*(spheres?4:9));
+        if(spheres)for(const auto& sphere:scene.spheres) {
+            const auto& p=sphere.center();positions.insert(positions.end(),{p.x(),p.y(),p.z(),sphere.radius()});
+        } else for(const auto& triangle:scene.triangles)for(int v=0;v<3;++v) {
+            const auto& p=triangle.vertex(v).position;positions.insert(positions.end(),{p.x(),p.y(),p.z()});
+        }
+        geometry.vertices.upload(positions.data(),positions.size()*sizeof(float),stream);
+        geometry.classes.upload(geometry.classes_host.data(),geometry.classes_host.size(),stream);
+        OptixBuildInput build{};
+        const unsigned triangle_flags[3]={OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT,
+            OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT|OPTIX_GEOMETRY_FLAG_DISABLE_TRIANGLE_FACE_CULLING,
+            OPTIX_GEOMETRY_FLAG_DISABLE_TRIANGLE_FACE_CULLING};
+        const unsigned sphere_flags[3]={OPTIX_GEOMETRY_FLAG_NONE,OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT,OPTIX_GEOMETRY_FLAG_NONE};
+        CUdeviceptr radii=geometry.vertices.pointer+3*sizeof(float);
+        if(spheres) {
+            build.type=OPTIX_BUILD_INPUT_TYPE_SPHERES;auto& a=build.sphereArray;
+            a.vertexBuffers=&geometry.vertices.pointer;a.numVertices=unsigned(count);a.vertexStrideInBytes=4*sizeof(float);
+            a.radiusBuffers=&radii;a.radiusStrideInBytes=4*sizeof(float);
+            a.flags=sphere_flags;a.numSbtRecords=3;a.sbtIndexOffsetBuffer=geometry.classes.pointer;a.sbtIndexOffsetSizeInBytes=1;
+        } else {
+            build.type=OPTIX_BUILD_INPUT_TYPE_TRIANGLES;auto& a=build.triangleArray;
+            a.vertexBuffers=&geometry.vertices.pointer;a.numVertices=unsigned(count*3);
+            a.vertexFormat=OPTIX_VERTEX_FORMAT_FLOAT3;a.vertexStrideInBytes=3*sizeof(float);
+            a.flags=triangle_flags;a.numSbtRecords=3;a.sbtIndexOffsetBuffer=geometry.classes.pointer;a.sbtIndexOffsetSizeInBytes=1;
+        }
+        OptixAccelBuildOptions options{};options.buildFlags=gas_flags;options.operation=OPTIX_BUILD_OPERATION_BUILD;
+        geometry.compacted_size.resize(sizeof(std::uint64_t));
+        OptixAccelEmitDesc emit{geometry.compacted_size.pointer,OPTIX_PROPERTY_TYPE_COMPACTED_SIZE};
+        build_acceleration(build,options,geometry.gas,geometry.handle,stream,&emit);
+        ++gas_builds_;
+    }
+    bool sync(const RenderSceneSnapshot& scene,cudaStream_t stream) {
         if(!initialize())return false;
         device_.activate();
-        bool rebuild=source_!=scene.source_id || assets_.size()!=scene.assets.size() ||
-            materials_!=scene.revisions.materials || bindings_!=scene.revisions.material_bindings || topology_!=scene.revisions.topology;
-        if(!rebuild)for(std::size_t i=0;i<assets_.size();++i) {
-            const auto& a=scene.assets[i];
-            if(assets_[i].source!=a.local_scene || assets_[i].id!=a.asset_id || assets_[i].revision!=a.geometry_revision){rebuild=true;break;}
-        }
-        if(rebuild) {
-            cuda_check(cudaStreamSynchronize(stream),"rebuild OptiX scene");
-            assets_.clear();assets_.resize(scene.assets.size());handle_=0;
-            for(std::size_t i=0;i<assets_.size();++i) {
-                auto& asset=assets_[i];const auto& input=scene.assets[i];
-                asset.source=input.local_scene;asset.id=input.asset_id;asset.revision=input.geometry_revision;
-                if(!input.local_scene || input.local_scene->triangles.empty())continue;
-                const auto& triangles=input.local_scene->triangles;
-                if(triangles.size()>std::size_t(UINT_MAX/3))throw std::runtime_error("OptiX mesh exceeds vertex limits");
-                std::vector<float> positions;positions.reserve(triangles.size()*9);
-                for(const auto& triangle:triangles)for(int v=0;v<3;++v) {
-                    const auto& p=triangle.vertex(v).position;positions.insert(positions.end(),{p.x(),p.y(),p.z()});
-                }
-                asset.vertices.upload(positions.data(),positions.size()*sizeof(float),stream);
-                // 0: opaque single sided, 1: opaque double sided, 2: material
-                // acceptance shader. Shared meshes with different instance
-                // bindings conservatively retain that shader when necessary.
-                std::vector<unsigned char> geometry_class(triangles.size(),3);
-                for(const auto& instance:scene.instances)if(instance.asset_index==int(i)) {
-                    for(std::size_t t=0;t<triangles.size();++t) {
-                        unsigned char kind=1;
-                        if(t<input.triangle_material_slots.size()) {
-                            const auto slot=input.triangle_material_slots[t];
-                            if(slot.has_value() && slot.value()<instance.materials.size()) {
-                                const auto& m=instance.materials[slot.value()];
-                                const bool opaque=m.type==MaterialType::Pbr?m.alpha_mode==AlphaMode::Opaque:
-                                    m.opacity_texture_id<0 && m.opacity>=1;
-                                kind=opaque?(m.two_sided?1:0):2;
-                            }
-                        }
-                        auto& previous=geometry_class[t];
-                        previous=previous==3?kind:(previous==kind?kind:2);
+        last_stream_=stream;
+        update_timing();
+        const bool different=source_!=scene.source_id;
+        const bool classification_changed=different || materials_!=scene.revisions.materials ||
+            bindings_!=scene.revisions.material_bindings || topology_!=scene.revisions.topology;
+        if(different) {cuda_check(cudaStreamSynchronize(stream),"replace OptiX scene");assets_.clear();handle_=0;}
+        std::unordered_set<std::uint64_t> live;
+        struct Job {Geometry* geometry;const Scene* scene;bool spheres;};
+        std::vector<Job> jobs;
+        for(std::size_t i=0;i<scene.assets.size();++i) {
+            const auto& input=scene.assets[i];
+            if(!input.local_scene)throw std::runtime_error("OptiX asset has no geometry");
+            live.insert(input.asset_id);
+            auto& entry=assets_[input.asset_id];if(!entry)entry=std::make_unique<Asset>();
+            auto& asset=*entry;
+            const bool geometry_changed=asset.source!=input.local_scene || asset.revision!=input.geometry_revision;
+            for(int sphere=0;sphere<2;++sphere) {
+                auto& geometry=sphere?asset.spheres:asset.triangles;
+                if(classification_changed || geometry_changed) {
+                    auto classes=classify(scene,i,sphere!=0);
+                    if(geometry_changed || classes!=geometry.classes_host) {
+                        geometry.classes_host=std::move(classes);jobs.push_back({&geometry,input.local_scene.get(),sphere!=0});
                     }
                 }
-                for(auto& kind:geometry_class)if(kind==3)kind=1;
-                asset.sbt_indices.upload(geometry_class.data(),geometry_class.size(),stream);
-                OptixBuildInput build{};build.type=OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
-                const unsigned flags[3]={OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT,
-                    OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT|OPTIX_GEOMETRY_FLAG_DISABLE_TRIANGLE_FACE_CULLING,
-                    OPTIX_GEOMETRY_FLAG_DISABLE_TRIANGLE_FACE_CULLING};
-                build.triangleArray.vertexBuffers=&asset.vertices.pointer;
-                build.triangleArray.numVertices=unsigned(triangles.size()*3);
-                build.triangleArray.vertexFormat=OPTIX_VERTEX_FORMAT_FLOAT3;
-                build.triangleArray.vertexStrideInBytes=3*sizeof(float);
-                build.triangleArray.flags=flags;build.triangleArray.numSbtRecords=3;
-                build.triangleArray.sbtIndexOffsetBuffer=asset.sbt_indices.pointer;
-                build.triangleArray.sbtIndexOffsetSizeInBytes=1;
-                OptixAccelBuildOptions options{};options.buildFlags=OPTIX_BUILD_FLAG_PREFER_FAST_TRACE;
-                options.operation=OPTIX_BUILD_OPERATION_BUILD;
-                build_acceleration(build,options,asset.gas,asset.handle,stream);
-                // Acceleration build is asynchronous; retain the upload source
-                // through completion, then release the scratch vertex buffer.
-                cuda_check(cudaStreamSynchronize(stream),"finish OptiX mesh build");asset.vertices.resize(0);asset.sbt_indices.resize(0);
+            }
+            asset.source=input.local_scene;asset.revision=input.geometry_revision;
+        }
+        bool removed=false;for(const auto& [id,asset]:assets_)removed|=!live.contains(id);
+        const bool changed=different || !jobs.empty() || removed || transforms_!=scene.revisions.transforms ||
+            geometry_!=scene.revisions.geometry || topology_!=scene.revisions.topology;
+        if(!changed) {materials_=scene.revisions.materials;bindings_=scene.revisions.material_bindings;return true;}
+        // Geometry storage and compacted handles must outlive all launches using
+        // them. Rigid transforms do not take this synchronization path.
+        if(!jobs.empty() || removed)cuda_check(cudaStreamSynchronize(stream),"replace OptiX geometry");
+        for(auto i=assets_.begin();i!=assets_.end();)if(!live.contains(i->first))i=assets_.erase(i);else ++i;
+        const bool timing=!accel_pending_;
+        if(timing)cuda_check(cudaEventRecord(accel_start_,stream),"start acceleration timer");
+        for(auto& job:jobs)build_geometry(*job.geometry,*job.scene,job.spheres,stream);
+        std::vector<std::uint64_t> compact_sizes(jobs.size());
+        for(std::size_t i=0;i<jobs.size();++i)if(jobs[i].geometry->handle)
+            cuda_check(cudaMemcpyAsync(&compact_sizes[i],reinterpret_cast<void*>(jobs[i].geometry->compacted_size.pointer),sizeof(std::uint64_t),cudaMemcpyDeviceToHost,stream),"query compacted GAS size");
+        if(!jobs.empty())cuda_check(cudaStreamSynchronize(stream),"finish GAS build batch");
+        std::vector<Buffer> retired;retired.reserve(jobs.size());
+        for(std::size_t i=0;i<jobs.size();++i) {
+            auto& g=*jobs[i].geometry;
+            if(compact_sizes[i] && compact_sizes[i]<g.gas.bytes) {
+                Buffer compact;compact.resize(std::size_t(compact_sizes[i]));
+                optix_check(optixAccelCompact(context_,stream,g.handle,compact.pointer,compact.bytes,&g.handle),"compact OptiX GAS");
+                g.gas.swap(compact);retired.push_back(std::move(compact));
             }
         }
-        const bool transform_changed=rebuild || transforms_!=scene.revisions.transforms || geometry_!=scene.revisions.geometry;
-        if(transform_changed) {
-            instances_host_.clear();
-            for(std::size_t i=0;i<scene.instances.size();++i) {
-                const auto& instance=scene.instances[i];
-                if(instance.asset_index<0 || std::size_t(instance.asset_index)>=assets_.size() || !assets_[instance.asset_index].handle)continue;
+        if(!jobs.empty()) {
+            cuda_check(cudaStreamSynchronize(stream),"finish GAS compaction batch");
+            for(auto& job:jobs) {auto& g=*job.geometry;g.vertices.resize(0);g.classes.resize(0);g.compacted_size.resize(0);g.vertices_host.clear();g.vertices_host.shrink_to_fit();}
+        }
+        instances_host_.clear();
+        for(std::size_t i=0;i<scene.instances.size();++i) {
+            const auto& instance=scene.instances[i];
+            if(instance.asset_index<0 || std::size_t(instance.asset_index)>=scene.assets.size())throw std::runtime_error("OptiX instance references an invalid asset");
+            const auto& asset=*assets_.at(scene.assets[instance.asset_index].asset_id);
+            for(int sphere=0;sphere<2;++sphere) {
+                const auto handle=sphere?asset.spheres.handle:asset.triangles.handle;if(!handle)continue;
                 OptixInstance out{};
                 for(int row=0;row<3;++row)for(int col=0;col<4;++col)out.transform[row*4+col]=instance.object_to_world(row,col);
-                out.instanceId=unsigned(i);out.visibilityMask=255;
-                if(instance.object_to_world.topLeftCorner<3,3>().determinant()<0)
-                    out.flags=OPTIX_INSTANCE_FLAG_FLIP_TRIANGLE_FACING;
-                out.traversableHandle=assets_[instance.asset_index].handle;instances_host_.push_back(out);
-            }
-            const bool update=!rebuild && handle_ && instances_.bytes==instances_host_.size()*sizeof(OptixInstance);
-            instances_.upload(instances_host_.data(),instances_host_.size()*sizeof(OptixInstance),stream);
-            if(instances_host_.empty())handle_=0;
-            else {
-                OptixBuildInput input{};input.type=OPTIX_BUILD_INPUT_TYPE_INSTANCES;
-                input.instanceArray.instances=instances_.pointer;input.instanceArray.numInstances=unsigned(instances_host_.size());
-                OptixAccelBuildOptions options{};options.buildFlags=OPTIX_BUILD_FLAG_PREFER_FAST_TRACE|OPTIX_BUILD_FLAG_ALLOW_UPDATE;
-                options.operation=update?OPTIX_BUILD_OPERATION_UPDATE:OPTIX_BUILD_OPERATION_BUILD;
-                build_acceleration(input,options,tlas_,handle_,stream);
+                out.instanceId=unsigned(i);out.visibilityMask=255;out.sbtOffset=sphere?6:0;
+                if(!sphere && instance.object_to_world.topLeftCorner<3,3>().determinant()<0)out.flags=OPTIX_INSTANCE_FLAG_FLIP_TRIANGLE_FACING;
+                out.traversableHandle=handle;instances_host_.push_back(out);
             }
         }
+        if(instances_host_.empty())handle_=0;
+        else {
+            const auto bytes=instances_host_.size()*sizeof(OptixInstance);
+            const bool update=handle_ && jobs.empty() && !removed && instance_count_==instances_host_.size() && topology_==scene.revisions.topology;
+            instances_.reserve(bytes);
+            instance_uploads_[instance_upload_index_++%instance_uploads_.size()].stage(instances_host_.data(),bytes,instances_.pointer,stream);
+            OptixBuildInput input{};input.type=OPTIX_BUILD_INPUT_TYPE_INSTANCES;
+            input.instanceArray.instances=instances_.pointer;input.instanceArray.numInstances=unsigned(instances_host_.size());
+            OptixAccelBuildOptions options{};options.buildFlags=OPTIX_BUILD_FLAG_PREFER_FAST_TRACE|OPTIX_BUILD_FLAG_ALLOW_UPDATE;
+            options.operation=update?OPTIX_BUILD_OPERATION_UPDATE:OPTIX_BUILD_OPERATION_BUILD;
+            build_acceleration(input,options,tlas_,handle_,stream);
+            if(update)++ias_updates_;else ++ias_builds_;
+        }
+        instance_count_=instances_host_.size();
+        if(timing) {cuda_check(cudaEventRecord(accel_end_,stream),"finish acceleration timer");accel_pending_=true;}
         source_=scene.source_id;transforms_=scene.revisions.transforms;geometry_=scene.revisions.geometry;
         materials_=scene.revisions.materials;bindings_=scene.revisions.material_bindings;topology_=scene.revisions.topology;
         reason_.clear();return true;
     }
-    void build_acceleration(const OptixBuildInput& input,const OptixAccelBuildOptions& options,Buffer& output,OptixTraversableHandle& handle,cudaStream_t stream) {
+    void update_timing() {
+        if(!accel_pending_)return;
+        const auto result=cudaEventQuery(accel_end_);
+        if(result==cudaSuccess) {cuda_check(cudaEventElapsedTime(&acceleration_ms_,accel_start_,accel_end_),"read acceleration timer");accel_pending_=false;}
+        else if(result!=cudaErrorNotReady)cuda_check(result,"query acceleration timer");
+    }
+    void build_acceleration(const OptixBuildInput& input,const OptixAccelBuildOptions& options,Buffer& output,OptixTraversableHandle& handle,cudaStream_t stream,const OptixAccelEmitDesc* emit=nullptr) {
         OptixAccelBufferSizes sizes{};optix_check(optixAccelComputeMemoryUsage(context_,&options,&input,1,&sizes),"size OptiX acceleration");
-        scratch_.resize(options.operation==OPTIX_BUILD_OPERATION_UPDATE?sizes.tempUpdateSizeInBytes:sizes.tempSizeInBytes);
-        if(options.operation!=OPTIX_BUILD_OPERATION_UPDATE)output.resize(sizes.outputSizeInBytes);
-        optix_check(optixAccelBuild(context_,stream,&options,&input,1,scratch_.pointer,scratch_.bytes,output.pointer,output.bytes,&handle,nullptr,0),"build OptiX acceleration");
+        scratch_.reserve(options.operation==OPTIX_BUILD_OPERATION_UPDATE?sizes.tempUpdateSizeInBytes:sizes.tempSizeInBytes);
+        if(options.operation!=OPTIX_BUILD_OPERATION_UPDATE)output.reserve(sizes.outputSizeInBytes);
+        optix_check(optixAccelBuild(context_,stream,&options,&input,1,scratch_.pointer,scratch_.bytes,output.pointer,output.bytes,&handle,emit,emit?1:0),"build OptiX acceleration");
     }
     void launch(OptixRealtimePass pass,const void* parameters,std::size_t bytes,int width,int height,cudaStream_t stream) {
+        last_stream_=stream;
         parameters_.resize(bytes);
         uploads_[upload_index_++%uploads_.size()].stage(parameters,bytes,parameters_.pointer,stream);
         OptixShaderBindingTable sbt{};
         sbt.raygenRecord=records_.pointer+static_cast<unsigned>(pass)*sizeof(Record);
-        sbt.missRecordBase=records_.pointer+3*sizeof(Record);sbt.missRecordStrideInBytes=sizeof(Record);sbt.missRecordCount=1;
-        sbt.hitgroupRecordBase=records_.pointer+4*sizeof(Record);sbt.hitgroupRecordStrideInBytes=sizeof(Record);sbt.hitgroupRecordCount=3;
+        sbt.missRecordBase=records_.pointer+3*sizeof(Record);sbt.missRecordStrideInBytes=sizeof(Record);sbt.missRecordCount=2;
+        sbt.hitgroupRecordBase=records_.pointer+5*sizeof(Record);sbt.hitgroupRecordStrideInBytes=sizeof(Record);sbt.hitgroupRecordCount=12;
         optix_check(optixLaunch(pipeline_,stream,parameters_.pointer,bytes,&sbt,unsigned(width),unsigned(height),1),"launch RTRT OptiX");
     }
     std::uint64_t resident_bytes() const {
         std::uint64_t total=tlas_.bytes+scratch_.bytes+instances_.bytes+records_.bytes+parameters_.bytes;
-        for(const auto& asset:assets_)total+=asset.gas.bytes+asset.vertices.bytes;return total;
+        for(const auto& [id,asset]:assets_)for(const auto* g:{&asset->triangles,&asset->spheres})
+            total+=g->gas.bytes+g->vertices.bytes+g->classes.bytes+g->compacted_size.bytes;
+        return total;
     }
-    struct Asset {Buffer vertices,gas,sbt_indices;OptixTraversableHandle handle=0;std::uint64_t id=0,revision=0;std::shared_ptr<const Scene> source;};
-    CudaDeviceContext device_;OptixDeviceContext context_=nullptr;OptixModule module_=nullptr;OptixPipeline pipeline_=nullptr;
-    std::array<OptixProgramGroup,5> groups_{};std::array<Record,7> records_host_{};
-    Buffer records_,parameters_,scratch_,instances_,tlas_;std::vector<Asset> assets_;std::vector<OptixInstance> instances_host_;
-    std::array<ParameterUpload,8> uploads_{};std::size_t upload_index_=0;
+    CudaDeviceContext device_;OptixDeviceContext context_=nullptr;OptixModule module_=nullptr,sphere_module_=nullptr;OptixPipeline pipeline_=nullptr;
+    cudaStream_t last_stream_=nullptr;
+    std::array<OptixProgramGroup,9> groups_{};std::array<Record,17> records_host_{};
+    Buffer records_,parameters_,scratch_,instances_,tlas_;
+    std::unordered_map<std::uint64_t,std::unique_ptr<Asset>> assets_;std::vector<OptixInstance> instances_host_;
+    std::array<ParameterUpload,8> uploads_{},instance_uploads_{};std::size_t upload_index_=0,instance_upload_index_=0,instance_count_=0;
+    unsigned rt_core_version_=0;bool ser_supported_=false;
+    std::uint64_t gas_builds_=0,ias_builds_=0,ias_updates_=0;
+    cudaEvent_t accel_start_=nullptr,accel_end_=nullptr;bool accel_pending_=false;float acceleration_ms_=0;
     OptixTraversableHandle handle_=0;std::uint64_t source_=0,transforms_=0,geometry_=0;
     std::uint64_t materials_=0,bindings_=0,topology_=0;
     bool failed_=false;std::string reason_;
@@ -263,6 +367,31 @@ void OptixRealtimeBackend::launch(OptixRealtimePass pass,const void* p,std::size
 std::uint64_t OptixRealtimeBackend::traversable() const{return impl_->handle_;}
 std::uint64_t OptixRealtimeBackend::resident_bytes() const{return impl_->resident_bytes();}
 const std::string& OptixRealtimeBackend::reason() const{return impl_->reason_;}
+
+unsigned OptixRealtimeBackend::rt_core_version() const{return impl_->rt_core_version_;}
+bool OptixRealtimeBackend::ser_supported() const{return impl_->ser_supported_;}
+std::uint64_t OptixRealtimeBackend::gas_builds() const{return impl_->gas_builds_;}
+std::uint64_t OptixRealtimeBackend::ias_builds() const{return impl_->ias_builds_;}
+std::uint64_t OptixRealtimeBackend::ias_updates() const{return impl_->ias_updates_;}
+float OptixRealtimeBackend::acceleration_ms() const{impl_->update_timing();return impl_->acceleration_ms_;}
+
+bool optix_realtime_available(int device,std::string* reason) {
+    static std::mutex mutex;
+    static std::unordered_map<int,std::string> results;
+    std::lock_guard lock(mutex);
+    const auto cached=results.find(device);
+    if(cached!=results.end()){if(reason)*reason=cached->second;return cached->second.empty();}
+    std::string detail;OptixDeviceContext context=nullptr;
+    try {
+        auto cuda=CudaDeviceContext::create(device);cuda.activate();initialize_optix_driver();
+        OptixDeviceContextOptions options{};
+        optix_check(optixDeviceContextCreate(nullptr,&options,&context),"probe OptiX context");
+        unsigned rt=0;optix_check(optixDeviceContextGetProperty(context,OPTIX_DEVICE_PROPERTY_RTCORE_VERSION,&rt,sizeof(rt)),"probe RT Cores");
+        if(!rt)detail="RTRT requires an RT Core capable device";
+    } catch(const std::exception& e){detail=e.what();}
+    if(context)optixDeviceContextDestroy(context);
+    results.emplace(device,detail);if(reason)*reason=detail;return detail.empty();
+}
 
 class OptixRealtimeDenoiser::Impl {
 public:

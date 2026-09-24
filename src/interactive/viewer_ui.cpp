@@ -1,5 +1,6 @@
 #include "interactive/viewer_ui.h"
 #include "interactive/realtime_panel.h"
+#include "render/optix/optix_realtime_renderer.h"
 
 #include "render/opengl/opengl_shader_contract.h"
 #include "render/pathtracer/cuda_pathtracer.h"
@@ -575,8 +576,12 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         (rt.optix_denoiser_active?(rt.optix_denoiser_temporal?"OptiX AI (temporal)":"OptiX AI (single frame)"):"SVGF"));
                     if(!rt.optix_denoiser_detail.empty())ImGui::TextWrapped("%s",rt.optix_denoiser_detail.c_str());
                     ImGui::Text("Reconstruction %.2f ms | CUDA %.2f ms", rt.reconstruction_ms, rt.total_ms);
-                    ImGui::Text("Primary: %s | raster %.2f ms", rt.raster_primary_active?"raster":"CUDA",rt.raster_primary_ms);
-                    ImGui::Text("Ray traversal: %s",rt.hardware_ray_tracing_active?"RT cores (OptiX)":"CUDA BVH");
+                    ImGui::Text("Primary: OptiX | RT Core version %u",rt.rt_core_version);
+                    ImGui::Text("SER: %s",rt.ser_active?"active":rt.ser_supported?"disabled":"unsupported");
+                    ImGui::Text("GAS builds %llu | IAS builds %llu / updates %llu",
+                        (unsigned long long)rt.gas_builds,(unsigned long long)rt.ias_builds,(unsigned long long)rt.ias_updates);
+                    ImGui::Text("Acceleration %.2f ms | %.1f MiB",rt.acceleration_ms,double(rt.hardware_ray_tracing_bytes)/1048576);
+                    ImGui::Text("Ray traversal: %s",rt.hardware_ray_tracing_active?"RT cores (OptiX)":"unavailable");
                     if(!rt.hardware_ray_tracing_detail.empty())ImGui::TextWrapped("%s",rt.hardware_ray_tracing_detail.c_str());
                     ImGui::Text("Frames %llu | history resets %llu", (unsigned long long)rt.frames, (unsigned long long)rt.history_resets);
                     ImGui::Text("Frame buffers %.1f MiB | downloads %llu", double(rt.framebuffer_bytes)/1048576,
@@ -594,7 +599,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 if (ImGui::BeginCombo("Mode", active_mode.label)) {
                     std::string cuda_reason;
                     const bool cuda_available =
-                        cuda_path_backend_available(&cuda_reason);
+                        optix_realtime_available(render_settings.path.cuda_device,&cuda_reason);
                     for (const RenderModeDescriptor& descriptor :
                          interactive_render_modes()) {
                         const bool selected = descriptor.mode == state.mode;
@@ -612,7 +617,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                             ImGui::IsItemHovered(
                                 ImGuiHoveredFlags_AllowWhenDisabled)) {
                             ImGui::SetTooltip(
-                                "CUDA RTRT unavailable: %s",
+                                "OptiX RTRT unavailable: %s",
                                 cuda_reason.c_str());
                         }
                         if (selected) {

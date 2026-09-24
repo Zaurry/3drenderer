@@ -16,11 +16,7 @@ enum class RealtimeDebugView : std::uint8_t {
 };
 
 struct RealtimeRenderSettings {
-    // GL/CUDA handoff can cost more than the primary traversal it replaces.
-    // Keep the measured hybrid path opt-in until it wins end-to-end by default.
-    bool raster_primary = false;
     bool low_discrepancy = true;
-    bool hardware_ray_tracing = true;
     bool shader_execution_reordering = true;
     bool split_dielectric = true;
     int samples_per_pixel = 1;
@@ -111,9 +107,11 @@ struct RealtimeStatistics {
     bool hardware_ray_tracing_active = false;
     std::uint64_t hardware_ray_tracing_bytes = 0;
     std::string hardware_ray_tracing_detail;
-    bool raster_primary_active = false;
-    float raster_primary_ms = 0;
-    std::uint64_t raster_primary_bytes = 0;
+    unsigned rt_core_version = 0;
+    bool ser_supported = false;
+    bool ser_active = false;
+    std::uint64_t gas_builds = 0, ias_builds = 0, ias_updates = 0;
+    float acceleration_ms = 0;
     std::uint64_t frames = 0;
     std::uint64_t history_resets = 0;
     std::uint64_t framebuffer_bytes = 0;

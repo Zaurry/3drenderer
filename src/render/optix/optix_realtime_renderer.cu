@@ -1,493 +1,9 @@
-#include "render/pathtracer/cuda_scene.cuh"
-#include "render/realtime/cuda_realtime_renderer.h"
-#if defined(RTRT_OPTIX_DEVICE)
-#include <optix.h>
-#include <optix_device.h>
-#elif RENDERER_HAS_OPTIX
-#include "render/realtime/optix_backend.h"
-#include "render/realtime/optix_denoiser.h"
-#endif
+#include "render/optix/realtime_device.cuh"
+#include "render/optix/optix_backend.h"
+#include "render/optix/optix_denoiser.h"
 
 namespace renderer {
 namespace {
-
-#include "render/realtime/sobol_directions.cuh"
-
-// Only RTRT uses this sampler; the offline renderer retains its PCG stream.
-// Distinct Sobol dimensions avoid the correlations of reusing one radical
-// inverse for all random choices. Pixel scrambling stays fixed across frames.
-struct RtSampler {
-    DPcgState fallback{};
-    unsigned int index=0, scramble=0, dimension=0;
-    bool low_discrepancy=false;
-};
-__device__ unsigned int rt_hash(unsigned int v) {
-    v^=v>>16;v*=0x7feb352du;v^=v>>15;v*=0x846ca68bu;return v^(v>>16);
-}
-__device__ float random_float(RtSampler& rng) {
-    if(!rng.low_discrepancy || rng.dimension>=16) return random_float(rng.fallback);
-    const unsigned int dimension=rng.dimension++;
-    unsigned int value=0,index=rng.index;
-    for(int bit=0;index;index>>=1,++bit) if(index&1) value^=rt_sobol_directions[dimension][bit];
-    const unsigned int seed=rt_hash(rng.scramble+dimension*0x9e3779b9u);
-    // Adapted from pbrt-v4's FastOwenScrambler (Apache-2.0), Copyright(c)
-    // 1998-2020 Matt Pharr, Wenzel Jakob, and Greg Humphreys. Uses CUDA bit
-    // reversal and a 24-bit float conversion. License: PBRT_LICENSE.txt.
-    value=__brev(value);value^=value*0x3d20adeau;value+=seed;
-    value*=(seed>>16)|1u;value^=value*0x05526c56u;value^=value*0x53a22864u;
-    return float(__brev(value)>>8)*(1.0f/16777216.0f);
-}
-
-// All images are top-left-origin, unexposed, linear HDR. Channels 0/1 are
-// direct/indirect diffuse illumination, 2 specular, 3 transmission, 4 emission.
-constexpr int kSignals = 4;
-struct RtSignals { DVec3 c[5]{}; DVec3 direct{}; };
-struct RtFiltered { DVec3 c[kSignals]{}; float variance[kSignals]{}; };
-struct RtPrepared {
-    DVec3 c[kSignals]{};
-    float mean[kSignals]{}, variance[kSignals]{};
-};
-struct RtNeighborhoodGuide {
-    DVec3 normal;
-    float depth;
-    unsigned long long object_id, asset_id;
-    int material;
-};
-struct RtLuminance { float c[kSignals]; };
-constexpr int kPrepareWidth=16, kPrepareHeight=8, kPrepareRadius=3;
-constexpr int kPrepareStride=kPrepareWidth+2*kPrepareRadius;
-constexpr int kPreparePixels=kPrepareStride*(kPrepareHeight+2*kPrepareRadius);
-struct RtHistory {
-    DVec3 color[kSignals]{};
-    DVec2 moments[kSignals]{};
-    float length[kSignals]{};
-};
-struct RtInstance {
-    DMatrix3x4 current_to_previous;
-    DMatrix3x3 normal_to_previous;
-    unsigned long long object_id;
-    unsigned long long asset_id;
-};
-struct RtGuide {
-    DVec3 normal{}, geometric{}, albedo{}, previous_normal{};
-    DVec2 motion{};
-    float depth = 0, previous_depth = 0, roughness = 0, hit_distance = 0;
-    unsigned long long object_id = 0, asset_id = 0;
-    int material = -1, transparent = 0;
-};
-struct RtOutputGuide {
-    DVec3 normal{};
-    float depth = 0;
-    unsigned long long object_id = 0;
-};
-struct RtFrame {
-    DScene scene;
-    DCamera camera, previous_camera;
-    const RtInstance* instances;
-    RealtimeRenderSettings settings;
-    int width, height, output_width, output_height;
-    unsigned long long frame_index, seed;
-    DVec2 jitter, previous_jitter;
-    int valid_history, shading_changed;
-    int* error;
-    cudaSurfaceObject_t raster_primary=0;
-    unsigned long long hardware_scene=0;
-    int deterministic_direct=0;
-    int denoiser_reset=0;
-};
-struct RtOptixParameters {
-    RtFrame frame;DCompactHit* primary;RtGuide* guides;RtSignals* signals;DVec3* emission=nullptr;
-    const int* optical_pixels=nullptr;const unsigned* optical_count=nullptr;
-};
-#if defined(RTRT_OPTIX_DEVICE)
-extern "C" __constant__ __align__(16) unsigned char rt_optix_params[sizeof(RtOptixParameters)];
-__device__ const RtOptixParameters& rt_optix() {return *reinterpret_cast<const RtOptixParameters*>(rt_optix_params);}
-#endif
-__device__ bool rt_intersect(const RtFrame& f,const DRay& ray,float t_max,DCompactHit& hit,bool shadow=false,bool reorder=false) {
-#if defined(RTRT_OPTIX_DEVICE)
-    hit.primitive_kind=shadow?1:-1;
-    if(!f.hardware_scene)return false;
-    const auto pointer=reinterpret_cast<unsigned long long>(&hit);
-    unsigned low=unsigned(pointer),high=unsigned(pointer>>32);
-    if(reorder && f.settings.shader_execution_reordering) {
-        optixTraverse(f.hardware_scene,make_float3(ray.origin.x,ray.origin.y,ray.origin.z),
-            make_float3(ray.direction.x,ray.direction.y,ray.direction.z),0,t_max,0,255,
-            OPTIX_RAY_FLAG_CULL_BACK_FACING_TRIANGLES,0,1,0,low,high);
-        unsigned material=0;
-        if(optixHitObjectIsHit()) {
-            const int instance=int(optixHitObjectGetInstanceId());
-            const DAsset asset=f.scene.assets[f.scene.instances[instance].asset_index];
-            material=unsigned(triangle_material_id(f.scene,instance,asset.triangle_first+int(optixHitObjectGetPrimitiveIndex())));
-        }
-        optixReorder(material,8);optixInvoke(low,high);
-    } else optixTrace(f.hardware_scene,make_float3(ray.origin.x,ray.origin.y,ray.origin.z),
-        make_float3(ray.direction.x,ray.direction.y,ray.direction.z),0,t_max,0,255,
-        OPTIX_RAY_FLAG_CULL_BACK_FACING_TRIANGLES|(shadow?(OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT|OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT):0),
-        0,1,0,low,high);
-    return hit.primitive_kind>=0;
-#else
-    return shadow?occluded_scene(f.scene,ray,0,t_max,f.error):intersect_scene_compact(f.scene,ray,0,t_max,hit,f.error);
-#endif
-}
-__device__ bool rt_occluded(const RtFrame& f,const DRay& ray,float t_max) {
-    DCompactHit hit{};return rt_intersect(f,ray,t_max,hit,true);
-}
-
-__device__ float rt_luma(DVec3 c) { return .2126f*c.x + .7152f*c.y + .0722f*c.z; }
-__device__ DVec3 rt_safe(DVec3 c) {
-    return finite(c) ? v3(fminf(fmaxf(c.x,0),1e15f),fminf(fmaxf(c.y,0),1e15f),fminf(fmaxf(c.z,0),1e15f)) : v3(0,0,0);
-}
-__device__ DVec3 rt_divide(DVec3 a, DVec3 b) {
-    return v3(a.x/fmaxf(b.x,1e-12f),a.y/fmaxf(b.y,1e-12f),a.z/fmaxf(b.z,1e-12f));
-}
-__device__ DVec3 rt_albedo(const RtGuide& g) {
-    return v3(fmaxf(.04f,g.albedo.x),fmaxf(.04f,g.albedo.y),fmaxf(.04f,g.albedo.z));
-}
-__device__ DVec3 rt_mix(DVec3 a, DVec3 b, float t) { return add(mul(a,1-t),mul(b,t)); }
-__device__ DVec2 rt_project(const DCamera& c, DVec3 p, float& depth) {
-    const DVec3 d = sub(p,c.eye);
-    depth = dot(d,c.forward);
-    const float z = fmaxf(depth,1e-10f);
-    return { .5f+dot(d,c.right)/(z*c.viewport_width),
-             .5f-dot(d,c.up)/(z*c.viewport_height) };
-}
-__device__ DRay rt_primary(const RtFrame& f, int i) {
-    const float u = (float(i%f.width)+.5f+f.jitter.x)/f.width;
-    const float v = (float(i/f.width)+.5f+f.jitter.y)/f.height;
-    return {f.camera.eye,normalize(add(add(f.camera.forward,
-        mul(f.camera.right,(u-.5f)*f.camera.viewport_width)),
-        mul(f.camera.up,(.5f-v)*f.camera.viewport_height)))};
-}
-
-__device__ bool rt_first_hit(const RtFrame& f,int i,const DRay& ray,DCompactHit& compact) {
-    if(f.raster_primary) {
-        const uint4 sample=surf2Dread<uint4>(f.raster_primary,(i%f.width)*sizeof(uint4),f.height-1-i/f.width);
-        if(sample.x==0) return false;
-        const int instance_index=int(sample.x-1);
-        if(instance_index>=0 && instance_index<f.scene.instance_count) {
-            const DInstance instance=f.scene.instances[instance_index];
-            const DAsset asset=f.scene.assets[instance.asset_index];
-            const int local_triangle=int(sample.y-1);
-            if(sample.y>0 && local_triangle>=0 && local_triangle<asset.triangle_count) {
-                const int triangle_index=asset.triangle_first+local_triangle;
-                const auto triangle=f.scene.traversal_triangles[triangle_index];
-                const DRay local={transform_point(instance.world_to_object,ray.origin),
-                    transform_direction(instance.world_to_object,ray.direction)};
-                const DVec3 normal=cross(triangle.edge1,triangle.edge2);
-                const float denominator=dot(normal,local.direction);
-                const float t=dot(normal,sub(triangle.v0,local.origin))/denominator;
-                const float u=__uint_as_float(sample.z),v=__uint_as_float(sample.w);
-                if(isfinite(t) && t>=0 && isfinite(u) && isfinite(v) &&
-                    triangle_candidate_visible(f.scene,local,instance_index,triangle_index,u,v)) {
-                    compact={t,u,v,1,triangle_index,instance_index};return true;
-                }
-            }
-        }
-        // The nearest raster candidate may be a cutout hole or rejected back
-        // face. Traverse this pixel to find the next accepted surface.
-    }
-    return rt_intersect(f,ray,1e30f,compact);
-}
-
-__device__ bool rt_sharp_optics(const RtGuide& g) {
-    return g.depth>0 && (g.transparent || (g.roughness<.06f && max_component(g.albedo)<.01f));
-}
-
-__device__ void rt_gbuffer_pixel(RtFrame f, RtGuide* guides, DCompactHit* primary_hits,int i,DVec3* emission=nullptr) {
-    if(i>=f.width*f.height) return;
-    RtGuide g{};
-    const DRay ray=rt_primary(f,i);
-    DCompactHit compact{}; compact.primitive_kind=-1;
-    if(rt_first_hit(f,i,ray,compact)) {
-        DHit hit{}; reconstruct_hit(f.scene,ray,compact,true,hit);
-        DMaterial m{};
-        if (hit.material_id>=0 && hit.material_id<f.scene.material_count) m=f.scene.materials[hit.material_id];
-        else { m.type=int(MaterialType::Diffuse); m.base_color=v3(1,0,1); m.roughness=1; }
-        const DSurface s=evaluate_surface(f.scene,m,hit);
-        if(emission) emission[i]=hit.material_id>=0 && hit.material_id<f.scene.material_count?s.emission:v3(1,0,1);
-        g.normal=s.shading_normal; g.geometric=hit.geometric_normal;
-        // Output history represents pixel coverage. A normal map changing
-        // under subpixel jitter is not a disocclusion. Lighting history still
-        // uses the shading normal in the independently sampled low-res guide.
-        if(emission)g.normal=g.geometric;
-        g.albedo=s.diffuse_color; g.roughness=s.roughness;
-        g.material=hit.material_id;
-        g.transparent=(m.type==int(MaterialType::Dielectric) || effective_alpha_mode(m)==int(AlphaMode::Blend));
-        DVec3 previous_position=hit.position;
-        g.previous_normal=g.normal;
-        if(hit.instance_index>=0) {
-            const RtInstance instance=f.instances[hit.instance_index];
-            g.object_id=instance.object_id; g.asset_id=instance.asset_id;
-            previous_position=transform_point(instance.current_to_previous,hit.position);
-            g.previous_normal=normalize(transform_direction(instance.normal_to_previous,g.normal));
-        }
-        const DVec2 uv=rt_project(f.camera,hit.position,g.depth);
-        const DVec2 old=rt_project(f.previous_camera,previous_position,g.previous_depth);
-        g.motion={old.x-uv.x,old.y-uv.y};
-    } else {
-        compact.primitive_kind=-1;
-        if(emission) emission[i]=f.scene.environment_background_visible?environment_radiance(f.scene,ray.direction):v3(0,0,0);
-        // Sky has rotational flow and no finite depth. Never reconstruct it as a surface.
-        float z=0,old_z=0;
-        const DVec2 uv=rt_project(f.camera,add(f.camera.eye,ray.direction),z);
-        const DVec2 old=rt_project(f.previous_camera,add(f.previous_camera.eye,ray.direction),old_z);
-        g.motion={old.x-uv.x,old.y-uv.y}; g.previous_depth=old_z>0?0:-1;
-    }
-    guides[i]=g; if(primary_hits)primary_hits[i]=compact;
-}
-#if !defined(RTRT_OPTIX_DEVICE)
-__global__ void rt_gbuffer(RtFrame f,RtGuide* guides,DCompactHit* primary_hits,DVec3* emission=nullptr) {
-    rt_gbuffer_pixel(f,guides,primary_hits,int(blockIdx.x*blockDim.x+threadIdx.x),emission);
-}
-#endif
-
-__device__ DVec3 rt_cone(DVec3 direction,float angle,RtSampler& rng) {
-    if(angle<=0) return direction;
-    const float z=1-random_float(rng)*(1-cosf(angle));
-    const float phi=2*kPi*random_float(rng);
-    const float r=sqrtf(fmaxf(0,1-z*z));
-    return tangent_to_world(v3(r*cosf(phi),r*sinf(phi),z),direction);
-}
-__device__ bool rt_visible(const RtFrame& f,const DHit& hit,DVec3 direction,float distance,bool casts) {
-    if(!f.settings.shadows || !casts) return true;
-    const DVec3 origin=offset_origin(hit.position,hit.geometric_normal,direction);
-    return !rt_occluded(f,{origin,direction},distance<1e29f?fmaxf(0,distance*(1-1e-5f)):distance);
-}
-struct RtDirect { DVec3 diffuse{}, specular{}; };
-__device__ void rt_add_direct(RtDirect& out,const DSurface& surface,DVec3 outgoing,DVec3 incoming,DVec3 radiance) {
-    const DPbrEvaluation e=evaluate_pbr(surface,surface.shading_normal,outgoing,incoming);
-    const DVec3 incoming_cos=mul(radiance,fmaxf(0,dot(surface.shading_normal,incoming)));
-    out.diffuse=add(out.diffuse,product(e.diffuse,incoming_cos));
-    out.specular=add(out.specular,product(e.specular,incoming_cos));
-}
-__device__ RtDirect rt_direct(const RtFrame& f,const DHit& hit,const DSurface& s,DVec3 outgoing,RtSampler& rng) {
-    RtDirect out{};
-    const int samples=f.settings.light_samples;
-    for(int sample=0;sample<samples;++sample) {
-        for(int l=0;l<f.scene.directional_light_count;++l) {
-            const DDirectionalLight light=f.scene.directional_lights[l];
-            if(!usable(light.direction)) continue;
-            const DVec3 dir=rt_cone(normalize(mul(light.direction,-1)),
-                f.settings.soft_shadows?light.angular_radius:0,rng);
-            if(dot(s.shading_normal,dir)>0 && rt_visible(f,hit,dir,1e30f,light.casts_shadows!=0))
-                rt_add_direct(out,s,outgoing,dir,mul(light.radiance,1.0f/samples));
-        }
-        // Punctual intensity and range retain their existing meaning. Source
-        // radius samples visibility over a disk; it does not change light power.
-        for(int kind=0;kind<2;++kind) {
-            const int count=kind==0?f.scene.point_light_count:f.scene.spot_light_count;
-            for(int l=0;l<count;++l) {
-                DVec3 position{},intensity{}; float range=0,radius=0; int casts=1;
-                if(kind==0) { auto light=f.scene.point_lights[l]; position=light.position; intensity=light.intensity; range=light.range; radius=light.source_radius; casts=light.casts_shadows; }
-                else { auto light=f.scene.spot_lights[l]; position=light.position; intensity=light.intensity; range=light.range; radius=light.source_radius; casts=light.casts_shadows; }
-                const DVec3 to=sub(position,hit.position); const float d2=length_squared(to);
-                if(d2<1e-12f) continue;
-                const float d=sqrtf(d2); const DVec3 dir=divv(to,d);
-                float factor=punctual_range_attenuation(d,range)/(d2*samples);
-                if(kind==1) {
-                    const auto light=f.scene.spot_lights[l];
-                    const float c=dot(mul(dir,-1),normalize(light.direction));
-                    const float cone=saturate((c-light.outer_cosine)/fmaxf(light.inner_cosine-light.outer_cosine,1e-6f));
-                    factor*=light.inner_cosine<=light.outer_cosine ? (c>=light.outer_cosine?1.0f:0.0f) : cone;
-                }
-                if(factor<=0 || dot(s.shading_normal,dir)<=0) continue;
-                DVec3 shadow_dir=dir; float shadow_distance=d;
-                if(f.settings.soft_shadows && radius>0) {
-                    DVec3 t,b; tangent_basis(dir,t,b);
-                    const float r=radius*sqrtf(random_float(rng)),phi=2*kPi*random_float(rng);
-                    const DVec3 delta=add(to,add(mul(t,r*cosf(phi)),mul(b,r*sinf(phi))));
-                    shadow_distance=sqrtf(length_squared(delta)); shadow_dir=divv(delta,shadow_distance);
-                }
-                if(rt_visible(f,hit,shadow_dir,shadow_distance,casts!=0))
-                    rt_add_direct(out,s,outgoing,dir,mul(intensity,factor));
-            }
-        }
-        DShadowTask task{};
-        const float ep=environment_strategy_probability(f.scene);
-        const bool environment=ep>0 && (ep>=1 || random_float(rng)<ep);
-        const bool sampled=environment
-            ? sample_environment_shadow_task(f.scene,hit,s,outgoing,v3(1,1,1),0,rng,task)
-            : sample_emissive_shadow_task(f.scene,hit,s,outgoing,v3(1,1,1),0,rng,task);
-        if(sampled && (!f.settings.shadows || !task.casts_shadows || !rt_occluded(f,task.ray,task.t_max))) {
-            const auto e=evaluate_pbr(s,s.shading_normal,outgoing,task.ray.direction);
-            const DVec3 fraction=rt_divide(e.diffuse,e.brdf);
-            const DVec3 contribution=mul(task.contribution,1.0f/samples);
-            const DVec3 diffuse=product(contribution,fraction);
-            out.diffuse=add(out.diffuse,diffuse);
-            out.specular=add(out.specular,sub(contribution,diffuse));
-        }
-    }
-    return out;
-}
-
-__device__ RtSignals rt_trace_hit(RtFrame f,const DCompactHit& primary,RtGuide& guide,int i) {
-    RtSignals output{}; float distances=0; int distance_samples=0;
-    const int primary_material=guide.material;
-    const bool split_glass=f.settings.split_dielectric && guide.depth>0 && primary_material>=0 && primary_material<f.scene.material_count &&
-        f.scene.materials[primary_material].type==int(MaterialType::Dielectric) &&
-        effective_alpha_mode(f.scene.materials[primary_material])!=int(AlphaMode::Blend);
-    const int branches=split_glass?3:1;
-    for(int sample=0;sample<f.settings.samples_per_pixel;++sample) for(int branch=0;branch<branches;++branch) {
-        RtSampler rng{};
-        pcg_seed(rng.fallback,pixel_seed(i%f.width,i/f.width,f.width,f.seed+f.frame_index*0x9e3779b97f4a7c15ULL+sample*0x85ebca6bULL));
-        const auto pixel=pixel_seed(i%f.width,i/f.width,f.width,f.seed);
-        rng.scramble=rt_hash(unsigned(pixel)^unsigned(pixel>>32));
-        rng.index=unsigned(((f.frame_index-1)*f.settings.samples_per_pixel+sample)*branches+branch);
-        rng.low_discrepancy=f.settings.low_discrepancy;
-        DRay ray=rt_primary(f,i);
-        DVec3 throughput=v3(1,1,1),wd{},ws{},wt{};
-        float previous_pdf=0; int previous_delta=1;
-        bool split_exit=false,dielectric_chain=split_glass;
-        for(int bounce=0;bounce<f.settings.max_bounces;++bounce) {
-            DCompactHit compact{};
-            bool found=false;
-            if(bounce==0) { compact=primary; found=compact.primitive_kind>=0; }
-            else found=rt_intersect(f,ray,1e30f,compact,false,true);
-            if(!found) {
-                if(bounce>0 || f.scene.environment_background_visible) {
-                    float weight=previous_delta?1:power_heuristic(previous_pdf,environment_strategy_probability(f.scene)*environment_pdf(f.scene,ray.direction));
-                    const DVec3 incoming=mul(environment_radiance(f.scene,ray.direction),weight);
-                    if(bounce==0) output.c[4]=add(output.c[4],incoming);
-                    else { output.c[1]=add(output.c[1],product(wd,incoming)); output.c[2]=add(output.c[2],product(ws,incoming)); output.c[3]=add(output.c[3],product(wt,incoming)); }
-                }
-                break;
-            }
-            DHit hit{}; reconstruct_hit(f.scene,ray,compact,true,hit);
-            if (hit.material_id<0 || hit.material_id>=f.scene.material_count) {
-                const DVec3 diagnostic=v3(1,0,1);
-                if (bounce==0) output.c[4]=add(output.c[4],diagnostic);
-                else { output.c[1]=add(output.c[1],product(wd,diagnostic)); output.c[2]=add(output.c[2],product(ws,diagnostic)); output.c[3]=add(output.c[3],product(wt,diagnostic)); }
-                break;
-            }
-            const DMaterial material=f.scene.materials[hit.material_id];
-            const DSurface surface=evaluate_surface(f.scene,material,hit);
-            if(bounce==1) { distances+=hit.t; ++distance_samples; }
-            const bool passthrough=effective_alpha_mode(material)==int(AlphaMode::Blend) && random_float(rng)>=surface.opacity;
-            if(!passthrough && max_component(surface.emission)>0) {
-                const float weight=previous_delta?1:power_heuristic(previous_pdf,emissive_light_pdf_for_hit(f.scene,ray.origin,hit));
-                const DVec3 incoming=mul(surface.emission,weight);
-                if(bounce==0) {if(branch==0)output.c[4]=add(output.c[4],incoming);}
-                else { output.c[1]=add(output.c[1],product(wd,incoming)); output.c[2]=add(output.c[2],product(ws,incoming)); output.c[3]=add(output.c[3],product(wt,incoming)); }
-            }
-            if(!passthrough && material.type==int(MaterialType::Emissive)) break;
-            const DVec3 outgoing=mul(ray.direction,-1);
-            if(!passthrough && material.type!=int(MaterialType::Dielectric) && (bounce>0 || f.settings.direct_lighting)) {
-                const RtDirect d=rt_direct(f,hit,surface,outgoing,rng);
-                if(bounce==0) {
-                    output.c[0]=add(output.c[0],d.diffuse); output.c[2]=add(output.c[2],d.specular);
-                    output.direct=add(output.direct,add(d.diffuse,d.specular));
-                } else {
-                    const DVec3 incoming=add(d.diffuse,d.specular);
-                    output.c[1]=add(output.c[1],product(wd,incoming)); output.c[2]=add(output.c[2],product(ws,incoming)); output.c[3]=add(output.c[3],product(wt,incoming));
-                }
-            }
-            // No continuation ray is consumed after the final allowed vertex.
-            if(bounce+1>=f.settings.max_bounces) break;
-            DRay scattered{}; DVec3 attenuation{}; float pdf=0; int delta=1;
-            if(passthrough) { scattered={offset_origin(hit.position,hit.geometric_normal,ray.direction),ray.direction}; attenuation=v3(1,1,1); }
-            else if(split_glass && material.type==int(MaterialType::Dielectric) &&
-                (bounce==0 || (branch>0 && !split_exit))) {
-                const float ratio=hit.front_face?1/material.ior:material.ior;
-                const DVec3 incoming=normalize(ray.direction);
-                const float cosine=saturate(dot(mul(incoming,-1),surface.shading_normal));
-                DVec3 refracted{};
-                const bool can_refract=refract_vector(incoming,surface.shading_normal,ratio,refracted);
-                const float fresnel=can_refract?reflectance(cosine,ratio):1;
-                const bool reflection=bounce==0?branch==0:branch==1;
-                // One reflected path plus two half-weight transmitted paths.
-                // The latter stratify the next dielectric event. If no second
-                // interface is hit, their half weights still sum correctly.
-                const float weight=bounce==0?(reflection?fresnel:.5f*(1-fresnel)):
-                    2*(reflection?fresnel:1-fresnel);
-                if(weight<=0)break;
-                const DVec3 direction=normalize(reflection?reflect_vector(incoming,surface.shading_normal):refracted);
-                scattered={offset_origin(hit.position,hit.geometric_normal,direction),direction};
-                attenuation=v3(weight,weight,weight);
-                if(bounce>0)split_exit=true;
-            }
-            else if(!scatter(ray,hit,material,surface,rng,attenuation,scattered,pdf,delta)) break;
-            dielectric_chain=dielectric_chain && material.type==int(MaterialType::Dielectric);
-            if(bounce==0) {
-                if(passthrough || material.type==int(MaterialType::Dielectric)) {
-                    // Delta transmission and reflection keep their own short history.
-                    const bool transmitted=passthrough || dot(scattered.direction,hit.geometric_normal)<0;
-                    if(transmitted) wt=f.settings.transmission?attenuation:v3(0,0,0);
-                    else ws=f.settings.reflections?attenuation:v3(0,0,0);
-                } else {
-                    const auto e=evaluate_pbr(surface,surface.shading_normal,outgoing,scattered.direction);
-                    const float cosine=fmaxf(0,dot(surface.shading_normal,scattered.direction));
-                    wd=f.settings.indirect_diffuse?mul(e.diffuse,cosine/fmaxf(pdf,1e-12f)):v3(0,0,0);
-                    ws=f.settings.reflections?mul(e.specular,cosine/fmaxf(pdf,1e-12f)):v3(0,0,0);
-                }
-            } else { wd=product(wd,attenuation); ws=product(ws,attenuation); wt=product(wt,attenuation); }
-            throughput=add(add(wd,ws),wt);
-            if(!finite(throughput) || max_component(throughput)<=0) break;
-            // Roulette on a weak but deterministic internal glass reflection
-            // would turn it back into a rare, high-energy white sample.
-            if(bounce+1>=f.settings.roulette_start && !dielectric_chain) {
-                const float p=fminf(.95f,fmaxf(.05f,max_component(throughput)));
-                if(random_float(rng)>=p) break;
-                wd=divv(wd,p); ws=divv(ws,p); wt=divv(wt,p);
-            }
-            ray=scattered; previous_pdf=pdf; previous_delta=delta || (bounce==0 && !f.settings.direct_lighting);
-        }
-    }
-    for(int c=0;c<5;++c) output.c[c]=rt_safe(mul(output.c[c],1.0f/f.settings.samples_per_pixel));
-    output.direct=rt_safe(mul(output.direct,1.0f/f.settings.samples_per_pixel));
-    guide.hit_distance=distance_samples>0?distances/distance_samples:0;
-    return output;
-}
-__device__ void rt_trace_pixel(RtFrame f,const DCompactHit* primary_hits,RtGuide* guides,RtSignals* signals,int i) {
-    if(i<f.width*f.height)signals[i]=rt_trace_hit(f,primary_hits[i],guides[i],i);
-}
-__device__ void rt_native_optics_pixel(RtFrame f,const DCompactHit* primary_hits,RtGuide* guides,DVec3* emission,int i) {
-    if(i>=f.width*f.height || !rt_sharp_optics(guides[i]))return;
-    // Reuse the native primary hit. A separate launch keeps path-tracing
-    // register pressure out of the inexpensive primary visibility pass.
-    const RtSignals lighting=rt_trace_hit(f,primary_hits[i],guides[i],i);
-    DVec3 color{};for(int c=0;c<5;++c)color=add(color,lighting.c[c]);
-    emission[i]=rt_safe(color);
-}
-
-#if defined(RTRT_OPTIX_DEVICE)
-__device__ DCompactHit* rt_payload_hit() {
-    return reinterpret_cast<DCompactHit*>((static_cast<unsigned long long>(optixGetPayload_1())<<32)|optixGetPayload_0());
-}
-extern "C" __global__ void __raygen__primary() {
-    const auto& p=rt_optix();const auto i=optixGetLaunchIndex();
-    rt_gbuffer_pixel(p.frame,p.guides,p.primary,int(i.y*p.frame.width+i.x),p.emission);
-}
-extern "C" __global__ void __raygen__lighting() {
-    const auto& p=rt_optix();const auto i=optixGetLaunchIndex();
-    rt_trace_pixel(p.frame,p.primary,p.guides,p.signals,int(i.y*p.frame.width+i.x));
-}
-extern "C" __global__ void __raygen__native_optics() {
-    const auto& p=rt_optix();
-    for(unsigned job=optixGetLaunchIndex().x;job<*p.optical_count;job+=optixGetLaunchDimensions().x)
-        rt_native_optics_pixel(p.frame,p.primary,p.guides,p.emission,p.optical_pixels[job]);
-}
-extern "C" __global__ void __miss__scene() {rt_payload_hit()->primitive_kind=-1;}
-extern "C" __global__ void __anyhit__scene() {
-    const auto& f=rt_optix().frame;
-    const int instance=int(optixGetInstanceId());
-    const int triangle=f.scene.assets[f.scene.instances[instance].asset_index].triangle_first+int(optixGetPrimitiveIndex());
-    const auto origin=optixGetObjectRayOrigin(),direction=optixGetObjectRayDirection();
-    const auto bary=optixGetTriangleBarycentrics();
-    if(!triangle_candidate_visible(f.scene,{v3(origin.x,origin.y,origin.z),v3(direction.x,direction.y,direction.z)},instance,triangle,bary.x,bary.y))
-        optixIgnoreIntersection();
-    else rt_payload_hit()->primitive_kind=1;
-}
-extern "C" __global__ void __closesthit__scene() {
-    const auto& f=rt_optix().frame;const int instance=int(optixGetInstanceId());
-    const int triangle=f.scene.assets[f.scene.instances[instance].asset_index].triangle_first+int(optixGetPrimitiveIndex());
-    const auto bary=optixGetTriangleBarycentrics();
-    *rt_payload_hit()={optixGetRayTmax(),bary.x,bary.y,1,triangle,instance};
-}
-} // namespace
-#else
-__global__ void rt_trace(RtFrame f,const DCompactHit* primary_hits,RtGuide* guides,RtSignals* signals) {
-    rt_trace_pixel(f,primary_hits,guides,signals,int(blockIdx.x*blockDim.x+threadIdx.x));
-}
 __global__ void rt_compact_optics(const RtGuide* guides,int pixels,int* indices,unsigned* count) {
     const int i=int(blockIdx.x*blockDim.x+threadIdx.x),lane=int(threadIdx.x)&31;
     const bool selected=i<pixels && rt_sharp_optics(guides[i]);
@@ -498,12 +14,6 @@ __global__ void rt_compact_optics(const RtGuide* guides,int pixels,int* indices,
     base=__shfl_sync(0xffffffffu,base,leader);
     if(selected)indices[base+__popc(mask&((1u<<lane)-1))]=i;
 }
-__global__ void rt_native_optics(RtFrame f,const DCompactHit* primary_hits,RtGuide* guides,DVec3* emission,
-    const int* indices,const unsigned* count) {
-    for(unsigned job=blockIdx.x*blockDim.x+threadIdx.x;job<*count;job+=gridDim.x*blockDim.x)
-        rt_native_optics_pixel(f,primary_hits,guides,emission,indices[job]);
-}
-
 template<class A,class B>
 __device__ bool rt_same_surface(const A& a,const B& b,float normal_limit=.8f) {
     if((a.depth>0)!=(b.depth>0)) return false;
@@ -1061,6 +571,30 @@ __global__ void rt_present(RtFrame f,const DVec3* resolved,const RtGuide* guides
     if(surface) surf2Dwrite(make_float4(c.x,c.y,c.z,1),surface,x*int(sizeof(float4)),y);
 }
 
+// With no geometry there is no visibility query to submit. Produce the same
+// sky radiance and rotational guides as a raygen miss, then keep the normal
+// temporal/presentation pipeline. This also avoids a first OptiX launch with
+// no acceleration structure, which fails under driver memcheck instrumentation.
+__global__ void rt_empty_scene(RtFrame f,DCompactHit* primary,RtGuide* guides,RtSignals* signals,DVec3* emission=nullptr) {
+    const int i=int(blockIdx.x*blockDim.x+threadIdx.x);
+    if(i>=f.width*f.height)return;
+    const DRay ray=rt_primary(f,i);
+    RtGuide g{};float z=0,old_z=0;
+    const DVec2 uv=rt_project(f.camera,add(f.camera.eye,ray.direction),z);
+    const DVec2 old=rt_project(f.previous_camera,add(f.previous_camera.eye,ray.direction),old_z);
+    g.motion={old.x-uv.x,old.y-uv.y};g.previous_depth=old_z>0?0:-1;
+    guides[i]=g;
+    primary[i]={};primary[i].primitive_kind=-1;
+    const DVec3 sky=f.scene.environment_background_visible?environment_radiance(f.scene,ray.direction):v3(0,0,0);
+    if(emission)emission[i]=sky;
+    if(signals) {
+        RtSignals value{};
+        for(int sample=0;sample<f.settings.samples_per_pixel;++sample)value.c[4]=add(value.c[4],sky);
+        value.c[4]=rt_safe(mul(value.c[4],1.0f/f.settings.samples_per_pixel));
+        signals[i]=value;
+    }
+}
+
 DCamera rt_camera(const Camera& c) {
     return {to_device(c.eye()),to_device(c.forward()),to_device(c.right()),to_device(c.up()),c.viewport_width(),c.viewport_height()};
 }
@@ -1072,24 +606,31 @@ float rt_halton(unsigned long long index,unsigned base) {
 
 } // namespace
 
-class CudaRealtimeRenderer::Impl {
+class OptixRealtimeRenderer::Impl {
 public:
     explicit Impl(CudaDeviceContext context):context_(std::move(context)) {
+        std::string reason;
+        if(!optix_realtime_available(context_.device_id(),&reason))
+            throw std::runtime_error("OptiX RTRT unavailable: "+reason);
         context_.activate(); statistics_.device_id=context_.device_id();
         check_cuda(cudaStreamCreateWithFlags(&stream_,cudaStreamNonBlocking),"create RTRT stream");
-        errors_.resize(1,statistics_);
-        error_staging_.resize(1,statistics_);*error_staging_.get()=0;
-        check_cuda(cudaMemsetAsync(errors_.get(),0,sizeof(int),stream_),"initialize RTRT errors");
     }
     ~Impl() {
         context_.activate();
-        if(stream_) { cudaStreamSynchronize(stream_); scene_.reset(); cudaStreamDestroy(stream_); }
+        if(stream_) {
+            cudaStreamSynchronize(stream_);
+            denoiser_.reset();lighting_denoiser_.reset();optix_.reset();scene_.reset();
+            cudaStreamDestroy(stream_);
+        }
     }
     void reset(const RenderSceneSnapshot& snapshot,const RenderSettings& settings) {
         context_.activate();
         check_cuda(cudaStreamSynchronize(stream_),"reset RTRT stream");
         require_device(settings);
-        scene_=std::make_unique<CudaSceneStorage>(snapshot,stream_,statistics_);
+        if(!optix_)optix_=std::make_unique<OptixRealtimeBackend>(context_);
+        if(!optix_->sync(snapshot,reinterpret_cast<CudaStreamHandle>(stream_)))
+            throw std::runtime_error("OptiX RTRT unavailable: "+optix_->reason());
+        scene_=std::make_unique<CudaSceneStorage>(snapshot,stream_,statistics_,CudaSceneStorageMode::ShadingOnly);
         source_=snapshot.source_id; revisions_=snapshot.revisions;
         previous_instances_.clear(); valid_=false;
         statistics_.realtime.active=true;
@@ -1109,18 +650,19 @@ public:
         const bool different_source=source_!=snapshot.source_id;
         if(!scene_) reset(snapshot,settings);
         else if(changes!=SceneChange::None) scene_->sync(snapshot,changes);
-        bool hardware=false;
-#if RENDERER_HAS_OPTIX
-        if(s.hardware_ray_tracing) {
-            if(!optix_)optix_=std::make_unique<OptixRealtimeBackend>(context_);
-            hardware=optix_->sync(snapshot,reinterpret_cast<CudaStreamHandle>(stream_));
-            statistics_.realtime.hardware_ray_tracing_detail=optix_->reason();
-            statistics_.realtime.hardware_ray_tracing_bytes=optix_->resident_bytes();
-        } else statistics_.realtime.hardware_ray_tracing_detail.clear();
-#else
-        statistics_.realtime.hardware_ray_tracing_detail=s.hardware_ray_tracing?"OptiX is not enabled in this build":"";
-#endif
-        statistics_.realtime.hardware_ray_tracing_active=hardware;
+        if(!optix_) optix_=std::make_unique<OptixRealtimeBackend>(context_);
+        if(!optix_->sync(snapshot,reinterpret_cast<CudaStreamHandle>(stream_)))
+            throw std::runtime_error("OptiX RTRT unavailable: "+optix_->reason());
+        statistics_.realtime.hardware_ray_tracing_active=true;
+        statistics_.realtime.hardware_ray_tracing_bytes=optix_->resident_bytes();
+        statistics_.realtime.hardware_ray_tracing_detail.clear();
+        statistics_.realtime.rt_core_version=optix_->rt_core_version();
+        statistics_.realtime.ser_supported=optix_->ser_supported();
+        statistics_.realtime.ser_active=s.shader_execution_reordering && optix_->ser_supported();
+        statistics_.realtime.gas_builds=optix_->gas_builds();
+        statistics_.realtime.ias_builds=optix_->ias_builds();
+        statistics_.realtime.ias_updates=optix_->ias_updates();
+        statistics_.realtime.acceleration_ms=optix_->acceleration_ms();
         const bool full_materials=s.full_resolution_materials && (w!=settings.width || h!=settings.height);
         const bool neural_requested=s.denoise && s.denoiser==RealtimeDenoiser::Optix;
         const bool previous_neural=statistics_.realtime.optix_denoiser_active;
@@ -1139,14 +681,12 @@ public:
         bool reset_history=!valid_ || different_source || resize || state.camera_cut || state.reset_requested || projection_change ||
             history_settings!=history_settings_ ||
             has_scene_change(changes,SceneChange::Geometry) || has_scene_change(changes,SceneChange::Environment);
-#if RENDERER_HAS_OPTIX
         // Reserve the ordinary renderer/fallback buffers first on resize. An
         // optional neural allocation must not starve the SVGF fallback.
         if(denoiser_ && (resize || full_materials!=(material_guides_.size()!=0) || !neural_requested))
             denoiser_->release(reinterpret_cast<CudaStreamHandle>(stream_));
         if(lighting_denoiser_ && (resize || !full_materials || !neural_requested))
             lighting_denoiser_->release(reinterpret_cast<CudaStreamHandle>(stream_));
-#endif
         if(resize) {
             check_cuda(cudaStreamSynchronize(stream_),"resize RTRT buffers");
             width_=w; height_=h; output_width_=settings.width; output_height_=settings.height;
@@ -1170,7 +710,6 @@ public:
         statistics_.realtime.framebuffer_bytes=std::size_t(w)*h*(2*sizeof(RtGuide)+2*sizeof(RtHistory)+3*sizeof(RtFiltered)+sizeof(RtPrepared)+sizeof(DVec3)+sizeof(DCompactHit)+sizeof(RtSignals)+sizeof(RealtimeDiagnosticPixel))+
             std::size_t(settings.width)*settings.height*(3*sizeof(DVec3)+2*sizeof(RtOutputGuide))+
             material_count*(sizeof(RtGuide)+2*sizeof(DVec3)+sizeof(DCompactHit)+sizeof(int))+(material_count?sizeof(unsigned):0);
-#if RENDERER_HAS_OPTIX
         if(neural_requested) {
             if(!denoiser_)denoiser_=std::make_unique<OptixRealtimeDenoiser>(context_);
             const auto generation=denoiser_->allocation_generation();
@@ -1188,9 +727,6 @@ public:
         } else statistics_.realtime.optix_denoiser_detail.clear();
         statistics_.realtime.optix_denoiser_bytes=(denoiser_?denoiser_->resident_bytes():0)+
             (lighting_denoiser_?lighting_denoiser_->resident_bytes():0);
-#else
-        statistics_.realtime.optix_denoiser_detail=neural_requested?"OptiX is not enabled in this build; using SVGF":"";
-#endif
         statistics_.realtime.framebuffer_bytes+=statistics_.realtime.optix_denoiser_bytes;
         reset_history=reset_history || neural!=previous_neural || (neural && neural_shading_changed);
         if(reset_history) {
@@ -1221,7 +757,7 @@ public:
         const DVec2 jitter=jitter_enabled?DVec2{rt_halton(sequence%1024+1,2)-.5f,rt_halton(sequence%1024+1,3)-.5f}:DVec2{0,0};
         RtFrame f{scene_->view(),rt_camera(camera),valid_?previous_camera_:rt_camera(camera),instances_.get(),s,
             width_,height_,output_width_,output_height_,sequence,settings.path.sample_seed_offset,jitter,previous_jitter_,valid_?1:0,
-            shading_changed?1:0,errors_.get()};
+            shading_changed?1:0};
         f.settings.denoiser=neural?RealtimeDenoiser::Optix:RealtimeDenoiser::Svgf;
         f.denoiser_reset=neural_shading_changed?1:0;
         f.deterministic_direct=!s.soft_shadows && f.scene.emissive_light_count==0 &&
@@ -1229,51 +765,32 @@ public:
                 f.scene.environment.x<=0 && f.scene.environment.y<=0 && f.scene.environment.z<=0));
         const int blocks=(width_*height_+kThreadsPerBlock-1)/kThreadsPerBlock;
         const int output_blocks=(output_width_*output_height_+kThreadsPerBlock-1)/kThreadsPerBlock;
-        if(s.raster_primary && primary_visibility_)
-            f.raster_primary=cudaSurfaceObject_t(primary_visibility_->begin_frame(snapshot,camera,
-                width_,height_,jitter.x,jitter.y,reinterpret_cast<CudaStreamHandle>(stream_)));
-        statistics_.realtime.raster_primary_active=f.raster_primary!=0;
-        statistics_.realtime.raster_primary_ms=f.raster_primary?primary_visibility_->gpu_milliseconds():0;
-        statistics_.realtime.raster_primary_bytes=primary_visibility_?primary_visibility_->resident_bytes():0;
-#if RENDERER_HAS_OPTIX
-        if(hardware)f.hardware_scene=optix_->traversable();
+        f.hardware_scene=optix_->traversable();
+        f.settings.shader_execution_reordering=statistics_.realtime.ser_active;
         const RtOptixParameters optix_parameters{f,primary_.get(),guides_[write].get(),raw_.get()};
-#endif
         RtFrame material_frame=f;material_frame.width=output_width_;material_frame.height=output_height_;
-        material_frame.raster_primary=0;
         // Reuse pending timing events only after they complete; presentation never
         // synchronizes merely to collect statistics.
         const bool timing=!timers_[5].pending();
         if(timing) { timers_[5].begin(stream_); timers_[0].begin(stream_); }
-#if RENDERER_HAS_OPTIX
-        if(hardware)optix_->launch(OptixRealtimePass::Primary,&optix_parameters,sizeof(optix_parameters),width_,height_,reinterpret_cast<CudaStreamHandle>(stream_));
-        else
-#endif
-            rt_gbuffer<<<blocks,kThreadsPerBlock,0,stream_>>>(f,guides_[write].get(),primary_.get());
-        if(full_materials) {
-#if RENDERER_HAS_OPTIX
-            const RtOptixParameters p{material_frame,material_primary_.get(),material_guides_.get(),nullptr,material_emission_.get()};
-            if(hardware)optix_->launch(OptixRealtimePass::Primary,&p,sizeof(p),output_width_,output_height_,reinterpret_cast<CudaStreamHandle>(stream_));
-            else
-#endif
-                rt_gbuffer<<<output_blocks,kThreadsPerBlock,0,stream_>>>(material_frame,material_guides_.get(),material_primary_.get(),material_emission_.get());
+        if(f.hardware_scene) {
+            optix_->launch(OptixRealtimePass::Primary,&optix_parameters,sizeof(optix_parameters),width_,height_,reinterpret_cast<CudaStreamHandle>(stream_));
+            if(full_materials) {
+                const RtOptixParameters p{material_frame,material_primary_.get(),material_guides_.get(),nullptr,material_emission_.get()};
+                optix_->launch(OptixRealtimePass::Primary,&p,sizeof(p),output_width_,output_height_,reinterpret_cast<CudaStreamHandle>(stream_));
+            }
+        } else {
+            rt_empty_scene<<<blocks,kThreadsPerBlock,0,stream_>>>(f,primary_.get(),guides_[write].get(),raw_.get());
+            if(full_materials)rt_empty_scene<<<output_blocks,kThreadsPerBlock,0,stream_>>>(material_frame,material_primary_.get(),material_guides_.get(),nullptr,material_emission_.get());
         }
         if(timing) { timers_[0].end(stream_); timers_[1].begin(stream_); }
-#if RENDERER_HAS_OPTIX
-        if(hardware)optix_->launch(OptixRealtimePass::Lighting,&optix_parameters,sizeof(optix_parameters),width_,height_,reinterpret_cast<CudaStreamHandle>(stream_));
-        else
-#endif
-            rt_trace<<<blocks,kThreadsPerBlock,0,stream_>>>(f,primary_.get(),guides_[write].get(),raw_.get());
-        if(full_materials) {
+        if(f.hardware_scene)optix_->launch(OptixRealtimePass::Lighting,&optix_parameters,sizeof(optix_parameters),width_,height_,reinterpret_cast<CudaStreamHandle>(stream_));
+        if(full_materials && f.hardware_scene) {
             check_cuda(cudaMemsetAsync(optical_count_.get(),0,sizeof(unsigned),stream_),"clear native optical count");
             rt_compact_optics<<<output_blocks,kThreadsPerBlock,0,stream_>>>(material_guides_.get(),output_width_*output_height_,optical_pixels_.get(),optical_count_.get());
             const int optical_threads=std::min(65536,output_width_*output_height_);
-#if RENDERER_HAS_OPTIX
             const RtOptixParameters p{material_frame,material_primary_.get(),material_guides_.get(),nullptr,material_emission_.get(),optical_pixels_.get(),optical_count_.get()};
-            if(hardware)optix_->launch(OptixRealtimePass::NativeOptics,&p,sizeof(p),optical_threads,1,reinterpret_cast<CudaStreamHandle>(stream_));
-            else
-#endif
-                rt_native_optics<<<(optical_threads+kThreadsPerBlock-1)/kThreadsPerBlock,kThreadsPerBlock,0,stream_>>>(material_frame,material_primary_.get(),material_guides_.get(),material_emission_.get(),optical_pixels_.get(),optical_count_.get());
+            optix_->launch(OptixRealtimePass::NativeOptics,&p,sizeof(p),optical_threads,1,reinterpret_cast<CudaStreamHandle>(stream_));
         }
         if(timing) { timers_[1].end(stream_); timers_[2].begin(stream_); }
         const dim3 prepare_threads(kPrepareWidth,kPrepareHeight);
@@ -1282,15 +799,12 @@ public:
             rt_prepare_signal<<<prepare_blocks,prepare_threads,0,stream_>>>(f,guides_[write].get(),raw_.get(),prepared_.get(),guides_[index_].get(),history_[index_].get());
             rt_temporal<<<blocks,kThreadsPerBlock,0,stream_>>>(f,guides_[write].get(),guides_[index_].get(),prepared_.get(),history_[index_].get(),history_[write].get(),temporal_.get(),diagnostics_.get());
         };
-#if RENDERER_HAS_OPTIX
         if(neural)rt_optix_signals<<<blocks,kThreadsPerBlock,0,stream_>>>(f,guides_[write].get(),raw_.get(),temporal_.get(),diagnostics_.get());
         else
-#endif
             svgf_temporal();
         if(timing) { timers_[2].end(stream_); timers_[3].begin(stream_); }
         const RtFiltered* input=temporal_.get();
         const DVec3* neural_output=nullptr;
-#if RENDERER_HAS_OPTIX
         if(neural) {
             rt_compose<<<blocks,kThreadsPerBlock,0,stream_>>>(f,guides_[write].get(),raw_.get(),input,composed_.get());
             std::string failure;
@@ -1336,7 +850,6 @@ public:
                 svgf_temporal();
             }
         }
-#endif
         const int iterations=s.denoise && !neural?std::max(s.diffuse_iterations,s.specular_iterations):0;
         for(int pass=0;pass<iterations;++pass) {
             RtFiltered* out=filter_[pass%2].get();
@@ -1353,16 +866,7 @@ public:
         rt_present<<<output_blocks,kThreadsPerBlock,0,stream_>>>(f,taa_[write].get(),guides_[write].get(),raw_.get(),temporal_.get(),input,diagnostics_.get(),output_.get(),cudaSurfaceObject_t(surface),
             neural_output,full_materials?output_width_:width_,full_materials?output_height_:height_);
         if(timing) { timers_[4].end(stream_); timers_[5].end(stream_); }
-        // Queue all CUDA work before handing visibility back to GL. Unmapping
-        // between primary traversal and shading introduced a driver/CPU bubble.
-        if(f.raster_primary) primary_visibility_->end_frame(reinterpret_cast<CudaStreamHandle>(stream_));
         check_cuda(cudaGetLastError(),"RTRT frame kernels");
-        // A small asynchronous error mailbox is checked after the recorded event.
-        if(!error_pending_) {
-            check_cuda(cudaMemcpyAsync(error_staging_.get(),errors_.get(),sizeof(int),cudaMemcpyDeviceToHost,stream_),"RTRT error mailbox");
-            if(!error_event_) check_cuda(cudaEventCreateWithFlags(&error_event_,cudaEventDisableTiming),"RTRT error event");
-            check_cuda(cudaEventRecord(error_event_,stream_),"record RTRT error event"); error_pending_=true;
-        }
         index_=write; valid_=true; previous_camera_=f.camera; previous_jitter_=jitter;
         source_=snapshot.source_id; revisions_=snapshot.revisions; history_settings_=history_settings;
         previous_instances_.clear();
@@ -1381,11 +885,6 @@ public:
         statistics_.trace_milliseconds=statistics_.realtime.lighting_ms;
         statistics_.presentation_milliseconds=statistics_.realtime.reconstruction_ms;
         if(scene_) scene_->update_timing();
-        if(error_pending_) {
-            const auto e=cudaEventQuery(error_event_);
-            if(e==cudaSuccess) { error_pending_=false; if(*error_staging_.get()) throw std::runtime_error("RTRT traversal error: "+std::to_string(*error_staging_.get())); }
-            else if(e!=cudaErrorNotReady) check_cuda(e,"RTRT error event query");
-        }
     }
     void download(Framebuffer& target) {
         if(!valid_) throw std::logic_error("RTRT has no completed frame");
@@ -1404,12 +903,9 @@ public:
     CudaPathStatistics statistics_;
     cudaStream_t stream_=nullptr;
     std::unique_ptr<CudaSceneStorage> scene_;
-    std::shared_ptr<RealtimePrimaryVisibility> primary_visibility_;
-#if RENDERER_HAS_OPTIX
     std::unique_ptr<OptixRealtimeBackend> optix_;
     std::unique_ptr<OptixRealtimeDenoiser> denoiser_;
     std::unique_ptr<OptixRealtimeDenoiser> lighting_denoiser_;
-#endif
     std::array<DeviceBuffer<RtGuide>,2> guides_;
     DeviceBuffer<RtGuide> material_guides_;
     DeviceBuffer<DCompactHit> material_primary_;
@@ -1427,9 +923,7 @@ public:
     DeviceBuffer<RealtimeDiagnosticPixel> diagnostics_;
     DeviceBuffer<DVec3> output_,composed_;
     DeviceBuffer<RtInstance> instances_;
-    DeviceBuffer<int> errors_;
     PinnedHostBuffer<DVec3> staging_;
-    PinnedHostBuffer<int> error_staging_;
     std::array<CudaEventTimer,6> timers_;
     std::vector<RtInstance> instance_host_;
     std::unordered_map<std::uint64_t,std::pair<Mat4,Mat3>> previous_instances_;
@@ -1439,26 +933,19 @@ public:
     DCamera previous_camera_{};
     DVec2 previous_jitter_{};
     int width_=0,height_=0,output_width_=0,output_height_=0,index_=0;
-    bool valid_=false,error_pending_=false;
-    struct EventOwner {
-        cudaEvent_t event=nullptr;
-        ~EventOwner(){if(event)cudaEventDestroy(event);}
-    } error_owner_;
-    cudaEvent_t& error_event_=error_owner_.event;
+    bool valid_=false;
 };
 
-CudaRealtimeRenderer::CudaRealtimeRenderer(CudaDeviceContext c):impl_(std::make_unique<Impl>(std::move(c))) {}
-CudaRealtimeRenderer::~CudaRealtimeRenderer()=default;
-void CudaRealtimeRenderer::reset(const RenderSceneSnapshot& s,const RenderSettings& r){impl_->reset(s,r);}
-void CudaRealtimeRenderer::set_primary_visibility(std::shared_ptr<RealtimePrimaryVisibility> provider){impl_->primary_visibility_=std::move(provider);impl_->valid_=false;}
-void CudaRealtimeRenderer::render_next_frame_to_surface(const RenderSceneSnapshot& s,const Camera& c,const RenderSettings& r,const InteractiveFrameState& f,CudaSurfaceHandle target){impl_->render(s,c,r,f,target);}
-void CudaRealtimeRenderer::render_next_frame(const RenderSceneSnapshot& s,const Camera& c,const RenderSettings& r,const InteractiveFrameState& f,Framebuffer& target){impl_->render(s,c,r,f,0);impl_->download(target);}
-void CudaRealtimeRenderer::download_current_frame(Framebuffer& target){impl_->download(target);}
-std::vector<RealtimeDiagnosticPixel> CudaRealtimeRenderer::download_diagnostics(){return impl_->diagnostics();}
-CudaStreamHandle CudaRealtimeRenderer::stream_handle() const{return reinterpret_cast<CudaStreamHandle>(impl_->stream_);}
-const CudaPathStatistics& CudaRealtimeRenderer::statistics() const{return impl_->statistics_;}
-void CudaRealtimeRenderer::refresh_statistics(){impl_->refresh();}
-void CudaRealtimeRenderer::set_presentation_state(bool a,bool b){impl_->statistics_.interop_active=a;impl_->statistics_.fallback_active=b;}
+OptixRealtimeRenderer::OptixRealtimeRenderer(CudaDeviceContext c):impl_(std::make_unique<Impl>(std::move(c))) {}
+OptixRealtimeRenderer::~OptixRealtimeRenderer()=default;
+void OptixRealtimeRenderer::reset(const RenderSceneSnapshot& s,const RenderSettings& r){impl_->reset(s,r);}
+void OptixRealtimeRenderer::render_next_frame_to_surface(const RenderSceneSnapshot& s,const Camera& c,const RenderSettings& r,const InteractiveFrameState& f,CudaSurfaceHandle target){impl_->render(s,c,r,f,target);}
+void OptixRealtimeRenderer::render_next_frame(const RenderSceneSnapshot& s,const Camera& c,const RenderSettings& r,const InteractiveFrameState& f,Framebuffer& target){impl_->render(s,c,r,f,0);impl_->download(target);}
+void OptixRealtimeRenderer::download_current_frame(Framebuffer& target){impl_->download(target);}
+std::vector<RealtimeDiagnosticPixel> OptixRealtimeRenderer::download_diagnostics(){return impl_->diagnostics();}
+CudaStreamHandle OptixRealtimeRenderer::stream_handle() const{return reinterpret_cast<CudaStreamHandle>(impl_->stream_);}
+const CudaPathStatistics& OptixRealtimeRenderer::statistics() const{return impl_->statistics_;}
+void OptixRealtimeRenderer::refresh_statistics(){impl_->refresh();}
+void OptixRealtimeRenderer::set_presentation_state(bool a,bool b){impl_->statistics_.interop_active=a;impl_->statistics_.fallback_active=b;}
 
-#endif // RTRT_OPTIX_DEVICE
 } // namespace renderer

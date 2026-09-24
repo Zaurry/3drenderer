@@ -1,10 +1,12 @@
 #pragma once
 
 #include "render/pathtracer/cuda_pathtracer.h"
-#include "render/realtime/primary_visibility.h"
 #include <vector>
 
 namespace renderer {
+
+// Checks both the OptiX driver and RT Core capability on the selected device.
+bool optix_realtime_available(int device, std::string* reason = nullptr);
 
 // Readback is explicit and intended for validation/export, never steady presentation.
 struct RealtimeDiagnosticPixel {
@@ -13,14 +15,13 @@ struct RealtimeDiagnosticPixel {
     float history = 0, variance = 0, reactive = 0, rejected = 0;
 };
 
-class CudaRealtimeRenderer {
+class OptixRealtimeRenderer {
 public:
-    explicit CudaRealtimeRenderer(CudaDeviceContext context);
-    ~CudaRealtimeRenderer();
-    CudaRealtimeRenderer(const CudaRealtimeRenderer&) = delete;
-    CudaRealtimeRenderer& operator=(const CudaRealtimeRenderer&) = delete;
+    explicit OptixRealtimeRenderer(CudaDeviceContext context);
+    ~OptixRealtimeRenderer();
+    OptixRealtimeRenderer(const OptixRealtimeRenderer&) = delete;
+    OptixRealtimeRenderer& operator=(const OptixRealtimeRenderer&) = delete;
     void reset(const RenderSceneSnapshot&, const RenderSettings&);
-    void set_primary_visibility(std::shared_ptr<RealtimePrimaryVisibility>);
     void render_next_frame_to_surface(const RenderSceneSnapshot&, const Camera&,
         const RenderSettings&, const InteractiveFrameState&, CudaSurfaceHandle);
     void render_next_frame(const RenderSceneSnapshot&, const Camera&,

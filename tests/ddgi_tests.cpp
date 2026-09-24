@@ -778,3 +778,111 @@ RENDER_TEST(test_ddgi_lifecycle_and_unavailable_device) {
     read_output(*backend, false);
     RENDER_CHECK(!std::get<OpenGlViewerStatistics>(backend->statistics()).ddgi.active);
 }
+
+RENDER_TEST(test_ddgi_static_lighting_is_stable_across_update_budgets) {
+    const auto ctx = device();
+    (void)ctx;
+    GlContext context;
+    auto document = SceneDocument::from_scene(make_cornell_box_scene(), "Cornell", "cornell_box");
+    const auto &snapshot = document.render_scene_snapshot();
+    const Camera camera({0, .15f, 1.5f}, {0, .15f, -2}, Vec3::UnitY(), 45, 1);
+    RenderSettings settings;
+    settings.width = settings.height = 64;
+    settings.opengl.ambient_occlusion.mode = OpenGlAmbientOcclusionMode::Off;
+    settings.opengl.ssr.enabled = false;
+    settings.opengl.ddgi.debug_view = DdgiDebugView::Indirect;
+    nlohmann::json results = nlohmann::json::array();
+    for (const int budget : {64, 256, 1152}) {
+        settings.opengl.ddgi.probes_per_frame = budget;
+        auto backend = gl_backend();
+        backend->reset(snapshot, settings);
+        const int sweep_frames = (1152 + budget - 1) / budget;
+        settle(*backend, snapshot, camera, settings, 32 * sweep_frames);
+        const auto resets = std::get<OpenGlViewerStatistics>(backend->statistics()).ddgi.reset_count;
+        std::vector<double> luminance;
+        std::vector<Pixel> previous;
+        double pixel_delta_squared = 0, peak_pixel_delta_squared = 0;
+        constexpr int frames = 180;
+        for (int frame = 0; frame < frames; ++frame) {
+            backend->render(snapshot, camera, settings, tick());
+            auto pixels = read_output(*backend);
+            luminance.push_back(center_mean(pixels, 64, 64).mean());
+            if (!previous.empty()) {
+                double change = 0;
+                int samples = 0;
+                for (int y = 64 / 3; y < 64 * 2 / 3; ++y)
+                    for (int x = 64 / 3; x < 64 * 2 / 3; ++x)
+                        for (int c = 0; c < 3; ++c) {
+                            const float d = pixels[y * 64 + x][c] - previous[y * 64 + x][c];
+                            change += double(d) * d;
+                            ++samples;
+                        }
+                change /= samples;
+                pixel_delta_squared += change;
+                peak_pixel_delta_squared = std::max(peak_pixel_delta_squared, change);
+            }
+            previous = std::move(pixels);
+        }
+        double mean = 0, variance = 0;
+        for (const double value : luminance) mean += value / frames;
+        for (const double value : luminance) variance += (value - mean) * (value - mean) / frames;
+        const double relative_sd = std::sqrt(variance) / mean;
+        const double relative_delta = std::sqrt(pixel_delta_squared / (frames - 1)) / mean;
+        const double relative_peak = std::sqrt(peak_pixel_delta_squared) / mean;
+        std::cout << "DDGI static budget=" << budget << " mean=" << mean
+                  << " relative_sd=" << relative_sd << " frame_rms=" << relative_delta
+                  << " peak_frame_rms=" << relative_peak << '\n';
+        results.push_back({{"budget", budget}, {"mean", mean}, {"relative_sd", relative_sd},
+                           {"frame_rms", relative_delta}, {"peak_frame_rms", relative_peak},
+                           {"frame_means", luminance}});
+        RENDER_CHECK(std::get<OpenGlViewerStatistics>(backend->statistics()).ddgi.reset_count == resets);
+    }
+    metrics("static-temporal.json", results);
+    for (const auto &result : results) {
+        RENDER_CHECK(result.at("relative_sd").get<double>() < .01);
+        RENDER_CHECK(result.at("peak_frame_rms").get<double>() < .02);
+    }
+}
+
+RENDER_TEST(test_ddgi_sparse_updates_preserve_sample_and_visibility_history) {
+    const auto ctx = device();
+    auto snapshot = make_render_scene_snapshot(make_cornell_box_scene());
+    auto settings = small_settings();
+    settings.ddgi.auto_fit = true;
+    settings.ddgi.probes_per_frame = 7;
+    settings.ddgi.rays_per_probe = 128;
+    CudaDdgiVolume regular(ctx), slow(ctx), relit(ctx);
+    auto slow_frame = tick();
+    slow_frame.delta_seconds = .1f;
+    for (int frame = 0; frame < 64; ++frame) {
+        regular.update(snapshot, settings, tick());
+        slow.update(snapshot, settings, slow_frame);
+        relit.update(snapshot, settings, tick());
+    }
+    auto changed = snapshot;
+    changed.environment *= 3;
+    ++changed.revisions.environment;
+    for (int frame = 0; frame < 8; ++frame) {
+        regular.update(snapshot, settings, tick());
+        slow.update(snapshot, settings, slow_frame);
+        relit.update(changed, settings, tick());
+    }
+    const auto reference = regular.download_atlases();
+    const auto delayed = slow.download_atlases();
+    const auto lighting = relit.download_atlases();
+    // The same number of samples at 10 Hz must not discard more history than
+    // at 60 Hz. Neither elapsed time nor relighting changes geometric visibility.
+    for (std::size_t i = 0; i < reference.distance.size(); ++i)
+        for (int c = 0; c < 2; ++c) {
+            const float tolerance = 2e-5f * std::max(1.f, reference.distance[i][c]);
+            RENDER_CHECK(nearly_equal(reference.distance[i][c], delayed.distance[i][c], tolerance));
+            RENDER_CHECK(nearly_equal(reference.distance[i][c], lighting.distance[i][c], tolerance));
+        }
+    for (std::size_t i = 0; i < reference.irradiance.size(); ++i)
+        for (int c = 0; c < 3; ++c)
+            RENDER_CHECK(nearly_equal(reference.irradiance[i][c], delayed.irradiance[i][c],
+                                     2e-5f * std::max(1.f, reference.irradiance[i][c])));
+    RENDER_CHECK(regular.statistics().reset_count == 1);
+    RENDER_CHECK(slow.statistics().reset_count == 1);
+    RENDER_CHECK(relit.statistics().reset_count == 1);
+}

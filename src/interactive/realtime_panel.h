@@ -10,8 +10,6 @@ inline void draw_realtime_panel(RealtimeRenderSettings& s) {
     if(ImGui::IsItemHovered())ImGui::SetTooltip("960x540 broad lighting; native 1080p textures, mirrors and glass. Validated on RTX 5080 / San Miguel.");
     ImGui::PushItemWidth(std::max(80.0f, ImGui::GetContentRegionAvail().x * .42f));
     if (ImGui::CollapsingHeader("RTRT Lighting & Sampling", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::Checkbox("Raster primary visibility", &s.raster_primary);
-        ImGui::Checkbox("Hardware ray tracing (OptiX)", &s.hardware_ray_tracing);
         ImGui::Checkbox("Shader execution reordering", &s.shader_execution_reordering);
         ImGui::Checkbox("Stable glass sampling", &s.split_dielectric);
         if(ImGui::IsItemHovered())ImGui::SetTooltip("Samples reflection and refraction separately at the first two glass interfaces. Uses extra rays on glass pixels.");

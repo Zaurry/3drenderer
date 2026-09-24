@@ -4070,13 +4070,16 @@ private:
     }
 };
 
+enum class CudaSceneStorageMode { SoftwareTraversal, ShadingOnly };
+
 class CudaSceneStorage {
 public:
     CudaSceneStorage(
         const RenderSceneSnapshot& scene,
         cudaStream_t stream,
-        CudaPathStatistics& statistics)
-        : stream_(stream), statistics_(statistics) {
+        CudaPathStatistics& statistics,
+        CudaSceneStorageMode mode = CudaSceneStorageMode::SoftwareTraversal)
+        : stream_(stream), statistics_(statistics), mode_(mode) {
         sync(scene, SceneChange::All);
     }
 
@@ -4880,29 +4883,31 @@ private:
                 stream_,
                 statistics_);
 
-        std::vector<Bounds3> instance_bounds;
-        instance_bounds.reserve(scene.instances.size());
-        for (const RenderSceneInstanceSnapshot& instance :
-             scene.instances) {
-            instance_bounds.push_back(
-                instance.world_bounds);
+        if (mode_ == CudaSceneStorageMode::SoftwareTraversal) {
+            std::vector<Bounds3> instance_bounds;
+            instance_bounds.reserve(scene.instances.size());
+            for (const RenderSceneInstanceSnapshot& instance :
+                 scene.instances) {
+                instance_bounds.push_back(
+                    instance.world_bounds);
+            }
+            GpuBvh4Layout tlas =
+                build_gpu_bvh4(instance_bounds);
+            tlas_nodes_host_ = std::move(tlas.nodes);
+            tlas_primitive_indices_host_ =
+                std::move(tlas.primitive_indices);
+            statistics_.tlas_upload_bytes +=
+                tlas_nodes_.upload(
+                    tlas_nodes_host_,
+                    stream_,
+                    statistics_);
+            statistics_.tlas_upload_bytes +=
+                tlas_primitive_indices_.upload(
+                    tlas_primitive_indices_host_,
+                    stream_,
+                    statistics_);
+            ++statistics_.tlas_build_count;
         }
-        GpuBvh4Layout tlas =
-            build_gpu_bvh4(instance_bounds);
-        tlas_nodes_host_ = std::move(tlas.nodes);
-        tlas_primitive_indices_host_ =
-            std::move(tlas.primitive_indices);
-        statistics_.tlas_upload_bytes +=
-            tlas_nodes_.upload(
-                tlas_nodes_host_,
-                stream_,
-                statistics_);
-        statistics_.tlas_upload_bytes +=
-            tlas_primitive_indices_.upload(
-                tlas_primitive_indices_host_,
-                stream_,
-                statistics_);
-        ++statistics_.tlas_build_count;
         rebuild_instanced_emissive_lights(scene);
         has_instanced_emissive_candidates_ =
             !emissive_lights_host_.empty();
@@ -5063,61 +5068,63 @@ private:
                     asset_view.triangle_material_slots[triangle_index].device_value());
             }
 
-            const std::uint64_t geometry_fingerprint =
-                asset_geometry_fingerprints_host_.back();
-            GpuBvh4Layout raw_blas;
-            const auto cached = asset_blas_cache_.find(
-                asset_view.asset_id);
-            if (cached != asset_blas_cache_.end() &&
-                cached->second.geometry_revision ==
-                    asset_view.geometry_revision &&
-                cached->second.geometry_fingerprint ==
-                    geometry_fingerprint) {
-                raw_blas = cached->second.layout;
-            } else {
-                raw_blas = build_gpu_bvh4(asset_scene.triangles);
-                if (!raw_blas.nodes.empty()) {
-                    ++statistics_.blas_build_count;
-                }
-            }
-            GpuBvh4Layout blas = raw_blas;
-            const int node_offset =
-                static_cast<int>(bvh_nodes_host_.size());
-            const int primitive_offset =
-                static_cast<int>(
-                    primitive_indices_host_.size());
-            for (DBvh4Node& node : blas.nodes) {
-                for (int slot = 0;
-                     slot < node.child_count;
-                     ++slot) {
-                    if (node.children[slot] >= 0) {
-                        node.children[slot] += node_offset;
-                    }
-                    if (node.counts[slot] > 0) {
-                        node.first[slot] +=
-                            primitive_offset;
+            if (mode_ == CudaSceneStorageMode::SoftwareTraversal) {
+                const std::uint64_t geometry_fingerprint =
+                    asset_geometry_fingerprints_host_.back();
+                GpuBvh4Layout raw_blas;
+                const auto cached = asset_blas_cache_.find(
+                    asset_view.asset_id);
+                if (cached != asset_blas_cache_.end() &&
+                    cached->second.geometry_revision ==
+                        asset_view.geometry_revision &&
+                    cached->second.geometry_fingerprint ==
+                        geometry_fingerprint) {
+                    raw_blas = cached->second.layout;
+                } else {
+                    raw_blas = build_gpu_bvh4(asset_scene.triangles);
+                    if (!raw_blas.nodes.empty()) {
+                        ++statistics_.blas_build_count;
                     }
                 }
+                GpuBvh4Layout blas = raw_blas;
+                const int node_offset =
+                    static_cast<int>(bvh_nodes_host_.size());
+                const int primitive_offset =
+                    static_cast<int>(
+                        primitive_indices_host_.size());
+                for (DBvh4Node& node : blas.nodes) {
+                    for (int slot = 0;
+                         slot < node.child_count;
+                         ++slot) {
+                        if (node.children[slot] >= 0) {
+                            node.children[slot] += node_offset;
+                        }
+                        if (node.counts[slot] > 0) {
+                            node.first[slot] +=
+                                primitive_offset;
+                        }
+                    }
+                }
+                for (int primitive : blas.primitive_indices) {
+                    primitive_indices_host_.push_back(
+                        asset.triangle_first + primitive);
+                }
+                asset.bvh_root = blas.nodes.empty()
+                    ? -1
+                    : node_offset;
+                asset.bvh_node_count =
+                    static_cast<int>(blas.nodes.size());
+                bvh_nodes_host_.insert(
+                    bvh_nodes_host_.end(),
+                    blas.nodes.begin(),
+                    blas.nodes.end());
+                next_blas_cache.emplace(
+                    asset_view.asset_id,
+                    CachedAssetBlas{
+                        asset_view.geometry_revision,
+                        geometry_fingerprint,
+                        std::move(raw_blas)});
             }
-            for (int primitive : blas.primitive_indices) {
-                primitive_indices_host_.push_back(
-                    asset.triangle_first + primitive);
-            }
-            asset.bvh_root = blas.nodes.empty()
-                ? -1
-                : node_offset;
-            asset.bvh_node_count =
-                static_cast<int>(blas.nodes.size());
-            bvh_nodes_host_.insert(
-                bvh_nodes_host_.end(),
-                blas.nodes.begin(),
-                blas.nodes.end());
-            next_blas_cache.emplace(
-                asset_view.asset_id,
-                CachedAssetBlas{
-                    asset_view.geometry_revision,
-                    geometry_fingerprint,
-                    std::move(raw_blas)});
             assets_host_.push_back(asset);
         }
         asset_blas_cache_ = std::move(next_blas_cache);
@@ -5214,28 +5221,30 @@ private:
                 stream_,
                 statistics_);
 
-        std::vector<Bounds3> instance_bounds;
-        instance_bounds.reserve(scene.instances.size());
-        for (const RenderSceneInstanceSnapshot& instance :
-             scene.instances) {
-            instance_bounds.push_back(instance.world_bounds);
+        if (mode_ == CudaSceneStorageMode::SoftwareTraversal) {
+            std::vector<Bounds3> instance_bounds;
+            instance_bounds.reserve(scene.instances.size());
+            for (const RenderSceneInstanceSnapshot& instance :
+                 scene.instances) {
+                instance_bounds.push_back(instance.world_bounds);
+            }
+            GpuBvh4Layout tlas =
+                build_gpu_bvh4(instance_bounds);
+            tlas_nodes_host_ = std::move(tlas.nodes);
+            tlas_primitive_indices_host_ =
+                std::move(tlas.primitive_indices);
+            statistics_.tlas_upload_bytes +=
+                tlas_nodes_.upload(
+                    tlas_nodes_host_,
+                    stream_,
+                    statistics_);
+            statistics_.tlas_upload_bytes +=
+                tlas_primitive_indices_.upload(
+                    tlas_primitive_indices_host_,
+                    stream_,
+                    statistics_);
+            ++statistics_.tlas_build_count;
         }
-        GpuBvh4Layout tlas =
-            build_gpu_bvh4(instance_bounds);
-        tlas_nodes_host_ = std::move(tlas.nodes);
-        tlas_primitive_indices_host_ =
-            std::move(tlas.primitive_indices);
-        statistics_.tlas_upload_bytes +=
-            tlas_nodes_.upload(
-                tlas_nodes_host_,
-                stream_,
-                statistics_);
-        statistics_.tlas_upload_bytes +=
-            tlas_primitive_indices_.upload(
-                tlas_primitive_indices_host_,
-                stream_,
-                statistics_);
-        ++statistics_.tlas_build_count;
 
         has_instanced_emissive_candidates_ = false;
         rebuild_instanced_emissive_lights(scene);
@@ -5382,6 +5391,7 @@ private:
     CudaEventTimer upload_timer_;
     CudaEventTimer instance_upload_timer_;
     CudaEventTimer tlas_refit_timer_;
+    CudaSceneStorageMode mode_;
     DeviceBuffer<DMaterial> materials_;
     DeviceBuffer<DTexture> textures_;
     DeviceBuffer<DVec3> texels_;

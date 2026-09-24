@@ -1,8 +1,6 @@
 {
-  "hardware_ray_tracing": true,
   "shader_execution_reordering": true,
   "split_dielectric": true,
-  "raster_primary": false,
   "low_discrepancy": true,
   "internal_scale": 0.5,
   "full_resolution_materials": true,

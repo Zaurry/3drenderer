@@ -1,3 +1,4 @@
+#include "render/optix/optix_realtime_renderer.h"
 #include "interactive/frame_rate_counter.h"
 #include "interactive/free_camera_controller.h"
 #include "interactive/orbit_camera_controller.h"
@@ -679,13 +680,13 @@ int main(int argc, char** argv) {
                         std::to_string(device_context->device_id());
                 }
             }
-            if (device_context) {
+            if (device_context && renderer::optix_realtime_available(device_context->device_id(),&reason)) {
                 settings.path.cuda_device = device_context->device_id();
             } else {
                 settings.path.cuda_device = 0;
                 ui_state.mode = renderer::InteractiveRenderMode::OpenGl;
                 ui_state.scene_status =
-                    "CUDA RTRT unavailable; switched to OpenGL: " + reason;
+                    "OptiX RTRT unavailable; switched to OpenGL: " + reason;
                 std::cerr << "warning: " << ui_state.scene_status << '\n';
                 // Stable machine-readable marker; CI smoke tests match this
                 // line instead of the localized status text.
@@ -751,18 +752,30 @@ int main(int argc, char** argv) {
             ui_state.camera_mode = renderer::ViewerCameraMode::Orbit;
         };
 
-        std::unique_ptr<renderer::ViewerRenderBackend> render_backend =
-            renderer::make_viewer_render_backend(
-                ui_state.mode,
-                options.gl_vertex_shader,
-                options.gl_fragment_shader, options.disable_cuda_interop);
+        std::unique_ptr<renderer::ViewerRenderBackend> render_backend;
         const auto current_render_scene_snapshot =
             [&]() -> const renderer::RenderSceneSnapshot& {
                 return viewer_scene.document.render_scene_snapshot();
             };
-        render_backend->reset(
-            current_render_scene_snapshot(),
-            settings);
+        const auto reset_render_backend = [&]() {
+            const auto create = [&]() {
+                auto next = renderer::make_viewer_render_backend(
+                    ui_state.mode, options.gl_vertex_shader,
+                    options.gl_fragment_shader, options.disable_cuda_interop);
+                next->reset(current_render_scene_snapshot(), settings);
+                render_backend = std::move(next);
+            };
+            try { create(); }
+            catch (const std::exception& error) {
+                if (ui_state.mode != renderer::InteractiveRenderMode::Rtrt) throw;
+                ui_state.mode = renderer::InteractiveRenderMode::OpenGl;
+                ui_state.scene_status = "OptiX RTRT unavailable; switched to OpenGL: " + std::string(error.what());
+                std::cerr << "warning: " << ui_state.scene_status << '\n';
+                std::cout << "path-mode-unavailable: switched to OpenGL (" << error.what() << ")\n";
+                create();
+            }
+        };
+        reset_render_backend();
         renderer::OpenGlShaderUiState shader_ui_state;
         shader_ui_state.vertex_path = options.gl_vertex_shader.string();
         shader_ui_state.fragment_path = options.gl_fragment_shader.string();
@@ -1043,9 +1056,9 @@ int main(int argc, char** argv) {
                 if (hotkey_mode != ui_state.mode) {
                     if (hotkey_mode == renderer::InteractiveRenderMode::Rtrt) {
                         std::string reason;
-                        if (!renderer::cuda_path_backend_available(&reason)) {
+                        if (!renderer::optix_realtime_available(settings.path.cuda_device,&reason)) {
                             ui_state.scene_status =
-                                "CUDA RTRT unavailable: " + reason;
+                                "OptiX RTRT unavailable: " + reason;
                         } else {
                             ui_state.mode = hotkey_mode;
                             ui_actions.mode_changed = true;
@@ -1073,13 +1086,7 @@ int main(int argc, char** argv) {
 
             const bool mode_changed = ui_actions.mode_changed || previous_mode != ui_state.mode;
             if (mode_changed) {
-                render_backend = renderer::make_viewer_render_backend(
-                    ui_state.mode,
-                    options.gl_vertex_shader,
-                    options.gl_fragment_shader, options.disable_cuda_interop);
-                render_backend->reset(
-                    current_render_scene_snapshot(),
-                    settings);
+                reset_render_backend();
                 frame_rate_counter.reset();
                 std::cout << "mode=" << mode_name(ui_state.mode) << '\n';
             }
@@ -1348,11 +1355,12 @@ int main(int argc, char** argv) {
                     const auto& rt=path->cuda.realtime;
                     sample.update({{"cuda_ms",rt.total_ms},{"primary_ms",rt.gbuffer_ms},{"lighting_ms",rt.lighting_ms},
                         {"hardware_rt",rt.hardware_ray_tracing_active},{"hardware_detail",rt.hardware_ray_tracing_detail},
+                        {"rt_core_version",rt.rt_core_version},{"ser_supported",rt.ser_supported},{"ser_active",rt.ser_active},
+                        {"gas_builds",rt.gas_builds},{"ias_builds",rt.ias_builds},{"ias_updates",rt.ias_updates},{"acceleration_ms",rt.acceleration_ms},
                         {"denoiser",!settings.realtime.denoise?"off":(rt.optix_denoiser_active?"optix":"svgf")},
                         {"optix_denoiser_temporal",rt.optix_denoiser_temporal},{"optix_denoiser_bytes",rt.optix_denoiser_bytes},
                         {"optix_denoiser_detail",rt.optix_denoiser_detail},
                         {"temporal_ms",rt.temporal_ms},{"filter_ms",rt.filter_ms},{"reconstruction_ms",rt.reconstruction_ms},
-                        {"raster_ms",rt.raster_primary_ms},{"raster_primary",rt.raster_primary_active},
                         {"internal_width",path->cuda.internal_width},{"internal_height",path->cuda.internal_height},
                         {"framebuffer_bytes",rt.framebuffer_bytes},{"hardware_bytes",rt.hardware_ray_tracing_bytes},
                         {"allocations",path->cuda.allocation_generation},
@@ -1463,8 +1471,10 @@ int main(int argc, char** argv) {
                       << " hardware_rt=" << rt.hardware_ray_tracing_active << " hardware_detail=" << rt.hardware_ray_tracing_detail
                       << " denoiser=" << (!settings.realtime.denoise?"off":(rt.optix_denoiser_active?"optix":"svgf"))
                       << " denoiser_detail=" << rt.optix_denoiser_detail
-                      << " primary=" << (rt.raster_primary_active?"raster":rt.hardware_ray_tracing_active?"optix":"cuda") << " raster_ms=" << rt.raster_primary_ms
-                      << " raster_mib=" << double(rt.raster_primary_bytes)/1048576
+                      << " primary=optix" << " rt_core_version=" << rt.rt_core_version
+                      << " ser_supported=" << rt.ser_supported << " ser_active=" << rt.ser_active
+                      << " gas_builds=" << rt.gas_builds << " ias_builds=" << rt.ias_builds << " ias_updates=" << rt.ias_updates
+                      << " acceleration_ms=" << rt.acceleration_ms << " acceleration_bytes=" << rt.hardware_ray_tracing_bytes
                       << " internal=" << path.cuda.internal_width << 'x' << path.cuda.internal_height
                       << " gbuffer_ms=" << rt.gbuffer_ms << " lighting_ms=" << rt.lighting_ms
                       << " temporal_ms=" << rt.temporal_ms << " filter_ms=" << rt.filter_ms

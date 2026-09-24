@@ -1,0 +1,79 @@
+UpdateCTestConfiguration  from :D:/Github/3drenderer/build/cuda-ninja/DartConfiguration.tcl
+Test project D:/Github/3drenderer/build/cuda-ninja
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 7
+    Start 7: opengl_transport_tests
+
+7: Test command: D:\Github\3drenderer\build\cuda-ninja\bin\opengl_transport_tests.exe
+7: Working Directory: D:/Github/3drenderer/build/cuda-ninja
+7: Test timeout computed to be: 10000000
+7: [RUN] test_gpu_ssr_visibility_replaces_environment_and_does_not_double_occlude_hits
+7: [RUN] test_gpu_ssr_miss_fallback_and_diffuse_ggx_white_furnace
+7: GGX furnace ddgi=0 roughness=0.02 mean=1
+7: GGX furnace ddgi=0 roughness=0.3 mean=1.00156
+7: GGX furnace ddgi=0 roughness=0.65 mean=1.00328
+7: GGX furnace ddgi=0 roughness=1 mean=0.993682
+7: GGX furnace ddgi=1 roughness=0.02 mean=1
+7: GGX furnace ddgi=1 roughness=0.3 mean=1.00156
+7: GGX furnace ddgi=1 roughness=0.65 mean=1.00328
+7: GGX furnace ddgi=1 roughness=1 mean=0.993682
+7: [RUN] test_gpu_ssr_compositor_preserves_direct_light_and_sky
+7: [RUN] test_gpu_ssr_does_not_count_ltc_emission_twice
+7: Unregistered emitter indirect=0.166016
+7: [RUN] test_gpu_ssr_complete_pipeline_resize_settings_and_history
+7: tests: 5 passed, 0 failed, 0 skipped
+1/2 Test #7: opengl_transport_tests ...........   Passed    3.57 sec
+test 8
+    Start 8: ddgi_tests
+
+8: Test command: D:\Github\3drenderer\build\cuda-ninja\bin\ddgi_tests.exe
+8: Working Directory: D:/Github/3drenderer/build/cuda-ninja
+8: Test timeout computed to be: 10000000
+8: [RUN] test_ddgi_settings_layout_and_session_fields
+8: [RUN] test_ddgi_constant_environment_hdr_and_octahedral_borders
+8: DDGI light removal residual=0
+8: [RUN] test_ddgi_inside_geometry_classification_relocation_and_reactivation
+8: [RUN] test_ddgi_instanced_motion_refits_without_moving_volume
+8: [RUN] test_ddgi_opengl_energy_interop_fallback_and_switches
+8: DDGI GL active mean=0.124663 0.249325   0.9973
+8: DDGI GL fallback mean=0.124663 0.249325   0.9973
+8: [RUN] test_ddgi_analytic_emitter_partition_and_alpha_mask
+8: [RUN] test_ddgi_dominant_environment_residual_and_rotation
+8: [RUN] test_ddgi_cornell_multibounce_against_offline_reference
+8: Cornell DDGI ROI MSE=0.000803155 disabled=0.118114 mean=0.458122 0.356866 0.212424
+8: [RUN] test_ddgi_viewer_document_default_ao_ssr_combinations
+8: DDGI viewer initial default mean=0.336969
+8: DDGI viewer document SSR/AO=0 mean=0.335206
+8: DDGI viewer document SSR/AO=1 mean=0.336655
+8: DDGI viewer document SSR/AO=2 mean=0.332988
+8: DDGI viewer document SSR/AO=3 mean=0.33412
+8: [RUN] test_ddgi_two_rooms_visibility_and_offscreen_emitter
+8: DDGI separated rooms lit=0.332182 dark=0.000353237 leakage=0.00106339
+8: DDGI enclosed diffuse=0.0147026 0.0144637 0.0142248
+8: [RUN] test_ddgi_dynamic_changes_converge_within_eight_sweeps
+8: DDGI dynamic move-light actual=1.25194 expected=1.25085 relative_error=0.0008745
+8: DDGI dynamic disable-light actual=0.010409 expected=0.0103256 relative_error=0.00807699
+8: DDGI dynamic material actual=0.743953 expected=0.746464 relative_error=0.00336309
+8: DDGI dynamic environment actual=0.88473 expected=0.88745 relative_error=0.00306442
+8: DDGI dynamic move-occluder actual=0.792634 expected=0.795747 relative_error=0.00391224
+8: [RUN] test_ddgi_lifecycle_and_unavailable_device
+8: [RUN] test_ddgi_static_lighting_is_stable_across_update_budgets
+8: DDGI static budget=64 mean=0.334481 relative_sd=0.00203367 frame_rms=0.00263224 peak_frame_rms=0.0110339
+8: DDGI static budget=256 mean=0.335589 relative_sd=0.0051307 frame_rms=0.00494752 peak_frame_rms=0.0137319
+8: DDGI static budget=1152 mean=0.334009 relative_sd=0.00880728 frame_rms=0.0105127 peak_frame_rms=0.015903
+8: [RUN] test_ddgi_sparse_updates_preserve_sample_and_visibility_history
+8: tests: 14 passed, 0 failed, 0 skipped
+2/2 Test #8: ddgi_tests .......................   Passed   23.33 sec
+
+The following tests passed:
+	opengl_transport_tests
+	ddgi_tests
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =  26.92 sec

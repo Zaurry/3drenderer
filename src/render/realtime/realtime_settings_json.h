@@ -5,9 +5,7 @@ namespace renderer {
 inline nlohmann::json realtime_settings_json(const RealtimeRenderSettings& input) {
     const auto s = sanitize_realtime_settings(input);
     return {
-        {"raster_primary", s.raster_primary},
         {"low_discrepancy", s.low_discrepancy},
-        {"hardware_ray_tracing", s.hardware_ray_tracing},
         {"shader_execution_reordering", s.shader_execution_reordering},
         {"split_dielectric", s.split_dielectric},
         {"samples_per_pixel", s.samples_per_pixel},
@@ -51,9 +49,7 @@ inline nlohmann::json realtime_settings_json(const RealtimeRenderSettings& input
 inline RealtimeRenderSettings parse_realtime_settings(const nlohmann::json& j) {
     RealtimeRenderSettings s;
     if (!j.is_object()) return s;
-    if(j.contains("raster_primary") && j.at("raster_primary").is_boolean()) s.raster_primary=j.at("raster_primary").get<bool>();
     if(j.contains("low_discrepancy") && j.at("low_discrepancy").is_boolean()) s.low_discrepancy=j.at("low_discrepancy").get<bool>();
-    if(j.contains("hardware_ray_tracing") && j.at("hardware_ray_tracing").is_boolean()) s.hardware_ray_tracing=j.at("hardware_ray_tracing").get<bool>();
     if(j.contains("shader_execution_reordering") && j.at("shader_execution_reordering").is_boolean()) s.shader_execution_reordering=j.at("shader_execution_reordering").get<bool>();
     if(j.contains("split_dielectric") && j.at("split_dielectric").is_boolean()) s.split_dielectric=j.at("split_dielectric").get<bool>();
     const auto integer = [&](const char* name, int fallback) {

@@ -1,0 +1,9 @@
+========= COMPUTE-SANITIZER
+[RUN] test_ddgi_static_lighting_is_stable_across_update_budgets
+DDGI static budget=64 mean=0.334481 relative_sd=0.00203367 frame_rms=0.00263224 peak_frame_rms=0.0110339
+DDGI static budget=256 mean=0.335589 relative_sd=0.0051307 frame_rms=0.00494752 peak_frame_rms=0.0137319
+DDGI static budget=1152 mean=0.334009 relative_sd=0.00880728 frame_rms=0.0105127 peak_frame_rms=0.015903
+[RUN] test_ddgi_sparse_updates_preserve_sample_and_visibility_history
+tests: 2 passed, 0 failed, 0 skipped
+========= LEAK SUMMARY: 0 bytes leaked in 0 allocations
+========= ERROR SUMMARY: 0 errors

@@ -1,8 +1,7 @@
 #include "render/interactive/viewer_render_backend.h"
 
 #include "platform/opengl/cuda_opengl_interop.h"
-#include "platform/opengl/rtrt_primary_visibility.h"
-#include "render/realtime/cuda_realtime_renderer.h"
+#include "render/optix/optix_realtime_renderer.h"
 #include "render/opengl/opengl_raster_renderer.h"
 #include "render/opengl/opengl_ddgi_pass.h"
 
@@ -161,9 +160,8 @@ public:
                 "CUDA RTRT cannot use the current OpenGL context: " +
                 selection_reason);
         }
-        renderer_ = std::make_unique<CudaRealtimeRenderer>(*device_context);
+        renderer_ = std::make_unique<OptixRealtimeRenderer>(*device_context);
         renderer_->reset(snapshot, settings);
-        if(!disable_interop_) renderer_->set_primary_visibility(make_opengl_primary_visibility(*device_context));
         framebuffer_->resize(settings.width, settings.height);
         output_ = HostFrameHandle{framebuffer_};
         interop_->initialize(*device_context);
@@ -175,7 +173,7 @@ public:
         const Camera& camera,
         const RenderSettings& settings,
         const InteractiveFrameState& frame_state) override {
-        // Scene-change detection is owned by CudaRealtimeRenderer,
+        // Scene-change detection is owned by OptixRealtimeRenderer,
         // which diffs revisions against its uploaded snapshot. The caller's
         // hint flows through unchanged.
         if (interop_->state() != CudaOpenGlInteropState::Fallback &&
@@ -244,7 +242,7 @@ public:
 
 private:
     bool disable_interop_ = false;
-    std::unique_ptr<CudaRealtimeRenderer> renderer_;
+    std::unique_ptr<OptixRealtimeRenderer> renderer_;
     std::shared_ptr<CudaOpenGlInteropTexture> interop_ =
         std::make_shared<CudaOpenGlInteropTexture>();
     std::shared_ptr<Framebuffer> framebuffer_ =

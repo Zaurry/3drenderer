@@ -207,14 +207,12 @@ if(RENDERER_HAS_CUDA)
     set(RENDERER_CUDA_API_SOURCES
         src/render/pathtracer/cuda_device_context.cu)
     set(RENDERER_CUDA_PATHTRACER_SOURCES
-        src/render/pathtracer/cuda_pathtracer.cu
-        src/render/realtime/cuda_realtime_renderer.cu)
+        src/render/pathtracer/cuda_pathtracer.cu)
 else()
     set(RENDERER_CUDA_API_SOURCES
         src/render/pathtracer/cuda_device_context_stub.cpp)
     set(RENDERER_CUDA_PATHTRACER_SOURCES
-        src/render/pathtracer/cuda_pathtracer_stub.cpp
-        src/render/realtime/cuda_realtime_renderer_stub.cpp)
+        src/render/pathtracer/cuda_pathtracer_stub.cpp)
 endif()
 
 set(RENDERER_PUBLIC_INCLUDE_DIRECTORIES
@@ -283,7 +281,7 @@ if(RENDERER_HAS_CUDA AND RENDERER_OPTIX)
         URL_HASH SHA256=c36d6e52289138685dcce77befb8f966d2761c6840556f6a04945b01700c8ebc
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
     FetchContent_MakeAvailable(optix_headers)
-    add_library(renderer_rtrt_ptx OBJECT src/render/realtime/optix_programs.cu)
+    add_library(renderer_rtrt_ptx OBJECT src/render/optix/optix_programs.cu)
     target_link_libraries(renderer_rtrt_ptx PRIVATE renderer_scene renderer_cuda_api)
     target_include_directories(renderer_rtrt_ptx PRIVATE "${optix_headers_SOURCE_DIR}/include")
     set_target_properties(renderer_rtrt_ptx PROPERTIES CUDA_PTX_COMPILATION ON
@@ -295,18 +293,26 @@ if(RENDERER_HAS_CUDA AND RENDERER_OPTIX)
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_optix_ptx.cmake"
         DEPENDS renderer_rtrt_ptx $<TARGET_OBJECTS:renderer_rtrt_ptx> tools/embed_optix_ptx.cmake
         VERBATIM)
-    add_library(renderer_rtrt_optix STATIC src/render/realtime/optix_backend.cpp "${RTRT_PTX_HEADER}")
+    add_library(renderer_rtrt_optix STATIC src/render/optix/optix_backend.cpp "${RTRT_PTX_HEADER}")
     target_include_directories(renderer_rtrt_optix PRIVATE "${optix_headers_SOURCE_DIR}/include"
         "${CMAKE_CURRENT_BINARY_DIR}/generated")
     target_link_libraries(renderer_rtrt_optix PUBLIC renderer_scene renderer_cuda_api PRIVATE CUDA::cudart)
-    target_compile_definitions(renderer_cuda_pathtracer PRIVATE RENDERER_HAS_OPTIX=1)
-    target_link_libraries(renderer_cuda_pathtracer PRIVATE renderer_rtrt_optix)
+    add_library(renderer_realtime STATIC src/render/optix/optix_realtime_renderer.cu)
+    target_link_libraries(renderer_realtime PRIVATE renderer_rtrt_optix CUDA::cudart)
+    target_compile_definitions(renderer_realtime PUBLIC RENDERER_HAS_OPTIX=1)
+    set_target_properties(renderer_realtime PROPERTIES CUDA_STANDARD 20 CUDA_STANDARD_REQUIRED ON
+        CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}")
     file(READ "${optix_headers_SOURCE_DIR}/include/optix_stubs.h" OPTIX_STUBS_SOURCE)
     string(FIND "${OPTIX_STUBS_SOURCE}" "*/" OPTIX_NOTICE_END)
     math(EXPR OPTIX_NOTICE_LENGTH "${OPTIX_NOTICE_END}+2")
     string(SUBSTRING "${OPTIX_STUBS_SOURCE}" 0 ${OPTIX_NOTICE_LENGTH} OPTIX_BSD_NOTICE)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/OPTIX_BSD_NOTICE.txt" "${OPTIX_BSD_NOTICE}\n")
+else()
+    add_library(renderer_realtime STATIC src/render/optix/optix_realtime_renderer_stub.cpp)
+    target_compile_definitions(renderer_realtime PUBLIC RENDERER_HAS_OPTIX=0)
 endif()
+target_include_directories(renderer_realtime PUBLIC ${RENDERER_PUBLIC_INCLUDE_DIRECTORIES})
+target_link_libraries(renderer_realtime PUBLIC renderer_scene renderer_render_common renderer_cuda_api)
 
 # Session adapter over the interactive CUDA renderer, kept separate so UI
 # libraries never drag in the path tracer.
@@ -333,6 +339,7 @@ target_link_libraries(renderer_cuda INTERFACE
     renderer_render_common
     renderer_cuda_api
     renderer_cuda_pathtracer
+    renderer_realtime
     renderer_path_session)
 
 add_library(renderer_core INTERFACE)
@@ -341,6 +348,7 @@ target_link_libraries(renderer_core INTERFACE
     renderer_render_common
     renderer_cuda_api
     renderer_cuda_pathtracer
+    renderer_realtime
     renderer_path_session
     renderer_interactive)
 
@@ -361,7 +369,6 @@ target_link_libraries(renderer PRIVATE renderer_core)
 if(RENDERER_BUILD_VIEWER)
     set(RENDERER_OPENGL_SOURCES
         src/platform/opengl/gl_shader_program.cpp
-        src/platform/opengl/rtrt_primary_visibility.cpp
         src/render/opengl/opengl_raster_renderer.cpp
         src/render/opengl/opengl_ddgi_pass.cpp
         src/render/interactive/viewer_render_backend.cpp
@@ -384,6 +391,7 @@ if(RENDERER_BUILD_VIEWER)
     target_link_libraries(renderer_opengl PUBLIC
         renderer_interactive
         renderer_ddgi
+        renderer_realtime
         renderer_cuda_api
         renderer_glad)
     if(RENDERER_HAS_CUDA)
@@ -470,14 +478,14 @@ if(RENDERER_BUILD_VIEWER)
     target_compile_definitions(opengl_transport_tests PRIVATE
         RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     list(APPEND RENDERER_TEST_TARGETS opengl_transport_tests)
-    add_executable(rtrt_hybrid_tests tests/rtrt_hybrid_tests.cpp tests/test_main.cpp)
+    add_executable(optix_interop_tests tests/optix_interop_tests.cpp tests/test_main.cpp)
     add_executable(ddgi_tests tests/ddgi_tests.cpp tests/test_main.cpp)
     target_link_libraries(ddgi_tests PRIVATE renderer_core renderer_opengl renderer_ddgi renderer_glad ${RENDERER_SDL_TARGET})
     target_compile_definitions(ddgi_tests PRIVATE RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     list(APPEND RENDERER_TEST_TARGETS ddgi_tests)
-    target_link_libraries(rtrt_hybrid_tests PRIVATE renderer_core renderer_opengl renderer_glad ${RENDERER_SDL_TARGET})
-    target_compile_definitions(rtrt_hybrid_tests PRIVATE RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    list(APPEND RENDERER_TEST_TARGETS rtrt_hybrid_tests)
+    target_link_libraries(optix_interop_tests PRIVATE renderer_core renderer_opengl renderer_glad ${RENDERER_SDL_TARGET})
+    target_compile_definitions(optix_interop_tests PRIVATE RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    list(APPEND RENDERER_TEST_TARGETS optix_interop_tests)
 endif()
 
 if(RENDERER_BUILD_BENCHMARKS)
@@ -526,8 +534,7 @@ if(RENDERER_BUILD_BENCHMARKS)
         # recompiled with RENDERER_BENCHMARK_DIAGNOSTICS; the rest of the
         # core is shared with the normal build.
         add_library(renderer_cuda_pathtracer_diagnostics STATIC
-            src/render/pathtracer/cuda_pathtracer.cu
-            src/render/realtime/cuda_realtime_renderer.cu)
+            src/render/pathtracer/cuda_pathtracer.cu)
         target_include_directories(renderer_cuda_pathtracer_diagnostics PUBLIC
             ${RENDERER_PUBLIC_INCLUDE_DIRECTORIES})
         target_link_libraries(renderer_cuda_pathtracer_diagnostics PUBLIC
@@ -613,6 +620,7 @@ set(RENDERER_NATIVE_TARGETS
     renderer_render_common
     renderer_cuda_api
     renderer_cuda_pathtracer
+    renderer_realtime
     renderer_path_session
     renderer_interactive
     renderer
@@ -643,7 +651,7 @@ add_test(NAME opengl_shader_lint_tests COMMAND opengl_shader_lint_tests)
 if(RENDERER_BUILD_VIEWER)
     add_test(NAME opengl_transport_tests COMMAND opengl_transport_tests)
     add_test(NAME ddgi_tests COMMAND ddgi_tests)
-    add_test(NAME rtrt_hybrid_tests COMMAND rtrt_hybrid_tests)
+    add_test(NAME optix_interop_tests COMMAND optix_interop_tests)
 endif()
 add_test(NAME cuda_contract_tests COMMAND cuda_contract_tests)
 add_test(NAME realtime_tests COMMAND realtime_tests)
@@ -676,6 +684,7 @@ target_enable_warnings(renderer_scene)
 target_enable_warnings(renderer_render_common)
 target_enable_warnings(renderer_cuda_api)
 target_enable_warnings(renderer_cuda_pathtracer)
+target_enable_warnings(renderer_realtime)
 target_enable_warnings(renderer_path_session)
 target_enable_warnings(renderer_interactive)
 foreach(test_target IN LISTS RENDERER_TEST_TARGETS)
