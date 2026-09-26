@@ -38,21 +38,19 @@ __device__ void rt_gbuffer_pixel(RtFrame f, RtGuide* guides, DCompactHit* primar
         else { m.type=int(MaterialType::Diffuse); m.base_color=v3(1,0,1); m.roughness=1; }
         const DSurface s=evaluate_surface(f.scene,m,hit);
         if(emission) emission[i]=hit.material_id>=0 && hit.material_id<f.scene.material_count?s.emission:v3(1,0,1);
-        g.normal=s.shading_normal; g.geometric=hit.geometric_normal;
-        // Output history represents pixel coverage. A normal map changing
-        // under subpixel jitter is not a disocclusion. Lighting history still
-        // uses the shading normal in the independently sampled low-res guide.
-        if(emission)g.normal=g.geometric;
+        g.normal=s.shading_normal; g.geometric=rt_pack_normal(hit.geometric_normal);
         g.albedo=s.diffuse_color; g.roughness=s.roughness;
         g.material=hit.material_id;
         g.transparent=(m.type==int(MaterialType::Dielectric) || effective_alpha_mode(m)==int(AlphaMode::Blend));
         DVec3 previous_position=hit.position;
         g.previous_normal=g.normal;
+        g.previous_geometric=g.geometric;
         if(hit.instance_index>=0) {
             const RtInstance instance=f.instances[hit.instance_index];
             g.object_id=instance.object_id; g.asset_id=instance.asset_id;
             previous_position=transform_point(instance.current_to_previous,hit.position);
             g.previous_normal=normalize(transform_direction(instance.normal_to_previous,g.normal));
+            g.previous_geometric=rt_pack_normal(normalize(transform_direction(instance.normal_to_previous,hit.geometric_normal)));
         }
         const DVec2 uv=rt_project(f.camera,hit.position,g.depth);
         const DVec2 old=rt_project(f.previous_camera,previous_position,g.previous_depth);
@@ -87,7 +85,7 @@ __device__ void rt_add_direct(RtDirect& out,const DSurface& surface,DVec3 outgoi
     out.diffuse=add(out.diffuse,product(e.diffuse,incoming_cos));
     out.specular=add(out.specular,product(e.specular,incoming_cos));
 }
-__device__ RtDirect rt_direct(const RtFrame& f,const DHit& hit,const DSurface& s,DVec3 outgoing,RtSampler& rng) {
+__device__ RtDirect rt_direct(const RtFrame& f,const DHit& hit,const DSurface& s,DVec3 outgoing,RtSampler& rng,bool bsdf_sample) {
     RtDirect out{};
     const int samples=f.settings.light_samples;
     for(int sample=0;sample<samples;++sample) {
@@ -129,15 +127,15 @@ __device__ RtDirect rt_direct(const RtFrame& f,const DHit& hit,const DSurface& s
                     rt_add_direct(out,s,outgoing,dir,mul(intensity,factor));
             }
         }
-        DShadowTask task{};
+        DShadowTask task{};DVec3 fraction{};
         const float ep=environment_strategy_probability(f.scene);
         const bool environment=ep>0 && (ep>=1 || random_float(rng)<ep);
         const bool sampled=environment
-            ? sample_environment_shadow_task(f.scene,hit,s,outgoing,v3(1,1,1),0,rng,task)
-            : sample_emissive_shadow_task(f.scene,hit,s,outgoing,v3(1,1,1),0,rng,task);
+            ? sample_environment_shadow_task(f.scene,hit,s,outgoing,v3(1,1,1),0,rng,task,bsdf_sample,&fraction)
+            : sample_emissive_shadow_task(f.scene,hit,s,outgoing,v3(1,1,1),0,rng,task,bsdf_sample,&fraction);
         if(sampled && (!f.settings.shadows || !task.casts_shadows || !rt_occluded(f,task.ray,task.t_max))) {
-            const auto e=evaluate_pbr(s,s.shading_normal,outgoing,task.ray.direction);
-            const DVec3 fraction=rt_divide(e.diffuse,e.brdf);
+            // Reuse the BRDF split evaluated for the actual light direction;
+            // the offset visibility ray can have a slightly different one.
             const DVec3 contribution=mul(task.contribution,1.0f/samples);
             const DVec3 diffuse=product(contribution,fraction);
             out.diffuse=add(out.diffuse,diffuse);
@@ -199,7 +197,7 @@ __device__ RtSignals rt_trace_hit(RtFrame f,const DCompactHit& primary,RtGuide& 
             if(!passthrough && material.type==int(MaterialType::Emissive)) break;
             const DVec3 outgoing=mul(ray.direction,-1);
             if(!passthrough && material.type!=int(MaterialType::Dielectric) && (bounce>0 || f.settings.direct_lighting)) {
-                const RtDirect d=rt_direct(f,hit,surface,outgoing,rng);
+                const RtDirect d=rt_direct(f,hit,surface,outgoing,rng,bounce+1<f.settings.max_bounces);
                 if(bounce==0) {
                     output.c[0]=add(output.c[0],d.diffuse); output.c[2]=add(output.c[2],d.specular);
                     output.direct=add(output.direct,add(d.diffuse,d.specular));

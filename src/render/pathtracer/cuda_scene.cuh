@@ -3521,7 +3521,9 @@ __device__ bool sample_emissive_shadow_task(
     DVec3 throughput,
     int pixel_index,
     Rng& rng,
-    DShadowTask& task) {
+    DShadowTask& task,
+    bool bsdf_sample = true,
+    DVec3* diffuse_fraction = nullptr) {
     if (scene.emissive_light_count <= 0 || scene.emissive_lights == nullptr) {
         return false;
     }
@@ -3687,7 +3689,15 @@ __device__ bool sample_emissive_shadow_task(
         surface.shading_normal,
         outgoing,
         light_direction);
-    const float mis_weight = power_heuristic(light_pdf, evaluated.pdf);
+    // A terminal RTRT vertex has no competing BSDF sample. The default keeps
+    // the offline integrator's existing MIS estimator unchanged.
+    const float mis_weight = bsdf_sample ? power_heuristic(light_pdf, evaluated.pdf) : 1.0f;
+    if (diffuse_fraction) {
+        *diffuse_fraction = v3(
+            evaluated.diffuse.x / fmaxf(evaluated.brdf.x, 1.0e-12f),
+            evaluated.diffuse.y / fmaxf(evaluated.brdf.y, 1.0e-12f),
+            evaluated.diffuse.z / fmaxf(evaluated.brdf.z, 1.0e-12f));
+    }
     DVec3 light_emission = light_material.emission;
     if (light_material.emissive_texture_id >= 0 &&
         light_material.emissive_texture_id < scene.texture_count) {
@@ -3741,7 +3751,9 @@ __device__ bool sample_environment_shadow_task(
     DVec3 throughput,
     int pixel_index,
     Rng& rng,
-    DShadowTask& task) {
+    DShadowTask& task,
+    bool bsdf_sample = true,
+    DVec3* diffuse_fraction = nullptr) {
     const float strategy_probability = environment_strategy_probability(scene);
     if (!(strategy_probability > 0.0f)) {
         return false;
@@ -3758,7 +3770,13 @@ __device__ bool sample_environment_shadow_task(
         surface.shading_normal,
         outgoing,
         light.direction);
-    const float mis_weight = power_heuristic(light_pdf, evaluated.pdf);
+    const float mis_weight = bsdf_sample ? power_heuristic(light_pdf, evaluated.pdf) : 1.0f;
+    if (diffuse_fraction) {
+        *diffuse_fraction = v3(
+            evaluated.diffuse.x / fmaxf(evaluated.brdf.x, 1.0e-12f),
+            evaluated.diffuse.y / fmaxf(evaluated.brdf.y, 1.0e-12f),
+            evaluated.diffuse.z / fmaxf(evaluated.brdf.z, 1.0e-12f));
+    }
     const DVec3 contribution = mul(
         product(product(throughput, evaluated.brdf), light.radiance),
         cosine * mis_weight * surface.occlusion / light_pdf);

@@ -1,0 +1,502 @@
+{
+  "baseline": "codex/optix-rtrt-optimization after the first optimization pass, before temporal stability fixes",
+  "environment": {
+    "gpu": "RTX 5080",
+    "driver": "616.64",
+    "cuda": "13.3",
+    "optix": "9.1",
+    "preset": "default-release"
+  },
+  "normal_detail": [
+    {
+      "variant": "svgf-native",
+      "before_rmse": 0.10844413972558527,
+      "after_rmse": 0.0024386321194279094,
+      "reduction_percent": 97.7512550465163
+    },
+    {
+      "variant": "svgf-half",
+      "before_rmse": 0.055346401989193265,
+      "after_rmse": 0.003342922528885568,
+      "reduction_percent": 93.96000027329998
+    },
+    {
+      "variant": "optix-native",
+      "before_rmse": 0.0072985564764930675,
+      "after_rmse": 9.232637216858353e-05,
+      "reduction_percent": 98.73500503194097
+    },
+    {
+      "variant": "optix-half",
+      "before_rmse": 0.047454203583275005,
+      "after_rmse": 0.0034287149037401403,
+      "reduction_percent": 92.7746866561078
+    }
+  ],
+  "cornell": {
+    "before": {
+      "frames": 48,
+      "raw_flicker_mse": 0.36344116975172724,
+      "raw_mse": 0.12361855448818007,
+      "reference_spp": 1024,
+      "static_flicker_mse": 0.001155369595556177,
+      "svgf_taa_mse": 0.013941638599140568,
+      "taau_50_mse": 0.012451817582123062
+    },
+    "after": {
+      "frames": 48,
+      "raw_flicker_mse": 0.36344116975172724,
+      "raw_mse": 0.12361855448818007,
+      "reference_spp": 1024,
+      "static_flicker_mse": 3.7540017603530615e-05,
+      "svgf_taa_mse": 0.010189187613983696,
+      "taau_50_mse": 0.00875156457534879
+    }
+  },
+  "camera_sequence": [
+    {
+      "display_static_rmse": 0.0010257690043890763,
+      "display_stopped_rmse": 0.001038871539223075,
+      "hdr_block_flicker_mse": 9.649501389293755e-06,
+      "variant": "svgf-native"
+    },
+    {
+      "display_static_rmse": 0.0010856276137515735,
+      "display_stopped_rmse": 0.001112106162468267,
+      "hdr_block_flicker_mse": 9.6871009661133e-06,
+      "variant": "svgf-half"
+    },
+    {
+      "display_static_rmse": 0.0008202163856382159,
+      "display_stopped_rmse": 0.0008149242718400242,
+      "hdr_block_flicker_mse": 2.888342028509356e-06,
+      "variant": "optix-native"
+    },
+    {
+      "display_static_rmse": 0.0015279528460082866,
+      "display_stopped_rmse": 0.0015306989099607316,
+      "hdr_block_flicker_mse": 1.922134811642227e-05,
+      "variant": "optix-half"
+    }
+  ],
+  "san_miguel": {
+    "svgf_before": {
+      "height": 180,
+      "reference_spp": 1024,
+      "results": [
+        {
+          "block_flicker_mse": 0.0006157134926907835,
+          "display_mse": 0.019324727866177782,
+          "energy_ratio": 0.9476725827120085,
+          "hdr_mse": 0.04964554702921947,
+          "name": "san-miguel-final.png",
+          "settings": {
+            "debug_view": 0,
+            "denoise": true,
+            "denoiser": "svgf",
+            "depth_sigma": 1.0,
+            "depth_threshold": 0.019999999552965164,
+            "diffuse_history": 32,
+            "diffuse_iterations": 5,
+            "direct_lighting": true,
+            "firefly_filter": true,
+            "firefly_sigma": 6.0,
+            "full_resolution_materials": true,
+            "history_clamping": true,
+            "history_sigma": 2.0,
+            "indirect_diffuse": true,
+            "internal_scale": 0.5,
+            "light_samples": 1,
+            "low_discrepancy": true,
+            "luminance_sigma": 4.0,
+            "max_bounces": 8,
+            "normal_power": 64.0,
+            "normal_threshold": 0.8500000238418579,
+            "reactive_strength": 1.0,
+            "reflections": true,
+            "roulette_start": 3,
+            "samples_per_pixel": 1,
+            "shader_execution_reordering": true,
+            "shadows": true,
+            "sharpening": 0.0,
+            "soft_shadows": true,
+            "specular_history": 16,
+            "specular_iterations": 3,
+            "split_dielectric": true,
+            "taa": true,
+            "taa_clip_sigma": 3.0,
+            "taa_current_weight": 0.029999999329447746,
+            "temporal": true,
+            "temporal_upscale": true,
+            "transmission": true,
+            "transmission_history": 4
+          },
+          "static_flicker_mse": 0.006692802186350405
+        }
+      ],
+      "width": 320
+    },
+    "svgf_after": {
+      "height": 180,
+      "reference_spp": 1024,
+      "results": [
+        {
+          "block_flicker_mse": 1.1814487257298521e-06,
+          "display_mse": 0.016083514452920833,
+          "energy_ratio": 0.9665765060615472,
+          "hdr_mse": 0.04242088587723563,
+          "name": "san-miguel-final.png",
+          "settings": {
+            "debug_view": 0,
+            "denoise": true,
+            "denoiser": "svgf",
+            "depth_sigma": 1.0,
+            "depth_threshold": 0.019999999552965164,
+            "diffuse_history": 32,
+            "diffuse_iterations": 5,
+            "direct_lighting": true,
+            "firefly_filter": true,
+            "firefly_sigma": 6.0,
+            "full_resolution_materials": true,
+            "history_clamping": true,
+            "history_sigma": 2.0,
+            "indirect_diffuse": true,
+            "internal_scale": 0.5,
+            "light_samples": 1,
+            "low_discrepancy": true,
+            "luminance_sigma": 4.0,
+            "max_bounces": 8,
+            "normal_power": 64.0,
+            "normal_threshold": 0.8500000238418579,
+            "reactive_strength": 1.0,
+            "reflections": true,
+            "roulette_start": 3,
+            "samples_per_pixel": 1,
+            "shader_execution_reordering": true,
+            "shadows": true,
+            "sharpening": 0.0,
+            "soft_shadows": true,
+            "specular_history": 16,
+            "specular_iterations": 3,
+            "split_dielectric": true,
+            "taa": true,
+            "taa_clip_sigma": 3.0,
+            "taa_current_weight": 0.029999999329447746,
+            "temporal": true,
+            "temporal_upscale": true,
+            "transmission": true,
+            "transmission_history": 4
+          },
+          "static_flicker_mse": 1.334678700814608e-05
+        }
+      ],
+      "width": 320
+    },
+    "optix_after": {
+      "height": 180,
+      "reference_spp": 1024,
+      "results": [
+        {
+          "block_flicker_mse": 6.154838245955699e-06,
+          "display_mse": 0.006216569797089337,
+          "energy_ratio": 1.1417825188172575,
+          "hdr_mse": 0.03581598511393254,
+          "name": "san-miguel-final.png",
+          "settings": {
+            "debug_view": 0,
+            "denoise": true,
+            "denoiser": "optix",
+            "depth_sigma": 1.0,
+            "depth_threshold": 0.019999999552965164,
+            "diffuse_history": 32,
+            "diffuse_iterations": 5,
+            "direct_lighting": true,
+            "firefly_filter": true,
+            "firefly_sigma": 6.0,
+            "full_resolution_materials": true,
+            "history_clamping": true,
+            "history_sigma": 2.0,
+            "indirect_diffuse": true,
+            "internal_scale": 0.5,
+            "light_samples": 1,
+            "low_discrepancy": true,
+            "luminance_sigma": 4.0,
+            "max_bounces": 8,
+            "normal_power": 64.0,
+            "normal_threshold": 0.8500000238418579,
+            "reactive_strength": 1.0,
+            "reflections": true,
+            "roulette_start": 3,
+            "samples_per_pixel": 1,
+            "shader_execution_reordering": true,
+            "shadows": true,
+            "sharpening": 0.0,
+            "soft_shadows": true,
+            "specular_history": 16,
+            "specular_iterations": 3,
+            "split_dielectric": true,
+            "taa": true,
+            "taa_clip_sigma": 3.0,
+            "taa_current_weight": 0.029999999329447746,
+            "temporal": true,
+            "temporal_upscale": true,
+            "transmission": true,
+            "transmission_history": 4
+          },
+          "static_flicker_mse": 6.68430413918326e-05
+        }
+      ],
+      "width": 320
+    }
+  },
+  "firefly": {
+    "before": {
+      "reference_spp": 2048,
+      "results": [
+        {
+          "energy_ratio": 0.9366175363609551,
+          "excess_luminance": 0.0030258587964923137,
+          "flicker_mse": 0.061088676521454666,
+          "hardware_rt": true,
+          "hdr_mse": 1.1585043423064534,
+          "material": "mirror",
+          "profile": "native",
+          "samples": 160768,
+          "spike_count": 207
+        },
+        {
+          "energy_ratio": 0.921461903012888,
+          "excess_luminance": 0.0015722076100101517,
+          "flicker_mse": 0.031062382609864318,
+          "hardware_rt": true,
+          "hdr_mse": 1.1770985916177326,
+          "material": "mirror",
+          "profile": "half",
+          "samples": 160768,
+          "spike_count": 124
+        },
+        {
+          "energy_ratio": 0.9495843178208994,
+          "excess_luminance": 0.0,
+          "flicker_mse": 0.00016488712833431164,
+          "hardware_rt": true,
+          "hdr_mse": 5.124740107454887,
+          "material": "glossy",
+          "profile": "native",
+          "samples": 160768,
+          "spike_count": 0
+        },
+        {
+          "energy_ratio": 1.0692235563539052,
+          "excess_luminance": 0.0,
+          "flicker_mse": 0.00014969764854069607,
+          "hardware_rt": true,
+          "hdr_mse": 7.410351895518589,
+          "material": "glossy",
+          "profile": "half",
+          "samples": 160768,
+          "spike_count": 0
+        },
+        {
+          "energy_ratio": 0.9997378702106211,
+          "excess_luminance": 0.0,
+          "flicker_mse": 0.0007857789052912586,
+          "hardware_rt": true,
+          "hdr_mse": 0.01044448431108565,
+          "material": "glass",
+          "profile": "native",
+          "samples": 160768,
+          "spike_count": 0
+        },
+        {
+          "energy_ratio": 0.9997661147387347,
+          "excess_luminance": 0.0,
+          "flicker_mse": 0.0007800391159288017,
+          "hardware_rt": true,
+          "hdr_mse": 0.010419258584848903,
+          "material": "glass",
+          "profile": "half",
+          "samples": 160768,
+          "spike_count": 0
+        }
+      ]
+    },
+    "after": {
+      "reference_spp": 2048,
+      "results": [
+        {
+          "energy_ratio": 0.9903618201544334,
+          "excess_luminance": 0.007215036369955084,
+          "flicker_mse": 0.005289150173834991,
+          "hardware_rt": true,
+          "hdr_mse": 0.35877338230637473,
+          "material": "mirror",
+          "profile": "native",
+          "samples": 160768,
+          "spike_count": 535
+        },
+        {
+          "energy_ratio": 0.9665478009432948,
+          "excess_luminance": 0.008040502456841386,
+          "flicker_mse": 0.002389544561767669,
+          "hardware_rt": true,
+          "hdr_mse": 0.5053637627072343,
+          "material": "mirror",
+          "profile": "half",
+          "samples": 160768,
+          "spike_count": 579
+        },
+        {
+          "energy_ratio": 0.9108912505171998,
+          "excess_luminance": 0.0,
+          "flicker_mse": 1.0495209496117245e-05,
+          "hardware_rt": true,
+          "hdr_mse": 4.9894873242700655,
+          "material": "glossy",
+          "profile": "native",
+          "samples": 160768,
+          "spike_count": 0
+        },
+        {
+          "energy_ratio": 1.0440823868936786,
+          "excess_luminance": 0.0,
+          "flicker_mse": 1.2969266392630752e-05,
+          "hardware_rt": true,
+          "hdr_mse": 7.348453512142995,
+          "material": "glossy",
+          "profile": "half",
+          "samples": 160768,
+          "spike_count": 0
+        },
+        {
+          "energy_ratio": 0.9998752898440387,
+          "excess_luminance": 0.0,
+          "flicker_mse": 3.019721969982251e-05,
+          "hardware_rt": true,
+          "hdr_mse": 0.009842744365916022,
+          "material": "glass",
+          "profile": "native",
+          "samples": 160768,
+          "spike_count": 0
+        },
+        {
+          "energy_ratio": 0.9999060541609536,
+          "excess_luminance": 0.0,
+          "flicker_mse": 2.8006774477654516e-05,
+          "hardware_rt": true,
+          "hdr_mse": 0.009799781052735938,
+          "material": "glass",
+          "profile": "half",
+          "samples": 160768,
+          "spike_count": 0
+        }
+      ]
+    }
+  },
+  "gpu_performance": [
+    {
+      "internal_scale": 1.0,
+      "moving": false,
+      "before": {
+        "gpu_p50_ms": 3.6479361057281494,
+        "gpu_p95_ms": 3.714848041534424,
+        "framebuffer_bytes": 454118400
+      },
+      "after": {
+        "gpu_p50_ms": 3.6804800033569336,
+        "gpu_p95_ms": 3.7406721115112305,
+        "framebuffer_bytes": 462412800
+      }
+    },
+    {
+      "internal_scale": 1.0,
+      "moving": true,
+      "before": {
+        "gpu_p50_ms": 3.6528639793395996,
+        "gpu_p95_ms": 3.71395206451416,
+        "framebuffer_bytes": 454118400
+      },
+      "after": {
+        "gpu_p50_ms": 3.686944007873535,
+        "gpu_p95_ms": 3.763711929321289,
+        "framebuffer_bytes": 462412800
+      }
+    },
+    {
+      "internal_scale": 0.5,
+      "moving": false,
+      "before": {
+        "gpu_p50_ms": 1.4854079484939575,
+        "gpu_p95_ms": 1.5077439546585083,
+        "framebuffer_bytes": 222912004
+      },
+      "after": {
+        "gpu_p50_ms": 1.5699520111083984,
+        "gpu_p95_ms": 1.6216959953308105,
+        "framebuffer_bytes": 231206404
+      }
+    },
+    {
+      "internal_scale": 0.5,
+      "moving": true,
+      "before": {
+        "gpu_p50_ms": 1.482848048210144,
+        "gpu_p95_ms": 1.5391039848327637,
+        "framebuffer_bytes": 222912004
+      },
+      "after": {
+        "gpu_p50_ms": 1.5753920078277588,
+        "gpu_p95_ms": 1.6444159746170044,
+        "framebuffer_bytes": 231206404
+      }
+    }
+  ],
+  "viewer_performance": [
+    {
+      "denoiser": "svgf",
+      "before": {
+        "count": 180,
+        "width": 1920,
+        "height": 1080,
+        "camera_motion": true,
+        "p50_ms": 15.329699516296387,
+        "p95_ms": 15.660500526428223,
+        "p99_ms": 16.15530014038086,
+        "over_16_667_ms": 0
+      },
+      "after": {
+        "count": 180,
+        "width": 1920,
+        "height": 1080,
+        "camera_motion": true,
+        "p50_ms": 15.629399299621582,
+        "p95_ms": 16.078399658203125,
+        "p99_ms": 16.300600051879883,
+        "over_16_667_ms": 0
+      }
+    },
+    {
+      "denoiser": "optix",
+      "before": {
+        "count": 180,
+        "width": 1920,
+        "height": 1080,
+        "camera_motion": true,
+        "p50_ms": 25.480499267578125,
+        "p95_ms": 25.965599060058594,
+        "p99_ms": 26.49700164794922,
+        "over_16_667_ms": 180
+      },
+      "after": {
+        "count": 180,
+        "width": 1920,
+        "height": 1080,
+        "camera_motion": true,
+        "p50_ms": 25.841800689697266,
+        "p95_ms": 26.30590057373047,
+        "p99_ms": 26.46969985961914,
+        "over_16_667_ms": 180
+      }
+    }
+  ]
+}

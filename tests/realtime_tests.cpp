@@ -43,6 +43,12 @@ void check_finite(const Framebuffer& f) {
         RENDER_CHECK(f.pixel(x,y).minCoeff()>=0);
     }
 }
+void require_neural_denoiser(const OptixRealtimeRenderer& renderer) {
+    if(renderer.statistics().realtime.optix_denoiser_active)return;
+    const auto& reason=renderer.statistics().realtime.optix_denoiser_detail;
+    if(std::getenv("RTRT_REQUIRE_OPTIX_DENOISER"))throw TestFailure{reason};
+    RENDER_SKIP(reason);
+}
 void translate(RenderSceneInstanceSnapshot& i, const Vec3& d) {
     i.object_to_world.topRightCorner<3,1>() += d;
     i.world_to_object=i.object_to_world.inverse();
@@ -156,6 +162,26 @@ RENDER_TEST(test_realtime_motion_jitter_slope_cut_and_object_history) {
     RENDER_CHECK(r.statistics().realtime.history_resets==2);
 }
 
+RENDER_TEST(test_realtime_spatial_filter_preserves_constant_at_partial_tiles) {
+    const auto context=device();auto scene=plane_scene();scene.materials[0].specular_factor=0;
+    scene.directional_lights.push_back(DirectionalLight{Vec3(0,0,-1),Color::Constant(3)});
+    const auto snapshot=make_render_scene_snapshot(scene);
+    const Color expected=scene.materials[0].base_color*(3.0f/3.14159265358979323846f);
+    // The light has zero angular radius, but soft_shadows remains enabled so
+    // direct light goes through the spatial filter instead of its bypass.
+    for(const auto size:{std::pair{1,1},std::pair{17,13},std::pair{33,9}})for(int passes:{1,2,5}) {
+        auto settings=small_settings(size.first);settings.height=size.second;
+        settings.realtime.taa=false;settings.realtime.temporal_upscale=false;
+        settings.realtime.diffuse_iterations=passes;settings.realtime.specular_iterations=passes;
+        OptixRealtimeRenderer renderer(context);Framebuffer frame(1,1);InteractiveFrameState state;
+        for(int sample=0;sample<3;++sample) {
+            renderer.render_next_frame(snapshot,front_camera(),settings,state,frame);check_finite(frame);
+            for(int y=0;y<frame.height();++y)for(int x=0;x<frame.width();++x)
+                RENDER_CHECK((frame.pixel(x,y)-expected).norm()<2e-5f);
+        }
+    }
+}
+
 RENDER_TEST(test_realtime_disocclusion_rejects_old_surface) {
     OptixRealtimeRenderer r(device()); auto s=small_settings();
     Scene scene; Material m; m.type=MaterialType::Emissive;m.emission=Color(2,0,0);scene.materials.push_back(m);
@@ -267,7 +293,14 @@ RENDER_TEST(test_realtime_offscreen_reflection_glass_and_alpha) {
     Material glass;glass.type=MaterialType::Dielectric;scene.materials.push_back(glass);
     scene.spheres.emplace_back(Vec3(0,0,-2),.5f,0);snapshot=make_render_scene_snapshot(scene);
     r.render_next_frame(snapshot,front_camera(),s,state,f);check_finite(f);
-    RENDER_CHECK((f.pixel(16,16)-scene.environment).norm()<.04f);export_frame("glass.png",f);
+    export_frame("glass.png",f);
+    // A lossless dielectric in a uniform environment must preserve radiance
+    // across the complete silhouette, including grazing refraction paths.
+    double glass_error=0;
+    for(int y=0;y<f.height();++y)for(int x=0;x<f.width();++x)
+        glass_error=std::max(glass_error,double((f.pixel(x,y)-scene.environment).norm()));
+    std::cout<<"Uniform glass max error: "<<glass_error<<'\n';
+    RENDER_CHECK(glass_error<.04);
     s.realtime.transmission=false;r.render_next_frame(snapshot,front_camera(),s,state,f);
     RENDER_CHECK(f.pixel(16,16).sum()<scene.environment.sum()*.3f);
     s.realtime.transmission=true;
@@ -537,6 +570,47 @@ RENDER_TEST(test_realtime_low_discrepancy_convergence) {
     RENDER_CHECK(total_error[1]<total_error[0]*.9);
 }
 
+RENDER_TEST(test_realtime_terminal_vertex_preserves_direct_light_energy) {
+    const auto context=device();auto settings=small_settings(32);
+    settings.realtime.denoise=false;settings.realtime.taa=false;settings.realtime.temporal_upscale=false;
+    settings.realtime.debug_view=RealtimeDebugView::Raw;settings.realtime.samples_per_pixel=32;
+    settings.path.max_bounces=4;settings.path.samples_per_pixel=4096;
+    nlohmann::json metrics=nlohmann::json::array();double largest_error=0;
+    for(bool area:{false,true}) {
+        auto scene=plane_scene();scene.materials[0].specular_factor=0;
+        scene.environment=area?Color::Zero().eval():Color(.6f,.8f,1.2f);
+        if(area) {
+            Material light;light.type=MaterialType::Emissive;light.emission=Color(2,3,4);
+            scene.materials.push_back(light);
+            // The light is behind the camera and subtends a broad solid angle.
+            scene.triangles.emplace_back(Vec3(-6,-6,1),Vec3(6,6,1),Vec3(6,-6,1),1);
+            scene.triangles.emplace_back(Vec3(-6,-6,1),Vec3(-6,6,1),Vec3(6,6,1),1);
+        }
+        const auto snapshot=make_render_scene_snapshot(scene);
+        const auto reference=render_cuda_path(snapshot,front_camera(),settings).image;
+        double reference_energy=0;
+        for(int y=0;y<32;++y)for(int x=0;x<32;++x)
+            reference_energy+=area?reference.pixel(x,y).sum():scene.materials[0].base_color.cwiseProduct(scene.environment).sum();
+        for(int depth:{1,4})for(int light_samples:{1,4}) {
+            settings.realtime.max_bounces=depth;settings.realtime.light_samples=light_samples;
+            OptixRealtimeRenderer renderer(context);Framebuffer frame(1,1),average(32,32);InteractiveFrameState state;
+            for(int sample=0;sample<16;++sample) {
+                renderer.render_next_frame(snapshot,front_camera(),settings,state,frame);check_finite(frame);
+                for(int y=0;y<32;++y)for(int x=0;x<32;++x)
+                    average.set_pixel(x,y,average.pixel(x,y)+frame.pixel(x,y)/16);
+            }
+            double energy=0;
+            for(int y=0;y<32;++y)for(int x=0;x<32;++x)energy+=average.pixel(x,y).sum();
+            const double ratio=energy/reference_energy;largest_error=std::max(largest_error,std::abs(ratio-1));
+            metrics.push_back({{"area_light",area},{"max_bounces",depth},{"light_samples",light_samples},{"energy_ratio",ratio}});
+            export_frame((std::string("terminal-")+(area?"area-":"environment-")+std::to_string(depth)+"-"+std::to_string(light_samples)+".png").c_str(),average);
+        }
+    }
+    export_metrics("terminal-energy.json",metrics);
+    std::cout<<"Terminal direct-light energy: "<<metrics.dump()<<'\n';
+    RENDER_CHECK(largest_error<.02);
+}
+
 RENDER_TEST(test_realtime_hardware_material_updates_and_instancing) {
     const auto context=device();OptixRealtimeRenderer hardware(context);
     // Exercise updates across the jitter sequence; exact shared-edge coverage
@@ -618,6 +692,112 @@ RENDER_TEST(test_realtime_full_resolution_texture_reconstruction) {
     RENDER_CHECK(old_error>1e-3 && new_error<old_error*.1);
 }
 
+RENDER_TEST(test_realtime_subpixel_normal_detail_is_temporally_stable) {
+    const auto context=device();Scene scene;Material material;
+    material.type=MaterialType::Pbr;material.base_color=Color(.7f,.5f,.3f);
+    material.normal_texture_id=0;material.roughness=1;material.specular_factor=0;
+    scene.materials.push_back(material);
+    scene.directional_lights.push_back(DirectionalLight{Vec3(-.7f,0,-1).normalized(),Color::Constant(3)});
+    std::vector<Color> normals;
+    for(int y=0;y<256;++y)for(int x=0;x<256;++x)
+        normals.push_back(Color((x/2+y/3)%2?.9f:.1f,.5f,.8f));
+    scene.textures.emplace_back(256,256,std::move(normals));
+    TriangleVertex vertices[4];
+    for(int i=0;i<4;++i) {
+        const int x=i==1 || i==2,y=i>=2;
+        vertices[i].position=Vec3(x?1.3f:-1.3f,y?1.3f:-1.3f,-3);
+        vertices[i].uv=Vec2(float(x),float(y));
+    }
+    scene.triangles.emplace_back(vertices[0],vertices[1],vertices[2],0);
+    scene.triangles.emplace_back(vertices[0],vertices[2],vertices[3],0);
+    const auto snapshot=make_render_scene_snapshot(scene);
+    nlohmann::json metrics=nlohmann::json::array();double worst=0;
+    for(auto denoiser:{RealtimeDenoiser::Svgf,RealtimeDenoiser::Optix})for(float scale:{1.0f,.5f}) {
+        OptixRealtimeRenderer renderer(context);auto settings=small_settings(96);
+        settings.realtime.denoiser=denoiser;settings.realtime.internal_scale=scale;
+        settings.realtime.max_bounces=1;settings.realtime.soft_shadows=false;
+        Framebuffer frame(1,1),previous(1,1);InteractiveFrameState state;
+        double flicker=0;const std::string label=std::string(denoiser==RealtimeDenoiser::Svgf?"svgf":"optix")+(scale==1?"-native":"-half");
+        for(int sample=0;sample<96;++sample) {
+            renderer.render_next_frame(snapshot,front_camera(),settings,state,frame);check_finite(frame);
+            if(denoiser==RealtimeDenoiser::Optix)require_neural_denoiser(renderer);
+            if(sample>=64) {
+                for(int y=8;y<88;++y)for(int x=8;x<88;++x)
+                    flicker+=(frame.pixel(x,y)-previous.pixel(x,y)).squaredNorm()/(32*3*80*80);
+                if(std::getenv("RTRT_STABILITY_SEQUENCE"))
+                    export_frame(("normal-"+label+"-"+std::to_string(sample)+".png").c_str(),frame);
+            }
+            previous=frame;
+        }
+        const double rms=std::sqrt(flicker);worst=std::max(worst,rms);
+        metrics.push_back({{"variant",label},{"static_flicker_rmse",rms}});
+        std::cout<<"Subpixel normal stability "<<label<<" RMSE="<<rms<<'\n';
+    }
+    export_metrics("normal-stability.json",metrics);
+    RENDER_CHECK(worst<.006);
+}
+
+RENDER_TEST(test_realtime_disabled_temporal_upscale_does_not_jitter) {
+    const auto context=device();auto scene=plane_scene(true);
+    // An off-center silhouette gives jitter an observable, deterministic edge.
+    scene.triangles.clear();
+    scene.triangles.emplace_back(Vec3(-.71f,-.8f,-3),Vec3(.63f,-.8f,-3),Vec3(.63f,.87f,-3),0);
+    scene.triangles.emplace_back(Vec3(-.71f,-.8f,-3),Vec3(.63f,.87f,-3),Vec3(-.71f,.87f,-3),0);
+    const auto snapshot=make_render_scene_snapshot(scene);double worst=0;
+    for(auto denoiser:{RealtimeDenoiser::Svgf,RealtimeDenoiser::Optix})for(bool materials:{false,true}) {
+        auto settings=small_settings(63);settings.realtime.internal_scale=.5f;
+        settings.realtime.denoiser=denoiser;settings.realtime.temporal=false;
+        settings.realtime.taa=true;settings.realtime.temporal_upscale=false;
+        settings.realtime.full_resolution_materials=materials;settings.realtime.max_bounces=1;
+        OptixRealtimeRenderer renderer(context);Framebuffer frame(1,1),previous(1,1);InteractiveFrameState state;
+        for(int sample=0;sample<12;++sample) {
+            renderer.render_next_frame(snapshot,front_camera(),settings,state,frame);
+            if(denoiser==RealtimeDenoiser::Optix)require_neural_denoiser(renderer);
+            if(sample>0)for(int y=0;y<63;++y)for(int x=0;x<63;++x)
+                worst=std::max(worst,double((frame.pixel(x,y)-previous.pixel(x,y)).norm()));
+            previous=frame;
+        }
+    }
+    std::cout<<"Disabled temporal upscaling: maximum pixel change="<<worst<<'\n';
+    RENDER_CHECK(worst<1e-6);
+}
+
+RENDER_TEST(test_realtime_denoiser_static_edges_and_camera_stop) {
+    const auto context=device();const auto snapshot=make_render_scene_snapshot(make_cornell_box_scene());
+    const auto camera=[](float x) {return Camera(Vec3(x,.15f,1.5f),Vec3(x,.15f,-2),Vec3::UnitY(),45,1);};
+    nlohmann::json metrics=nlohmann::json::array();double worst_static=0,worst_stop=0;
+    for(auto denoiser:{RealtimeDenoiser::Svgf,RealtimeDenoiser::Optix})for(float scale:{1.0f,.5f}) {
+        auto settings=small_settings(96);settings.realtime.denoiser=denoiser;settings.realtime.internal_scale=scale;
+        OptixRealtimeRenderer renderer(context);Framebuffer frame(1,1),previous(1,1);InteractiveFrameState state;
+        const std::string label=std::string(denoiser==RealtimeDenoiser::Svgf?"svgf":"optix")+(scale==1?"-native":"-half");
+        double flicker=0,stopped=0,blocks=0;DisplaySettings display;display.tone_mapper=ToneMapper::Aces;
+        for(int sample=0;sample<192;++sample) {
+            // Static convergence, continuous camera translation, then stopping
+            // without a cut. This exposes stale-history rebound and edge wobble.
+            const float x=sample<96?0:(sample<128?float(sample-95)*.002f:.064f);
+            renderer.render_next_frame(snapshot,camera(x),settings,state,frame);check_finite(frame);
+            if(denoiser==RealtimeDenoiser::Optix)require_neural_denoiser(renderer);
+            if((sample>=64 && sample<96) || sample>=160) {
+                double error=0;
+                for(int y=0;y<96;++y)for(int x=0;x<96;++x)
+                    error+=(apply_display_transform(frame.pixel(x,y),display)-apply_display_transform(previous.pixel(x,y),display)).squaredNorm()/(3*96*96);
+                if(sample<96) {flicker+=error/32;blocks+=block_difference(frame,previous)/32;}
+                else stopped+=error/32;
+            }
+            if(std::getenv("RTRT_STABILITY_SEQUENCE") && sample>=64)
+                export_frame(("edges-"+label+"-"+std::to_string(sample)+".png").c_str(),frame);
+            previous=frame;
+        }
+        worst_static=std::max(worst_static,std::sqrt(flicker));worst_stop=std::max(worst_stop,std::sqrt(stopped));
+        metrics.push_back({{"variant",label},{"display_static_rmse",std::sqrt(flicker)},
+            {"display_stopped_rmse",std::sqrt(stopped)},{"hdr_block_flicker_mse",blocks}});
+        std::cout<<"Camera stability "<<metrics.back().dump()<<'\n';
+        RENDER_CHECK(renderer.statistics().realtime.history_resets==1);
+    }
+    export_metrics("camera-stability.json",metrics);
+    RENDER_CHECK(worst_static<.0025 && worst_stop<.0025);
+}
+
 RENDER_TEST(test_realtime_shader_reordering_preserves_paths) {
     const auto context=device();const auto snapshot=make_render_scene_snapshot(make_cornell_box_scene());
     auto settings=small_settings(48);settings.realtime.debug_view=RealtimeDebugView::Raw;
@@ -668,13 +848,19 @@ RENDER_TEST(test_realtime_san_miguel_quality) {
         if(variant>=5){settings.realtime.taa_current_weight=.05f;settings.realtime.taa_clip_sigma=2.5f;}
         if(variant==6){settings.realtime.normal_power=16;settings.realtime.diffuse_iterations=3;}
         if(variant==7)settings.realtime=realtime_1080p_quality_settings();
+        if(const char* denoiser=std::getenv("RTRT_QUALITY_DENOISER");denoiser && std::string(denoiser)=="optix")
+            settings.realtime.denoiser=RealtimeDenoiser::Optix;
         OptixRealtimeRenderer renderer(context);Framebuffer frame(1,1),previous(1,1);InteractiveFrameState state;
         double flicker=0,blocks=0;
         for(int f=0;f<96;++f) {
             renderer.render_next_frame(snapshot,camera,settings,state,frame);check_finite(frame);
+            if(settings.realtime.denoiser==RealtimeDenoiser::Optix)
+                RENDER_CHECK(renderer.statistics().realtime.optix_denoiser_active);
             if(f>=80) {
                 blocks+=block_difference(frame,previous);
                 for(int y=0;y<height;++y)for(int x=0;x<width;++x)flicker+=(frame.pixel(x,y)-previous.pixel(x,y)).squaredNorm()/(3*width*height);
+                if(std::getenv("RTRT_STABILITY_SEQUENCE"))
+                    export_frame((std::string(name)+"-"+std::to_string(f)+".png").c_str(),frame);
             }
             previous=frame;
         }

@@ -34,16 +34,22 @@ struct RtInstance {
     unsigned long long asset_id;
 };
 struct RtGuide {
-    DVec3 normal{}, geometric{}, albedo{}, previous_normal{};
+    DVec3 normal{}, albedo{}, previous_normal{};
+    // Octahedral UNORM16 pairs keep both geometric normals without increasing
+    // the bandwidth of the 96-byte guide used by every lighting/filter pass.
+    unsigned geometric=0, previous_geometric=0;
     DVec2 motion{};
     float depth = 0, previous_depth = 0, roughness = 0, hit_distance = 0;
     unsigned long long object_id = 0, asset_id = 0;
     int material = -1, transparent = 0;
 };
+static_assert(sizeof(RtGuide)==96);
 struct RtOutputGuide {
     DVec3 normal{};
     float depth = 0;
     unsigned long long object_id = 0;
+    float history = 0;
+    int material = -1;
 };
 struct RtFrame {
     DScene scene;
@@ -57,6 +63,7 @@ struct RtFrame {
     unsigned long long hardware_scene=0;
     int deterministic_direct=0;
     int denoiser_reset=0;
+    int stationary=0;
 };
 struct RtOptixParameters {
     RtFrame frame;DCompactHit* primary;RtGuide* guides;RtSignals* signals;DVec3* emission=nullptr;
@@ -73,6 +80,25 @@ __device__ DVec3 rt_albedo(const RtGuide& g) {
     return v3(fmaxf(.04f,g.albedo.x),fmaxf(.04f,g.albedo.y),fmaxf(.04f,g.albedo.z));
 }
 __device__ DVec3 rt_mix(DVec3 a, DVec3 b, float t) { return add(mul(a,1-t),mul(b,t)); }
+__device__ unsigned rt_pack_normal(DVec3 n) {
+    n=divv(n,fabsf(n.x)+fabsf(n.y)+fabsf(n.z));
+    if(n.z<0) {
+        const float x=n.x;
+        n.x=(1-fabsf(n.y))*copysignf(1,n.x);n.y=(1-fabsf(x))*copysignf(1,n.y);
+    }
+    const unsigned x=unsigned(saturate(n.x*.5f+.5f)*65535+.5f);
+    const unsigned y=unsigned(saturate(n.y*.5f+.5f)*65535+.5f);
+    return x|(y<<16);
+}
+__device__ DVec3 rt_unpack_normal(unsigned packed) {
+    DVec3 n=v3(float(packed&65535)*(2.0f/65535)-1,float(packed>>16)*(2.0f/65535)-1,0);
+    n.z=1-fabsf(n.x)-fabsf(n.y);
+    if(n.z<0) {
+        const float x=n.x;
+        n.x=(1-fabsf(n.y))*copysignf(1,n.x);n.y=(1-fabsf(x))*copysignf(1,n.y);
+    }
+    return normalize(n);
+}
 __device__ DVec2 rt_project(const DCamera& c, DVec3 p, float& depth) {
     const DVec3 d = sub(p,c.eye);
     depth = dot(d,c.forward);

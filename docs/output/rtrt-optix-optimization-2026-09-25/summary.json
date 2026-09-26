@@ -1,0 +1,1258 @@
+{
+  "baseline_commit": "0b4945b",
+  "date": "2026-09-25",
+  "gpu": "NVIDIA GeForce RTX 5080",
+  "driver": "616.64",
+  "cuda": "13.3",
+  "compiler": "MSVC 14.51",
+  "build_preset": "default-release",
+  "gpu_timing_method": "Cornell 960x540, 24 warmup + 96 measured frames; median of three alternating runs, identical settings; synchronized GPU, no presentation",
+  "gpu_cases": [
+    {
+      "internal_scale": 1.0,
+      "moving": false,
+      "samples": 96,
+      "framebuffer_bytes": 454118400,
+      "before": {
+        "gpu_ms": {
+          "p50": 3.941472053527832,
+          "p95": 4.001376152038574,
+          "p99": 4.183104038238525
+        },
+        "cpu_submit_and_gpu_wait_ms": {
+          "p50": 3.9515,
+          "p95": 4.018,
+          "p99": 4.1915
+        },
+        "lighting_ms": {
+          "p50": 1.2680959701538086,
+          "p95": 1.2899199724197388,
+          "p99": 1.2929600477218628
+        },
+        "temporal_ms": {
+          "p50": 0.7840960025787354,
+          "p95": 0.792576014995575,
+          "p99": 0.7962239980697632
+        },
+        "atrous_ms": {
+          "p50": 1.443519949913025,
+          "p95": 1.451904058456421,
+          "p99": 1.6656960248947144
+        },
+        "reconstruction_ms": {
+          "p50": 0.2784000039100647,
+          "p95": 0.2804799973964691,
+          "p99": 0.28249600529670715
+        }
+      },
+      "after": {
+        "gpu_ms": {
+          "p50": 3.665087938308716,
+          "p95": 3.7278079986572266,
+          "p99": 3.9924159049987793
+        },
+        "cpu_submit_and_gpu_wait_ms": {
+          "p50": 3.677,
+          "p95": 3.7474,
+          "p99": 4.0211
+        },
+        "lighting_ms": {
+          "p50": 1.216096043586731,
+          "p95": 1.2313599586486816,
+          "p99": 1.2428159713745117
+        },
+        "temporal_ms": {
+          "p50": 0.7838079929351807,
+          "p95": 0.7922880053520203,
+          "p99": 0.7983999848365784
+        },
+        "atrous_ms": {
+          "p50": 1.2264000177383423,
+          "p95": 1.2323520183563232,
+          "p99": 1.2346240282058716
+        },
+        "reconstruction_ms": {
+          "p50": 0.27740800380706787,
+          "p95": 0.2810559868812561,
+          "p99": 0.2816320061683655
+        }
+      },
+      "p50_gpu_time_reduction_percent": 7.012205375698077
+    },
+    {
+      "internal_scale": 1.0,
+      "moving": true,
+      "samples": 96,
+      "framebuffer_bytes": 454118400,
+      "before": {
+        "gpu_ms": {
+          "p50": 3.939903974533081,
+          "p95": 4.006720066070557,
+          "p99": 4.220608234405518
+        },
+        "cpu_submit_and_gpu_wait_ms": {
+          "p50": 3.9487,
+          "p95": 4.0345,
+          "p99": 4.2315
+        },
+        "lighting_ms": {
+          "p50": 1.269055962562561,
+          "p95": 1.2918399572372437,
+          "p99": 1.3040319681167603
+        },
+        "temporal_ms": {
+          "p50": 0.7859839797019958,
+          "p95": 0.7944319844245911,
+          "p99": 1.0716160535812378
+        },
+        "atrous_ms": {
+          "p50": 1.443519949913025,
+          "p95": 1.4517439603805542,
+          "p99": 1.4578560590744019
+        },
+        "reconstruction_ms": {
+          "p50": 0.2784000039100647,
+          "p95": 0.28044798970222473,
+          "p99": 0.2815040051937103
+        }
+      },
+      "after": {
+        "gpu_ms": {
+          "p50": 3.6659200191497803,
+          "p95": 3.734112024307251,
+          "p99": 3.907423973083496
+        },
+        "cpu_submit_and_gpu_wait_ms": {
+          "p50": 3.6756,
+          "p95": 3.7633,
+          "p99": 3.9163
+        },
+        "lighting_ms": {
+          "p50": 1.2163519859313965,
+          "p95": 1.2305920124053955,
+          "p99": 1.2430720329284668
+        },
+        "temporal_ms": {
+          "p50": 0.7845759987831116,
+          "p95": 0.7939519882202148,
+          "p99": 1.0040960311889648
+        },
+        "atrous_ms": {
+          "p50": 1.2244160175323486,
+          "p95": 1.2304960489273071,
+          "p99": 1.2325760126113892
+        },
+        "reconstruction_ms": {
+          "p50": 0.2773759961128235,
+          "p95": 0.28041601181030273,
+          "p99": 0.2815040051937103
+        }
+      },
+      "p50_gpu_time_reduction_percent": 6.954076981426194
+    },
+    {
+      "internal_scale": 0.5,
+      "moving": false,
+      "samples": 96,
+      "framebuffer_bytes": 222912004,
+      "before": {
+        "gpu_ms": {
+          "p50": 1.573472023010254,
+          "p95": 1.6184959411621094,
+          "p99": 1.8173760175704956
+        },
+        "cpu_submit_and_gpu_wait_ms": {
+          "p50": 1.5835,
+          "p95": 1.6298,
+          "p99": 1.8267
+        },
+        "lighting_ms": {
+          "p50": 0.5041599869728088,
+          "p95": 0.5175679922103882,
+          "p99": 0.5264959931373596
+        },
+        "temporal_ms": {
+          "p50": 0.21456000208854675,
+          "p95": 0.2202879935503006,
+          "p99": 0.2213120013475418
+        },
+        "atrous_ms": {
+          "p50": 0.43593600392341614,
+          "p95": 0.44207999110221863,
+          "p99": 0.4481920003890991
+        },
+        "reconstruction_ms": {
+          "p50": 0.19443200528621674,
+          "p95": 0.19840000569820404,
+          "p99": 0.4453119933605194
+        }
+      },
+      "after": {
+        "gpu_ms": {
+          "p50": 1.488319993019104,
+          "p95": 1.5184639692306519,
+          "p99": 1.5616320371627808
+        },
+        "cpu_submit_and_gpu_wait_ms": {
+          "p50": 1.4971,
+          "p95": 1.5291,
+          "p99": 1.5929
+        },
+        "lighting_ms": {
+          "p50": 0.48822399973869324,
+          "p95": 0.49939200282096863,
+          "p99": 0.5086079835891724
+        },
+        "temporal_ms": {
+          "p50": 0.21481600403785706,
+          "p95": 0.219200000166893,
+          "p99": 0.22102400660514832
+        },
+        "atrous_ms": {
+          "p50": 0.37033599615097046,
+          "p95": 0.3744640052318573,
+          "p99": 0.37641599774360657
+        },
+        "reconstruction_ms": {
+          "p50": 0.19439999759197235,
+          "p95": 0.19644799828529358,
+          "p99": 0.1984959989786148
+        }
+      },
+      "p50_gpu_time_reduction_percent": 5.411728251020509
+    },
+    {
+      "internal_scale": 0.5,
+      "moving": true,
+      "samples": 96,
+      "framebuffer_bytes": 222912004,
+      "before": {
+        "gpu_ms": {
+          "p50": 1.5757440328598022,
+          "p95": 1.5983680486679077,
+          "p99": 1.6485120058059692
+        },
+        "cpu_submit_and_gpu_wait_ms": {
+          "p50": 1.5855,
+          "p95": 1.6067,
+          "p99": 1.6779
+        },
+        "lighting_ms": {
+          "p50": 0.5042240023612976,
+          "p95": 0.5149120092391968,
+          "p99": 0.5264319777488708
+        },
+        "temporal_ms": {
+          "p50": 0.21478399634361267,
+          "p95": 0.21900799870491028,
+          "p99": 0.22099199891090393
+        },
+        "atrous_ms": {
+          "p50": 0.43775999546051025,
+          "p95": 0.44409599900245667,
+          "p99": 0.4482240080833435
+        },
+        "reconstruction_ms": {
+          "p50": 0.1964160054922104,
+          "p95": 0.1984959989786148,
+          "p99": 0.20054399967193604
+        }
+      },
+      "after": {
+        "gpu_ms": {
+          "p50": 1.4818880558013916,
+          "p95": 1.5096319913864136,
+          "p99": 1.565824031829834
+        },
+        "cpu_submit_and_gpu_wait_ms": {
+          "p50": 1.491,
+          "p95": 1.5193,
+          "p99": 1.5934
+        },
+        "lighting_ms": {
+          "p50": 0.49033600091934204,
+          "p95": 0.4984000027179718,
+          "p99": 0.509663999080658
+        },
+        "temporal_ms": {
+          "p50": 0.21420800685882568,
+          "p95": 0.2189760059118271,
+          "p99": 0.22096000611782074
+        },
+        "atrous_ms": {
+          "p50": 0.36822399497032166,
+          "p95": 0.3724159896373749,
+          "p99": 0.37465599179267883
+        },
+        "reconstruction_ms": {
+          "p50": 0.1964160054922104,
+          "p95": 0.1984959989786148,
+          "p99": 0.1985280066728592
+        }
+      },
+      "p50_gpu_time_reduction_percent": 5.956295889508933
+    }
+  ],
+  "viewer_method": "San Miguel, 1920x1080, 50% internal, native materials, 1 spp, 8 bounces, SER, SVGF, moving camera; 60 warmup + 180 measured frames per run; full frame including UI and glFinish",
+  "viewer": {
+    "before": {
+      "runs": [
+        {
+          "count": 180,
+          "p50_ms": 15.728700637817383,
+          "p95_ms": 16.029300689697266,
+          "p99_ms": 16.46889877319336,
+          "over_16_667_ms": 0
+        },
+        {
+          "count": 180,
+          "p50_ms": 15.771899223327637,
+          "p95_ms": 16.26719856262207,
+          "p99_ms": 16.661699295043945,
+          "over_16_667_ms": 1
+        },
+        {
+          "count": 180,
+          "p50_ms": 15.756800651550293,
+          "p95_ms": 16.204299926757812,
+          "p99_ms": 16.629199981689453,
+          "over_16_667_ms": 1
+        }
+      ],
+      "median": {
+        "count": 180,
+        "p50_ms": 15.756800651550293,
+        "p95_ms": 16.204299926757812,
+        "p99_ms": 16.629199981689453,
+        "over_16_667_ms": 1
+      }
+    },
+    "after": {
+      "runs": [
+        {
+          "count": 180,
+          "p50_ms": 15.319000244140625,
+          "p95_ms": 15.732599258422852,
+          "p99_ms": 16.326099395751953,
+          "over_16_667_ms": 0
+        },
+        {
+          "count": 180,
+          "p50_ms": 15.34529972076416,
+          "p95_ms": 15.777400016784668,
+          "p99_ms": 16.303998947143555,
+          "over_16_667_ms": 1
+        },
+        {
+          "count": 180,
+          "p50_ms": 15.309800148010254,
+          "p95_ms": 15.663599967956543,
+          "p99_ms": 16.150699615478516,
+          "over_16_667_ms": 0
+        }
+      ],
+      "median": {
+        "count": 180,
+        "p50_ms": 15.319000244140625,
+        "p95_ms": 15.732599258422852,
+        "p99_ms": 16.303998947143555,
+        "over_16_667_ms": 0
+      }
+    },
+    "p50_frame_time_reduction_percent": 2.7784854114188073
+  },
+  "quality": {
+    "cornell": {
+      "before": {
+        "frames": 48,
+        "raw_flicker_mse": 0.36344007316942506,
+        "raw_mse": 0.12361788621806441,
+        "reference_spp": 1024,
+        "static_flicker_mse": 0.0011553693067308665,
+        "svgf_taa_mse": 0.013941643324599807,
+        "taau_50_mse": 0.012451829897608358
+      },
+      "after": {
+        "frames": 48,
+        "raw_flicker_mse": 0.36344116975172724,
+        "raw_mse": 0.12361855448818007,
+        "reference_spp": 1024,
+        "static_flicker_mse": 0.001155369595556177,
+        "svgf_taa_mse": 0.013941638599140568,
+        "taau_50_mse": 0.012451817582123062
+      }
+    },
+    "terminal_energy": {
+      "before": [
+        {
+          "area_light": false,
+          "energy_ratio": 0.18211062371693615,
+          "light_samples": 1,
+          "max_bounces": 1
+        },
+        {
+          "area_light": false,
+          "energy_ratio": 0.18210166776768183,
+          "light_samples": 4,
+          "max_bounces": 1
+        },
+        {
+          "area_light": false,
+          "energy_ratio": 0.9999230550692333,
+          "light_samples": 1,
+          "max_bounces": 4
+        },
+        {
+          "area_light": false,
+          "energy_ratio": 0.9998361882577381,
+          "light_samples": 4,
+          "max_bounces": 4
+        },
+        {
+          "area_light": true,
+          "energy_ratio": 0.49122147328909754,
+          "light_samples": 1,
+          "max_bounces": 1
+        },
+        {
+          "area_light": true,
+          "energy_ratio": 0.49123402686124695,
+          "light_samples": 4,
+          "max_bounces": 1
+        },
+        {
+          "area_light": true,
+          "energy_ratio": 0.9994983851619966,
+          "light_samples": 1,
+          "max_bounces": 4
+        },
+        {
+          "area_light": true,
+          "energy_ratio": 0.9994231778689662,
+          "light_samples": 4,
+          "max_bounces": 4
+        }
+      ],
+      "after": [
+        {
+          "area_light": false,
+          "energy_ratio": 1.000016404457292,
+          "light_samples": 1,
+          "max_bounces": 1
+        },
+        {
+          "area_light": false,
+          "energy_ratio": 1.0000308906974886,
+          "light_samples": 4,
+          "max_bounces": 1
+        },
+        {
+          "area_light": false,
+          "energy_ratio": 0.9999230550692333,
+          "light_samples": 1,
+          "max_bounces": 4
+        },
+        {
+          "area_light": false,
+          "energy_ratio": 0.9998361882577381,
+          "light_samples": 4,
+          "max_bounces": 4
+        },
+        {
+          "area_light": true,
+          "energy_ratio": 0.999435708215984,
+          "light_samples": 1,
+          "max_bounces": 1
+        },
+        {
+          "area_light": true,
+          "energy_ratio": 0.9992590645131892,
+          "light_samples": 4,
+          "max_bounces": 1
+        },
+        {
+          "area_light": true,
+          "energy_ratio": 0.9994983851619966,
+          "light_samples": 1,
+          "max_bounces": 4
+        },
+        {
+          "area_light": true,
+          "energy_ratio": 0.9994231778689662,
+          "light_samples": 4,
+          "max_bounces": 4
+        }
+      ]
+    },
+    "san_miguel": {
+      "before": {
+        "height": 180,
+        "reference_spp": 1024,
+        "results": [
+          {
+            "block_flicker_mse": 0.000615714157736238,
+            "display_mse": 0.019324748215028574,
+            "energy_ratio": 0.9476707623569472,
+            "hdr_mse": 0.04964556426970569,
+            "name": "san-miguel-final.png",
+            "settings": {
+              "debug_view": 0,
+              "denoise": true,
+              "denoiser": "svgf",
+              "depth_sigma": 1.0,
+              "depth_threshold": 0.019999999552965164,
+              "diffuse_history": 32,
+              "diffuse_iterations": 5,
+              "direct_lighting": true,
+              "firefly_filter": true,
+              "firefly_sigma": 6.0,
+              "full_resolution_materials": true,
+              "history_clamping": true,
+              "history_sigma": 2.0,
+              "indirect_diffuse": true,
+              "internal_scale": 0.5,
+              "light_samples": 1,
+              "low_discrepancy": true,
+              "luminance_sigma": 4.0,
+              "max_bounces": 8,
+              "normal_power": 64.0,
+              "normal_threshold": 0.8500000238418579,
+              "reactive_strength": 1.0,
+              "reflections": true,
+              "roulette_start": 3,
+              "samples_per_pixel": 1,
+              "shader_execution_reordering": true,
+              "shadows": true,
+              "sharpening": 0.0,
+              "soft_shadows": true,
+              "specular_history": 16,
+              "specular_iterations": 3,
+              "split_dielectric": true,
+              "taa": true,
+              "taa_clip_sigma": 3.0,
+              "taa_current_weight": 0.029999999329447746,
+              "temporal": true,
+              "temporal_upscale": true,
+              "transmission": true,
+              "transmission_history": 4
+            },
+            "static_flicker_mse": 0.006692815188645746
+          }
+        ],
+        "width": 320
+      },
+      "after": {
+        "height": 180,
+        "reference_spp": 1024,
+        "results": [
+          {
+            "block_flicker_mse": 0.0006157134926907835,
+            "display_mse": 0.019324727866177782,
+            "energy_ratio": 0.9476725827120085,
+            "hdr_mse": 0.04964554702921947,
+            "name": "san-miguel-final.png",
+            "settings": {
+              "debug_view": 0,
+              "denoise": true,
+              "denoiser": "svgf",
+              "depth_sigma": 1.0,
+              "depth_threshold": 0.019999999552965164,
+              "diffuse_history": 32,
+              "diffuse_iterations": 5,
+              "direct_lighting": true,
+              "firefly_filter": true,
+              "firefly_sigma": 6.0,
+              "full_resolution_materials": true,
+              "history_clamping": true,
+              "history_sigma": 2.0,
+              "indirect_diffuse": true,
+              "internal_scale": 0.5,
+              "light_samples": 1,
+              "low_discrepancy": true,
+              "luminance_sigma": 4.0,
+              "max_bounces": 8,
+              "normal_power": 64.0,
+              "normal_threshold": 0.8500000238418579,
+              "reactive_strength": 1.0,
+              "reflections": true,
+              "roulette_start": 3,
+              "samples_per_pixel": 1,
+              "shader_execution_reordering": true,
+              "shadows": true,
+              "sharpening": 0.0,
+              "soft_shadows": true,
+              "specular_history": 16,
+              "specular_iterations": 3,
+              "split_dielectric": true,
+              "taa": true,
+              "taa_clip_sigma": 3.0,
+              "taa_current_weight": 0.029999999329447746,
+              "temporal": true,
+              "temporal_upscale": true,
+              "transmission": true,
+              "transmission_history": 4
+            },
+            "static_flicker_mse": 0.006692802186350405
+          }
+        ],
+        "width": 320
+      }
+    },
+    "optix_denoiser": {
+      "before": [
+        {
+          "denoised_mse": 0.023316196765666906,
+          "denoiser_bytes": 23884492,
+          "energy_ratio": 1.0098140157754165,
+          "flicker_mse": 0.0036490322169445352,
+          "raw_mse": 0.08552387152963753,
+          "raw_surface_mse": 0.06295028359056745,
+          "settings": {
+            "debug_view": 0,
+            "denoise": true,
+            "denoiser": "optix",
+            "depth_sigma": 1.0,
+            "depth_threshold": 0.019999999552965164,
+            "diffuse_history": 32,
+            "diffuse_iterations": 5,
+            "direct_lighting": true,
+            "firefly_filter": true,
+            "firefly_sigma": 6.0,
+            "full_resolution_materials": true,
+            "history_clamping": true,
+            "history_sigma": 2.0,
+            "indirect_diffuse": true,
+            "internal_scale": 1.0,
+            "light_samples": 1,
+            "low_discrepancy": true,
+            "luminance_sigma": 4.0,
+            "max_bounces": 8,
+            "normal_power": 64.0,
+            "normal_threshold": 0.8500000238418579,
+            "reactive_strength": 1.0,
+            "reflections": true,
+            "roulette_start": 3,
+            "samples_per_pixel": 1,
+            "shader_execution_reordering": true,
+            "shadows": true,
+            "sharpening": 0.0,
+            "soft_shadows": true,
+            "specular_history": 16,
+            "specular_iterations": 3,
+            "split_dielectric": true,
+            "taa": false,
+            "taa_clip_sigma": 1.5,
+            "taa_current_weight": 0.15000000596046448,
+            "temporal": false,
+            "temporal_upscale": false,
+            "transmission": true,
+            "transmission_history": 4
+          },
+          "surface_mse": 0.0003823447647676214,
+          "variant": 0
+        },
+        {
+          "denoised_mse": 0.024978484052753984,
+          "denoiser_bytes": 24806540,
+          "energy_ratio": 0.9999233193719363,
+          "flicker_mse": 0.004896572204163992,
+          "raw_mse": 0.08552387152963753,
+          "raw_surface_mse": 0.06295028359056745,
+          "settings": {
+            "debug_view": 0,
+            "denoise": true,
+            "denoiser": "optix",
+            "depth_sigma": 1.0,
+            "depth_threshold": 0.019999999552965164,
+            "diffuse_history": 32,
+            "diffuse_iterations": 5,
+            "direct_lighting": true,
+            "firefly_filter": true,
+            "firefly_sigma": 6.0,
+            "full_resolution_materials": true,
+            "history_clamping": true,
+            "history_sigma": 2.0,
+            "indirect_diffuse": true,
+            "internal_scale": 1.0,
+            "light_samples": 1,
+            "low_discrepancy": true,
+            "luminance_sigma": 4.0,
+            "max_bounces": 8,
+            "normal_power": 64.0,
+            "normal_threshold": 0.8500000238418579,
+            "reactive_strength": 1.0,
+            "reflections": true,
+            "roulette_start": 3,
+            "samples_per_pixel": 1,
+            "shader_execution_reordering": true,
+            "shadows": true,
+            "sharpening": 0.0,
+            "soft_shadows": true,
+            "specular_history": 16,
+            "specular_iterations": 3,
+            "split_dielectric": true,
+            "taa": false,
+            "taa_clip_sigma": 1.5,
+            "taa_current_weight": 0.15000000596046448,
+            "temporal": true,
+            "temporal_upscale": false,
+            "transmission": true,
+            "transmission_history": 4
+          },
+          "surface_mse": 0.0003870694026876128,
+          "variant": 1
+        },
+        {
+          "denoised_mse": 0.061356045350956054,
+          "denoiser_bytes": 49308952,
+          "energy_ratio": 1.0734507526104196,
+          "flicker_mse": 0.0061126455637553305,
+          "raw_mse": 0.08634294222877571,
+          "raw_surface_mse": 0.022554573403196117,
+          "settings": {
+            "debug_view": 0,
+            "denoise": true,
+            "denoiser": "optix",
+            "depth_sigma": 1.0,
+            "depth_threshold": 0.019999999552965164,
+            "diffuse_history": 32,
+            "diffuse_iterations": 5,
+            "direct_lighting": true,
+            "firefly_filter": true,
+            "firefly_sigma": 6.0,
+            "full_resolution_materials": true,
+            "history_clamping": true,
+            "history_sigma": 2.0,
+            "indirect_diffuse": true,
+            "internal_scale": 0.5,
+            "light_samples": 1,
+            "low_discrepancy": true,
+            "luminance_sigma": 4.0,
+            "max_bounces": 8,
+            "normal_power": 64.0,
+            "normal_threshold": 0.8500000238418579,
+            "reactive_strength": 1.0,
+            "reflections": true,
+            "roulette_start": 3,
+            "samples_per_pixel": 1,
+            "shader_execution_reordering": true,
+            "shadows": true,
+            "sharpening": 0.0,
+            "soft_shadows": true,
+            "specular_history": 16,
+            "specular_iterations": 3,
+            "split_dielectric": true,
+            "taa": false,
+            "taa_clip_sigma": 1.5,
+            "taa_current_weight": 0.15000000596046448,
+            "temporal": true,
+            "temporal_upscale": false,
+            "transmission": true,
+            "transmission_history": 4
+          },
+          "surface_mse": 0.0007671248181891528,
+          "variant": 2
+        },
+        {
+          "denoised_mse": 0.14450022890547579,
+          "denoiser_bytes": 24170636,
+          "energy_ratio": 0.9292624981859339,
+          "flicker_mse": 0.010001144501339689,
+          "raw_mse": 0.14403494649211512,
+          "raw_surface_mse": 0.02135852296663958,
+          "settings": {
+            "debug_view": 0,
+            "denoise": true,
+            "denoiser": "optix",
+            "depth_sigma": 1.0,
+            "depth_threshold": 0.019999999552965164,
+            "diffuse_history": 32,
+            "diffuse_iterations": 5,
+            "direct_lighting": true,
+            "firefly_filter": true,
+            "firefly_sigma": 6.0,
+            "full_resolution_materials": false,
+            "history_clamping": true,
+            "history_sigma": 2.0,
+            "indirect_diffuse": true,
+            "internal_scale": 0.5,
+            "light_samples": 1,
+            "low_discrepancy": true,
+            "luminance_sigma": 4.0,
+            "max_bounces": 8,
+            "normal_power": 64.0,
+            "normal_threshold": 0.8500000238418579,
+            "reactive_strength": 1.0,
+            "reflections": true,
+            "roulette_start": 3,
+            "samples_per_pixel": 1,
+            "shader_execution_reordering": true,
+            "shadows": true,
+            "sharpening": 0.0,
+            "soft_shadows": true,
+            "specular_history": 16,
+            "specular_iterations": 3,
+            "split_dielectric": true,
+            "taa": false,
+            "taa_clip_sigma": 1.5,
+            "taa_current_weight": 0.15000000596046448,
+            "temporal": true,
+            "temporal_upscale": false,
+            "transmission": true,
+            "transmission_history": 4
+          },
+          "surface_mse": 0.0008307227029123813,
+          "variant": 3
+        }
+      ],
+      "after": [
+        {
+          "denoised_mse": 0.023302459934490087,
+          "denoiser_bytes": 23884492,
+          "energy_ratio": 1.0097786384568888,
+          "flicker_mse": 0.0036486901623278916,
+          "raw_mse": 0.08552460142511664,
+          "raw_surface_mse": 0.06295138997154255,
+          "settings": {
+            "debug_view": 0,
+            "denoise": true,
+            "denoiser": "optix",
+            "depth_sigma": 1.0,
+            "depth_threshold": 0.019999999552965164,
+            "diffuse_history": 32,
+            "diffuse_iterations": 5,
+            "direct_lighting": true,
+            "firefly_filter": true,
+            "firefly_sigma": 6.0,
+            "full_resolution_materials": true,
+            "history_clamping": true,
+            "history_sigma": 2.0,
+            "indirect_diffuse": true,
+            "internal_scale": 1.0,
+            "light_samples": 1,
+            "low_discrepancy": true,
+            "luminance_sigma": 4.0,
+            "max_bounces": 8,
+            "normal_power": 64.0,
+            "normal_threshold": 0.8500000238418579,
+            "reactive_strength": 1.0,
+            "reflections": true,
+            "roulette_start": 3,
+            "samples_per_pixel": 1,
+            "shader_execution_reordering": true,
+            "shadows": true,
+            "sharpening": 0.0,
+            "soft_shadows": true,
+            "specular_history": 16,
+            "specular_iterations": 3,
+            "split_dielectric": true,
+            "taa": false,
+            "taa_clip_sigma": 1.5,
+            "taa_current_weight": 0.15000000596046448,
+            "temporal": false,
+            "temporal_upscale": false,
+            "transmission": true,
+            "transmission_history": 4
+          },
+          "surface_mse": 0.0003823788578084884,
+          "variant": 0
+        },
+        {
+          "denoised_mse": 0.02493860577723493,
+          "denoiser_bytes": 24806540,
+          "energy_ratio": 0.999913030406851,
+          "flicker_mse": 0.004901220442888078,
+          "raw_mse": 0.08552460142511664,
+          "raw_surface_mse": 0.06295138997154255,
+          "settings": {
+            "debug_view": 0,
+            "denoise": true,
+            "denoiser": "optix",
+            "depth_sigma": 1.0,
+            "depth_threshold": 0.019999999552965164,
+            "diffuse_history": 32,
+            "diffuse_iterations": 5,
+            "direct_lighting": true,
+            "firefly_filter": true,
+            "firefly_sigma": 6.0,
+            "full_resolution_materials": true,
+            "history_clamping": true,
+            "history_sigma": 2.0,
+            "indirect_diffuse": true,
+            "internal_scale": 1.0,
+            "light_samples": 1,
+            "low_discrepancy": true,
+            "luminance_sigma": 4.0,
+            "max_bounces": 8,
+            "normal_power": 64.0,
+            "normal_threshold": 0.8500000238418579,
+            "reactive_strength": 1.0,
+            "reflections": true,
+            "roulette_start": 3,
+            "samples_per_pixel": 1,
+            "shader_execution_reordering": true,
+            "shadows": true,
+            "sharpening": 0.0,
+            "soft_shadows": true,
+            "specular_history": 16,
+            "specular_iterations": 3,
+            "split_dielectric": true,
+            "taa": false,
+            "taa_clip_sigma": 1.5,
+            "taa_current_weight": 0.15000000596046448,
+            "temporal": true,
+            "temporal_upscale": false,
+            "transmission": true,
+            "transmission_history": 4
+          },
+          "surface_mse": 0.0003872271084808184,
+          "variant": 1
+        },
+        {
+          "denoised_mse": 0.06132082960486419,
+          "denoiser_bytes": 49308952,
+          "energy_ratio": 1.0733113477447658,
+          "flicker_mse": 0.006115762490254477,
+          "raw_mse": 0.08634315362152929,
+          "raw_surface_mse": 0.022554872299726123,
+          "settings": {
+            "debug_view": 0,
+            "denoise": true,
+            "denoiser": "optix",
+            "depth_sigma": 1.0,
+            "depth_threshold": 0.019999999552965164,
+            "diffuse_history": 32,
+            "diffuse_iterations": 5,
+            "direct_lighting": true,
+            "firefly_filter": true,
+            "firefly_sigma": 6.0,
+            "full_resolution_materials": true,
+            "history_clamping": true,
+            "history_sigma": 2.0,
+            "indirect_diffuse": true,
+            "internal_scale": 0.5,
+            "light_samples": 1,
+            "low_discrepancy": true,
+            "luminance_sigma": 4.0,
+            "max_bounces": 8,
+            "normal_power": 64.0,
+            "normal_threshold": 0.8500000238418579,
+            "reactive_strength": 1.0,
+            "reflections": true,
+            "roulette_start": 3,
+            "samples_per_pixel": 1,
+            "shader_execution_reordering": true,
+            "shadows": true,
+            "sharpening": 0.0,
+            "soft_shadows": true,
+            "specular_history": 16,
+            "specular_iterations": 3,
+            "split_dielectric": true,
+            "taa": false,
+            "taa_clip_sigma": 1.5,
+            "taa_current_weight": 0.15000000596046448,
+            "temporal": true,
+            "temporal_upscale": false,
+            "transmission": true,
+            "transmission_history": 4
+          },
+          "surface_mse": 0.0007670343376457377,
+          "variant": 2
+        },
+        {
+          "denoised_mse": 0.1444681902649908,
+          "denoiser_bytes": 24170636,
+          "energy_ratio": 0.9294058394380477,
+          "flicker_mse": 0.010018457000811054,
+          "raw_mse": 0.14403513422022257,
+          "raw_surface_mse": 0.02135878948889939,
+          "settings": {
+            "debug_view": 0,
+            "denoise": true,
+            "denoiser": "optix",
+            "depth_sigma": 1.0,
+            "depth_threshold": 0.019999999552965164,
+            "diffuse_history": 32,
+            "diffuse_iterations": 5,
+            "direct_lighting": true,
+            "firefly_filter": true,
+            "firefly_sigma": 6.0,
+            "full_resolution_materials": false,
+            "history_clamping": true,
+            "history_sigma": 2.0,
+            "indirect_diffuse": true,
+            "internal_scale": 0.5,
+            "light_samples": 1,
+            "low_discrepancy": true,
+            "luminance_sigma": 4.0,
+            "max_bounces": 8,
+            "normal_power": 64.0,
+            "normal_threshold": 0.8500000238418579,
+            "reactive_strength": 1.0,
+            "reflections": true,
+            "roulette_start": 3,
+            "samples_per_pixel": 1,
+            "shader_execution_reordering": true,
+            "shadows": true,
+            "sharpening": 0.0,
+            "soft_shadows": true,
+            "specular_history": 16,
+            "specular_iterations": 3,
+            "split_dielectric": true,
+            "taa": false,
+            "taa_clip_sigma": 1.5,
+            "taa_current_weight": 0.15000000596046448,
+            "temporal": true,
+            "temporal_upscale": false,
+            "transmission": true,
+            "transmission_history": 4
+          },
+          "surface_mse": 0.0008309016107627356,
+          "variant": 3
+        }
+      ]
+    }
+  },
+  "image_comparisons": [
+    {
+      "image": "cornell-raw-1spp.png.pfm",
+      "max_absolute_difference": 0.003548145294189453,
+      "mse_between_versions": 5.373242559839203e-10,
+      "finite": true
+    },
+    {
+      "image": "cornell-reference-1024spp.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "cornell-svgf-taa.png.pfm",
+      "max_absolute_difference": 0.00012758374214172363,
+      "mse_between_versions": 3.709132322737907e-12,
+      "finite": true
+    },
+    {
+      "image": "cornell-svgf-taau-50.png.pfm",
+      "max_absolute_difference": 0.00022587180137634277,
+      "mse_between_versions": 3.290550350378904e-11,
+      "finite": true
+    },
+    {
+      "image": "disocclusion-after.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "disocclusion-before.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "glass.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "offscreen-mirror.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "optix-cornell-0.png.pfm",
+      "max_absolute_difference": 0.017882823944091797,
+      "mse_between_versions": 2.442492085430021e-07,
+      "finite": true
+    },
+    {
+      "image": "optix-cornell-1.png.pfm",
+      "max_absolute_difference": 0.026393413543701172,
+      "mse_between_versions": 3.496073553378692e-07,
+      "finite": true
+    },
+    {
+      "image": "optix-cornell-2.png.pfm",
+      "max_absolute_difference": 0.012541770935058594,
+      "mse_between_versions": 2.1806848183225692e-07,
+      "finite": true
+    },
+    {
+      "image": "optix-cornell-3.png.pfm",
+      "max_absolute_difference": 0.012125015258789062,
+      "mse_between_versions": 3.093926867695152e-07,
+      "finite": true
+    },
+    {
+      "image": "optix-glass-half.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "optix-glass-native.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "optix-input-0.png.pfm",
+      "max_absolute_difference": 0.0030518770217895508,
+      "mse_between_versions": 4.4287713703093704e-10,
+      "finite": true
+    },
+    {
+      "image": "optix-input-1.png.pfm",
+      "max_absolute_difference": 0.0030518770217895508,
+      "mse_between_versions": 4.4287713703093704e-10,
+      "finite": true
+    },
+    {
+      "image": "optix-input-2.png.pfm",
+      "max_absolute_difference": 0.0005701184272766113,
+      "mse_between_versions": 6.653948638358117e-11,
+      "finite": true
+    },
+    {
+      "image": "optix-input-3.png.pfm",
+      "max_absolute_difference": 0.0005701780319213867,
+      "mse_between_versions": 6.609367426030573e-11,
+      "finite": true
+    },
+    {
+      "image": "optix-mirror-half.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "optix-mirror-native.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "optix-reference-512spp.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "rough-reflection-settled.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "san-miguel-final.png.pfm",
+      "max_absolute_difference": 0.0007960125803947449,
+      "mse_between_versions": 5.5081500952766616e-11,
+      "finite": true
+    },
+    {
+      "image": "san-miguel-reference.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "shadow-cover-reference.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "shadow-cover.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "shadow-reveal-reference.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "shadow-reveal.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "terminal-area-1-1.png.pfm",
+      "max_absolute_difference": 0.5653833150863647,
+      "mse_between_versions": 0.22181270870281056,
+      "finite": true
+    },
+    {
+      "image": "terminal-area-1-4.png.pfm",
+      "max_absolute_difference": 0.5686336159706116,
+      "mse_between_versions": 0.2216532371429143,
+      "finite": true
+    },
+    {
+      "image": "terminal-area-4-1.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "terminal-area-4-4.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "terminal-environment-1-1.png.pfm",
+      "max_absolute_difference": 0.3453044667840004,
+      "mse_between_versions": 0.08785826228104189,
+      "finite": true
+    },
+    {
+      "image": "terminal-environment-1-4.png.pfm",
+      "max_absolute_difference": 0.3455418646335602,
+      "mse_between_versions": 0.08786327716523341,
+      "finite": true
+    },
+    {
+      "image": "terminal-environment-4-1.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    },
+    {
+      "image": "terminal-environment-4-4.png.pfm",
+      "max_absolute_difference": 0.0,
+      "mse_between_versions": 0.0,
+      "finite": true
+    }
+  ],
+  "validation": {
+    "cuda_ctest": "11 passed, 0 failed",
+    "no_cuda_ctest": "11 passed, 1 skipped (OptiX interop); this existing configuration includes benchmark_tests",
+    "realtime_with_performance": "28 passed, 2 optional skipped; San Miguel quality run separately",
+    "san_miguel_reference": "320x180, offline 1024 spp, quality preset variant 7, 96 frames",
+    "compute_sanitizer": {
+      "status": "partial",
+      "full_run": "First run failed with CUDA 999 in offline reference resolve_frame_kernel. A separate realtime sweep failed with OptiX 7900 / CUDA 999 in the SER comparison test. Later failures in each process occurred after the CUDA context became unusable.",
+      "baseline_reproduction": "Pristine 0b4945b binary reproduces OptiX 7900 / CUDA 999 in shader_reordering_preserves_paths under memcheck + RTRT_OPTIX_VALIDATE=1, including with force-synchronization-limit=64. No attribution to this optimization is established.",
+      "logs": "build/optix-optimization/memcheck*.log",
+      "passed": {
+        "tests": [
+          "spatial_filter_preserves_constant_at_partial_tiles",
+          "offscreen_reflection_glass_and_alpha"
+        ],
+        "passed": 2,
+        "errors": 0,
+        "leaked_bytes": 0,
+        "options": "RTRT_OPTIX_VALIDATE=1; --tool memcheck --force-synchronization-limit 64 --check-optix-leaks --leak-check full --error-exitcode 99",
+        "log": "build/optix-optimization/memcheck-filter.log"
+      },
+      "additional_failure": "Native optics worklist case also triggered OptiX 7900 / CUDA 999 under memcheck; no complete memory validation claim."
+    }
+  }
+}

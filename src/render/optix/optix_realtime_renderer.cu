@@ -29,12 +29,6 @@ __device__ float rt_gradient(const RtGuide* g,int i,int w,int h) {
     if(y+1<h && rt_same_surface(g[i],g[i+w])) dy=fminf(dy,fabsf(g[i].depth-g[i+w].depth));
     return (dx<1e19f?dx:0)+(dy<1e19f?dy:0);
 }
-__device__ bool rt_neighbor(const RtGuide* g,int p,int q,int w,float gradient,float normal_limit=.8f) {
-    if(!rt_same_surface(g[p],g[q],normal_limit)) return false;
-    const int distance=abs(p%w-q%w)+abs(p/w-q/w);
-    const float tolerance=.02f*fmaxf(g[p].depth,1e-3f)+gradient*float(distance+1);
-    return fabsf(g[p].depth-g[q].depth)<=tolerance;
-}
 __device__ DVec3 rt_demodulate(DVec3 color,const RtGuide& guide,int channel) {
     return channel<2?rt_divide(color,rt_albedo(guide)):color;
 }
@@ -248,10 +242,58 @@ __global__ void rt_temporal(RtFrame f,const RtGuide* guides,const RtGuide* previ
     diagnostic.history=h.length[1]; history[i]=h; temporal[i]=t; diagnostics[i]=diagnostic;
 }
 
+struct RtAtrousGuide {
+    DVec3 normal;float depth;
+    unsigned long long object_id,asset_id;
+    int material;float roughness;
+};
+__device__ RtAtrousGuide rt_atrous_guide(const RtGuide& g) {
+    return {g.normal,g.depth,g.object_id,g.asset_id,g.material,g.roughness};
+}
+struct RtAtrousSample {
+    DVec3 c[3];float variance[3];
+    // A 13-float stride avoids the 16-way bank conflicts of RtFiltered (64 B).
+    float padding;
+};
+static_assert(sizeof(RtAtrousSample)==13*sizeof(float));
+__device__ RtAtrousSample rt_atrous_sample(const RtFiltered& s) {
+    RtAtrousSample result{};
+    #pragma unroll
+    for(int c=0;c<3;++c) {result.c[c]=s.c[c];result.variance[c]=s.variance[c];}
+    return result;
+}
+
+// The two dense 5x5 passes share their halo instead of reloading it for every
+// pixel and signal. Coarse, sparse passes keep direct global reads. Keep the
+// stencil, accumulation order and first-pass history feedback identical.
+template<int FineIteration=-1>
 __global__ void rt_atrous(RtFrame f,const RtGuide* guides,const RtFiltered* input,RtFiltered* output,
     RtHistory* feedback,int iteration) {
-    const int i=int(blockIdx.x*blockDim.x+threadIdx.x);
-    if(i>=f.width*f.height) return;
+    static_assert(FineIteration>=-1 && FineIteration<=1);
+    constexpr int halo=FineIteration==0?2:(FineIteration==1?4:0);
+    constexpr int stride=kPrepareWidth+2*halo;
+    constexpr int tile_size=FineIteration>=0?stride*(kPrepareHeight+2*halo):1;
+    __shared__ RtAtrousGuide tile_guides[tile_size];
+    __shared__ RtAtrousSample tile_signals[tile_size];
+    int ix,iy,tile_center=0;
+    if constexpr(FineIteration>=0) {
+        const int tx=int(threadIdx.x),ty=int(threadIdx.y);
+        const int ox=int(blockIdx.x)*kPrepareWidth,oy=int(blockIdx.y)*kPrepareHeight;
+        for(int p=ty*kPrepareWidth+tx;p<tile_size;p+=kPrepareWidth*kPrepareHeight) {
+            const int x=min(f.width-1,max(0,ox+p%stride-halo));
+            const int y=min(f.height-1,max(0,oy+p/stride-halo));
+            const int q=y*f.width+x;
+            tile_guides[p]=rt_atrous_guide(guides[q]);tile_signals[p]=rt_atrous_sample(input[q]);
+        }
+        __syncthreads();
+        ix=ox+tx;iy=oy+ty;tile_center=(ty+halo)*stride+tx+halo;
+        iteration=FineIteration;
+    } else {
+        const int index=int(blockIdx.x*blockDim.x+threadIdx.x);
+        ix=index%f.width;iy=index/f.width;
+    }
+    if(ix>=f.width || iy>=f.height) return;
+    const int i=iy*f.width+ix;
     const int step=1<<iteration; const RtGuide g=guides[i]; RtFiltered result{};
     if(g.depth<=0) {
         output[i]=input[i];
@@ -270,10 +312,13 @@ __global__ void rt_atrous(RtFrame f,const RtGuide* guides,const RtFiltered* inpu
         const int qx=i%f.width+x,qy=i/f.width+y;
         if(qx<0 || qy<0 || qx>=f.width || qy>=f.height) continue;
         const int q=qy*f.width+qx;
-        if(!rt_neighbor(guides,i,q,f.width,gradient)) continue;
+        const auto neighbor=FineIteration>=0?tile_guides[tile_center+y*stride+x]:rt_atrous_guide(guides[q]);
+        const float tolerance=.02f*fmaxf(g.depth,1e-3f)+gradient*float(abs(x)+abs(y)+1);
+        if(!rt_same_surface(g,neighbor) || fabsf(g.depth-neighbor.depth)>tolerance) continue;
+        const auto sample=FineIteration>=0?tile_signals[tile_center+y*stride+x]:rt_atrous_sample(input[q]);
         const float w=float((x==0?2:1)*(y==0?2:1));
         #pragma unroll
-        for(int c=0;c<3;++c) local_variance[c]+=w*input[q].variance[c];
+        for(int c=0;c<3;++c) local_variance[c]+=w*sample.variance[c];
         local_weight+=w;
     }
     #pragma unroll
@@ -294,8 +339,11 @@ __global__ void rt_atrous(RtFrame f,const RtGuide* guides,const RtFiltered* inpu
         for(int y=-radius;y<=radius;++y) for(int x=-radius;x<=radius;++x) {
             const int qx=i%f.width+x*step,qy=i/f.width+y*step;
             if(qx<0 || qx>=f.width || qy<0 || qy>=f.height) continue;
-            const int q=qy*f.width+qx; const RtGuide neighbor=guides[q];
+            const int q=qy*f.width+qx;
+            const int tq=tile_center+(y*stride+x)*step;
+            const auto neighbor=FineIteration>=0?tile_guides[tq]:rt_atrous_guide(guides[q]);
             if(!rt_same_surface(g,neighbor,0)) continue;
+            const auto sample=FineIteration>=0?tile_signals[tq]:rt_atrous_sample(input[q]);
             const float depth_scale=f.settings.depth_sigma*(gradient*float(step*(abs(x)+abs(y)))+.002f*fmaxf(g.depth,.001f))+1e-6f;
             // Fetch and evaluate geometry once for all three filtered signals.
             const float spatial=radius==2?kernel[x+2]*kernel[y+2]:float((x==0?2:1)*(y==0?2:1));
@@ -304,10 +352,10 @@ __global__ void rt_atrous(RtFrame f,const RtGuide* guides,const RtFiltered* inpu
             #pragma unroll
             for(int c=0;c<3;++c) {
                 if(!active[c]) continue;
-                float w=geometry_weight*__expf(-fabsf(lp[c]-rt_luma(input[q].c[c]))/sigma[c]);
+                float w=geometry_weight*__expf(-fabsf(lp[c]-rt_luma(sample.c[c]))/sigma[c]);
                 if(c==2) w*=__expf(-fabsf(g.roughness-neighbor.roughness)*16);
-                sum[c]=add(sum[c],mul(input[q].c[c],w));
-                variance[c]+=input[q].variance[c]*w*w; weights[c]+=w;
+                sum[c]=add(sum[c],mul(sample.c[c],w));
+                variance[c]+=sample.variance[c]*w*w; weights[c]+=w;
             }
         }
     }
@@ -366,7 +414,13 @@ __global__ void rt_optix_unpack_aovs(int count,const RtGuide* guides,const DVec3
     output[i]=value;
 }
 
-__global__ void rt_optix_guides(RtFrame f,const RtGuide* guides,const RtOutputGuide* previous,OptixDenoiserGuides output) {
+__device__ RtOutputGuide rt_denoiser_previous(const RtGuide& g) {
+    return {g.depth>0?rt_unpack_normal(g.geometric):v3(0,0,0),g.depth,g.object_id,0,g.material};
+}
+__device__ RtOutputGuide rt_denoiser_previous(const RtOutputGuide& g) {return g;}
+
+template<class PreviousGuide>
+__global__ void rt_optix_guides(RtFrame f,const RtGuide* guides,const PreviousGuide* previous,OptixDenoiserGuides output) {
     const int i=int(blockIdx.x*blockDim.x+threadIdx.x);
     if(i>=f.width*f.height)return;
     const RtGuide g=guides[i];
@@ -379,37 +433,46 @@ __global__ void rt_optix_guides(RtFrame f,const RtGuide* guides,const RtOutputGu
     if(!output.flow)return;
     const DVec2 old=rt_history_pixel(f,i,g);
     const bool valid_flow=f.valid_history && g.previous_depth>=0 && isfinite(old.x) && isfinite(old.y) &&
-        old.x>=0 && old.y>=0 && old.x<f.width && old.y<f.height;
+        old.x>-.5f && old.y>-.5f && old.x<f.width-.5f && old.y<f.height-.5f;
     // RTRT stores current-to-previous UVs. OptiX expects the opposite direction
     // in pixel units, including the change in sample jitter on both axes.
     reinterpret_cast<DVec2*>(output.flow)[i]=valid_flow?
         DVec2{float(i%f.width)-old.x,float(i/f.width)-old.y}:DVec2{0,0};
     float trust=0;
-    const float u=(float(i%f.width)+.5f+f.jitter.x)/f.width+g.motion.x;
-    const float v=(float(i/f.width)+.5f+f.jitter.y)/f.height+g.motion.y;
-    const int x=int(floorf(u*f.output_width)),y=int(floorf(v*f.output_height));
-    if(valid_flow && !f.denoiser_reset &&
-        x>=0 && y>=0 && x<f.output_width && y<f.output_height) {
-        const RtOutputGuide old_guide=previous[y*f.output_width+x];
-        bool valid=(g.depth>0)==(old_guide.depth>0);
-        if(g.depth>0) {
-            const float tolerance=f.settings.depth_threshold*fmaxf(g.previous_depth,1e-3f)+2*rt_gradient(guides,i,f.width,f.height);
-            valid=valid && g.object_id==old_guide.object_id &&
-                dot(g.previous_normal,old_guide.normal)>=f.settings.normal_threshold &&
+    if(valid_flow && !f.denoiser_reset) {
+        // Validate the exact jittered grid used by previousOutput, not the
+        // unrelated unjittered TAA output (which can also have another size).
+        const int bx=int(floorf(old.x)),by=int(floorf(old.y));
+        const float fx=old.x-bx,fy=old.y-by;
+        const float tolerance=f.settings.depth_threshold*fmaxf(g.previous_depth,1e-3f)+2*rt_gradient(guides,i,f.width,f.height);
+        for(int y=0;y<2;++y)for(int x=0;x<2;++x) {
+            const int qx=bx+x,qy=by+y;
+            if(qx<0 || qy<0 || qx>=f.width || qy>=f.height)continue;
+            const RtOutputGuide old_guide=rt_denoiser_previous(previous[qy*f.width+qx]);
+            bool valid=(g.depth>0)==(old_guide.depth>0);
+            if(g.depth>0)valid=valid && g.object_id==old_guide.object_id && g.material==old_guide.material &&
+                dot(rt_unpack_normal(g.previous_geometric),old_guide.normal)>=f.settings.normal_threshold &&
                 fabsf(g.previous_depth-old_guide.depth)<=tolerance;
-            // First-surface flow does not track reflected/refracted geometry.
-            if(g.transparent || g.roughness<.2f)valid=false;
+            if(valid)trust+=(x?fx:1-fx)*(y?fy:1-fy);
         }
+        // In a static scene the jitter flow also tracks sharp optics. During
+        // motion first-surface flow cannot track secondary reflected geometry.
+        if(!f.stationary && (g.transparent || g.roughness<.2f))trust=0;
         // Moving objects can alter shadows away from their primary footprint.
         // Retain some matched history but respond promptly to those changes.
-        trust=valid?(f.shading_changed?.25f:1.0f):0.0f;
+        if(f.shading_changed)trust*=.25f;
     }
     output.trustworthiness[i]=trust;
 }
 
-__global__ void rt_optix_finish(int count,const RtGuide* guides,const DVec3* noisy,DVec3* denoised,bool sharp_only) {
+__global__ void rt_optix_finish(int count,const RtGuide* guides,const DVec3* noisy,const DVec3* denoised,
+    DVec3* result,bool sharp_only,RtOutputGuide* saved_guides) {
     const int i=int(blockIdx.x*blockDim.x+threadIdx.x);
-    if(i<count)denoised[i]=guides[i].depth<=0 || (sharp_only && !rt_sharp_optics(guides[i]))?noisy[i]:rt_safe(denoised[i]);
+    if(i>=count)return;
+    // previousOutput must remain paired with OptiX's internal guide history.
+    // Compositing native materials into that buffer corrupts the next invoke.
+    result[i]=guides[i].depth<=0 || (sharp_only && !rt_sharp_optics(guides[i]))?noisy[i]:rt_safe(denoised[i]);
+    if(saved_guides)saved_guides[i]=rt_denoiser_previous(guides[i]);
 }
 #endif
 __device__ int rt_guide_index(RtFrame f,int x,int y) {
@@ -426,6 +489,7 @@ __global__ void rt_resolve_materials(RtFrame f,const RtGuide* guides,const RtSig
     if(i>=f.output_width*f.output_height)return;
     const RtGuide g=native_guides[i];
     if(g.depth<=0 || rt_sharp_optics(g)){output[i]=emission[i];return;}
+    const DVec3 geometric=rt_unpack_normal(g.geometric);
     const float px=(float(i%f.output_width)+.5f+f.jitter.x)*f.width/f.output_width-.5f-f.jitter.x;
     const float py=(float(i/f.output_width)+.5f+f.jitter.y)*f.height/f.output_height-.5f-f.jitter.y;
     const int bx=int(floorf(px)),by=int(floorf(py));const float fx=px-bx,fy=py-by;
@@ -437,7 +501,7 @@ __global__ void rt_resolve_materials(RtFrame f,const RtGuide* guides,const RtSig
         const float w=(x?fx:1-fx)*(y?fy:1-fy);
         fallback=add(fallback,mul(composed[q],w));
         if(g.transparent || old.transparent || old.depth<=0 || g.object_id!=old.object_id ||
-            g.material!=old.material || dot(g.geometric,old.geometric)<.8f || fabsf(g.depth-old.depth)>tolerance)continue;
+            g.material!=old.material || dot(geometric,rt_unpack_normal(old.geometric))<.8f || fabsf(g.depth-old.depth)>tolerance)continue;
         const RtFiltered value=filtered[q];
         diffuse=add(diffuse,mul(f.deterministic_direct?value.c[1]:add(value.c[0],value.c[1]),w));
         other=add(other,mul(add(value.c[2],value.c[3]),w));weight+=w;
@@ -469,17 +533,15 @@ __global__ void rt_reconstruct(RtFrame f,const RtGuide* guides,const DVec3* comp
         current=add(current,mul(composed[q],w)); sumw+=w;
     }
     current=sumw>1e-5f?divv(current,sumw):composed[center];
-    DVec3 mean{},second{}; float count=0;
-    for(int y=-1;y<=1;++y) for(int x=-1;x<=1;++x) {
-        const int q=rt_guide_index(f,center%f.width+x,center/f.width+y);
-        const DVec3 c=composed[q];
-        mean=add(mean,c); second=add(second,product(c,c)); count+=1;
-    }
-    mean=divv(mean,fmaxf(count,1)); second=divv(second,fmaxf(count,1));
-    DVec3 history_color{}; float history_weight=0;
+    DVec3 history_color{}; float history_weight=0,history_length=0;
     const bool upscale=f.settings.internal_scale<1;
     const bool temporal_enabled=upscale?f.settings.temporal_upscale:f.settings.taa;
-    if(f.valid_history && temporal_enabled && g.previous_depth>=0) {
+    if(f.valid_history && temporal_enabled && f.stationary) {
+        // With an unchanged camera and scene, this output pixel covers the
+        // same footprint even when jitter selects another side of an edge.
+        // Testing the single sampled surface here discards antialiasing history.
+        history_color=previous_color[i];history_weight=1;history_length=previous_guide[i].history;
+    } else if(f.valid_history && temporal_enabled && g.previous_depth>=0) {
         // Final history is unjittered: do not apply the input jitter correction twice.
         const float ox=(u+g.motion.x)*f.output_width-.5f,oy=(v+g.motion.y)*f.output_height-.5f;
         const int x0=int(floorf(ox)),y0=int(floorf(oy)); const float tx=ox-x0,ty=oy-y0;
@@ -489,22 +551,34 @@ __global__ void rt_reconstruct(RtFrame f,const RtGuide* guides,const DVec3* comp
             if(qx<0 || qy<0 || qx>=f.output_width || qy>=f.output_height) continue;
             const int q=qy*f.output_width+qx; const RtOutputGuide old=previous_guide[q];
             bool valid=(g.depth>0)==(old.depth>0);
-            if(g.depth>0) valid=valid && g.object_id==old.object_id && dot(g.previous_normal,old.normal)>f.settings.normal_threshold &&
+            // Coverage history follows geometry. A normal map sampled at a
+            // different subpixel position must not masquerade as disocclusion.
+            if(g.depth>0) valid=valid && g.object_id==old.object_id && g.material==old.material &&
+                dot(rt_unpack_normal(g.previous_geometric),old.normal)>f.settings.normal_threshold &&
                 fabsf(g.previous_depth-old.depth)<=tolerance;
             if(!valid) continue;
             const float w=(x?tx:1-tx)*(y?ty:1-ty); history_color=add(history_color,mul(previous_color[q],w)); history_weight+=w;
+            history_length+=old.history*w;
         }
     }
     if(history_weight>1e-5f) {
         history_color=divv(history_color,history_weight);
-        const DVec3 variance=sub(second,product(mean,mean));
-        const DVec3 sigma=v3(sqrtf(fmaxf(0,variance.x)),sqrtf(fmaxf(0,variance.y)),sqrtf(fmaxf(0,variance.z)));
-        const float k=f.settings.taa_clip_sigma;
-        const bool sharp=g.transparent || g.roughness<.06f;
-        history_color=v3(
-            fminf(fmaxf(history_color.x,sharp?0:mean.x-k*sigma.x),mean.x+k*sigma.x),
-            fminf(fmaxf(history_color.y,sharp?0:mean.y-k*sigma.y),mean.y+k*sigma.y),
-            fminf(fmaxf(history_color.z,sharp?0:mean.z-k*sigma.z),mean.z+k*sigma.z));
+        if(!f.stationary) {
+            DVec3 mean{},second{};
+            for(int y=-1;y<=1;++y)for(int x=-1;x<=1;++x) {
+                const DVec3 c=composed[rt_guide_index(f,center%f.width+x,center/f.width+y)];
+                mean=add(mean,c);second=add(second,product(c,c));
+            }
+            mean=divv(mean,9);second=divv(second,9);
+            const DVec3 variance=sub(second,product(mean,mean));
+            const DVec3 sigma=v3(sqrtf(fmaxf(0,variance.x)),sqrtf(fmaxf(0,variance.y)),sqrtf(fmaxf(0,variance.z)));
+            const float k=f.settings.taa_clip_sigma;
+            const bool sharp=g.transparent || g.roughness<.06f;
+            history_color=v3(
+                fminf(fmaxf(history_color.x,sharp?0:mean.x-k*sigma.x),mean.x+k*sigma.x),
+                fminf(fmaxf(history_color.y,sharp?0:mean.y-k*sigma.y),mean.y+k*sigma.y),
+                fminf(fmaxf(history_color.z,sharp?0:mean.z-k*sigma.z),mean.z+k*sigma.z));
+        }
         const float dx=(float(center%f.width)+.5f)*diagnostic_width/f.width-.5f;
         const float dy=(float(center/f.width)+.5f)*diagnostic_height/f.height-.5f;
         float reactive=0;
@@ -524,9 +598,20 @@ __global__ void rt_reconstruct(RtFrame f,const RtGuide* guides,const DVec3* comp
             current_weight=1.0f/(1.0f/current_weight+f.settings.specular_history-1);
         float alpha=fmaxf(current_weight,reactive);
         if(g.transparent) alpha=fmaxf(alpha,f.settings.split_dielectric?.15f:.5f);
+        // In a stationary scene all frame differences are sampling noise and
+        // changing pixel coverage, not new shading. Do not clip a converged
+        // result to one noisy/jittered neighborhood or restart it reactively.
+        // Ramp history in after motion so stopping the camera cannot freeze an
+        // old view; edits, animation and camera motion retain the reactive path.
+        if(f.stationary && f.settings.denoise && f.settings.temporal && current_weight<1) {
+            const float limit=fmaxf(1/current_weight,float(f.settings.diffuse_history));
+            history_length=fminf(limit,history_length/history_weight+1);
+            alpha=fminf(current_weight,1/history_length);
+        } else history_length=1;
         current=rt_mix(history_color,current,alpha);
-    }
-    color[i]=rt_safe(current); output_guide[i]={g.normal,g.depth,g.object_id};
+    } else history_length=1;
+    color[i]=rt_safe(current);
+    output_guide[i]={g.depth>0?rt_unpack_normal(g.geometric):v3(0,0,0),g.depth,g.object_id,history_length,g.material};
 }
 
 __global__ void rt_present(RtFrame f,const DVec3* resolved,const RtGuide* guides,const RtSignals* raw,
@@ -707,9 +792,15 @@ public:
             optical_count_.resize_exact(material_count?1:0,statistics_);
             material_emission_.resize_exact(material_count,statistics_);material_composed_.resize_exact(material_count,statistics_);
         }
+        const std::size_t neural_guide_count=neural_requested?material_count:0;
+        if(material_previous_guides_.size()!=neural_guide_count) {
+            check_cuda(cudaStreamSynchronize(stream_),"resize OptiX material history guides");
+            material_previous_guides_.resize_exact(neural_guide_count,statistics_);
+        }
         statistics_.realtime.framebuffer_bytes=std::size_t(w)*h*(2*sizeof(RtGuide)+2*sizeof(RtHistory)+3*sizeof(RtFiltered)+sizeof(RtPrepared)+sizeof(DVec3)+sizeof(DCompactHit)+sizeof(RtSignals)+sizeof(RealtimeDiagnosticPixel))+
             std::size_t(settings.width)*settings.height*(3*sizeof(DVec3)+2*sizeof(RtOutputGuide))+
-            material_count*(sizeof(RtGuide)+2*sizeof(DVec3)+sizeof(DCompactHit)+sizeof(int))+(material_count?sizeof(unsigned):0);
+            material_count*(sizeof(RtGuide)+2*sizeof(DVec3)+sizeof(DCompactHit)+sizeof(int))+(material_count?sizeof(unsigned):0)+
+            neural_guide_count*sizeof(RtOutputGuide);
         if(neural_requested) {
             if(!denoiser_)denoiser_=std::make_unique<OptixRealtimeDenoiser>(context_);
             const auto generation=denoiser_->allocation_generation();
@@ -753,13 +844,16 @@ public:
         instances_.upload(instance_host_,stream_,statistics_);
         const int write=1-index_;
         const unsigned long long sequence=statistics_.realtime.frames+1;
-        const bool jitter_enabled=s.taa || (s.temporal_upscale && s.internal_scale<1);
+        const bool jitter_enabled=s.internal_scale<1?s.temporal_upscale:s.taa;
         const DVec2 jitter=jitter_enabled?DVec2{rt_halton(sequence%1024+1,2)-.5f,rt_halton(sequence%1024+1,3)-.5f}:DVec2{0,0};
         RtFrame f{scene_->view(),rt_camera(camera),valid_?previous_camera_:rt_camera(camera),instances_.get(),s,
             width_,height_,output_width_,output_height_,sequence,settings.path.sample_seed_offset,jitter,previous_jitter_,valid_?1:0,
             shading_changed?1:0};
         f.settings.denoiser=neural?RealtimeDenoiser::Optix:RealtimeDenoiser::Svgf;
         f.denoiser_reset=neural_shading_changed?1:0;
+        const auto same_vector=[](DVec3 a,const Vec3& b) {return a.x==b.x() && a.y==b.y() && a.z==b.z();};
+        f.stationary=valid_ && changes==SceneChange::None && same_vector(previous_camera_.eye,camera.eye()) &&
+            same_vector(previous_camera_.forward,camera.forward()) && same_vector(previous_camera_.up,camera.up());
         f.deterministic_direct=!s.soft_shadows && f.scene.emissive_light_count==0 &&
             (f.scene.environment_intensity<=0 || (!f.scene.environment_texels &&
                 f.scene.environment.x<=0 && f.scene.environment.y<=0 && f.scene.environment.z<=0));
@@ -814,7 +908,7 @@ public:
                 // illumination separate so native textures can be remodulated.
                 rt_optix_pack_aovs<<<blocks,kThreadsPerBlock,0,stream_>>>(width_*height_,guides_[write].get(),input,
                     static_cast<DVec3*>(lighting_denoiser_->aov_input()));
-                rt_optix_guides<<<blocks,kThreadsPerBlock,0,stream_>>>(f,guides_[write].get(),output_guides_[index_].get(),lighting_denoiser_->guides());
+                rt_optix_guides<<<blocks,kThreadsPerBlock,0,stream_>>>(f,guides_[write].get(),guides_[index_].get(),lighting_denoiser_->guides());
                 neural=lighting_denoiser_->invoke(composed_.get(),f.valid_history!=0,reinterpret_cast<CudaStreamHandle>(stream_));
                 if(neural) {
                     rt_optix_unpack_aovs<<<blocks,kThreadsPerBlock,0,stream_>>>(width_*height_,guides_[write].get(),
@@ -829,13 +923,17 @@ public:
             const auto* noisy=full_materials?material_composed_.get():composed_.get();
             const int nb=full_materials?output_blocks:blocks;
             if(neural) {
-                rt_optix_guides<<<nb,kThreadsPerBlock,0,stream_>>>(nf,ng,output_guides_[index_].get(),denoiser_->guides());
+                if(full_materials)
+                    rt_optix_guides<<<nb,kThreadsPerBlock,0,stream_>>>(nf,ng,material_previous_guides_.get(),denoiser_->guides());
+                else rt_optix_guides<<<nb,kThreadsPerBlock,0,stream_>>>(nf,ng,guides_[index_].get(),denoiser_->guides());
                 neural=denoiser_->invoke(noisy,f.valid_history!=0,reinterpret_cast<CudaStreamHandle>(stream_));
                 if(!neural)failure=denoiser_->reason();
             }
             if(neural) {
-                neural_output=static_cast<const DVec3*>(denoiser_->output());
-                rt_optix_finish<<<nb,kThreadsPerBlock,0,stream_>>>(nf.width*nf.height,ng,noisy,const_cast<DVec3*>(neural_output),full_materials);
+                auto* finished=full_materials?material_composed_.get():composed_.get();
+                rt_optix_finish<<<nb,kThreadsPerBlock,0,stream_>>>(nf.width*nf.height,ng,noisy,
+                    static_cast<const DVec3*>(denoiser_->output()),finished,full_materials,full_materials?material_previous_guides_.get():nullptr);
+                neural_output=finished;
             } else {
                 // Rebuild this frame with SVGF on failure, without mixing either
                 // denoiser's history into the fallback or output TAA.
@@ -853,7 +951,10 @@ public:
         const int iterations=s.denoise && !neural?std::max(s.diffuse_iterations,s.specular_iterations):0;
         for(int pass=0;pass<iterations;++pass) {
             RtFiltered* out=filter_[pass%2].get();
-            rt_atrous<<<blocks,kThreadsPerBlock,0,stream_>>>(f,guides_[write].get(),input,out,history_[write].get(),pass); input=out;
+            if(pass==0)rt_atrous<0><<<prepare_blocks,prepare_threads,0,stream_>>>(f,guides_[write].get(),input,out,history_[write].get(),pass);
+            else if(pass==1)rt_atrous<1><<<prepare_blocks,prepare_threads,0,stream_>>>(f,guides_[write].get(),input,out,history_[write].get(),pass);
+            else rt_atrous<><<<blocks,kThreadsPerBlock,0,stream_>>>(f,guides_[write].get(),input,out,history_[write].get(),pass);
+            input=out;
         }
         if(timing) { timers_[3].end(stream_); timers_[4].begin(stream_); }
         if(!neural) {
@@ -908,6 +1009,7 @@ public:
     std::unique_ptr<OptixRealtimeDenoiser> lighting_denoiser_;
     std::array<DeviceBuffer<RtGuide>,2> guides_;
     DeviceBuffer<RtGuide> material_guides_;
+    DeviceBuffer<RtOutputGuide> material_previous_guides_;
     DeviceBuffer<DCompactHit> material_primary_;
     DeviceBuffer<int> optical_pixels_;
     DeviceBuffer<unsigned> optical_count_;
