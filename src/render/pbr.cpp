@@ -27,9 +27,10 @@ Color fresnel_schlick(float cosine, const Color& f0, const Color& f90) {
 float ggx_distribution(float n_dot_h, float alpha) {
     const float alpha_squared = alpha * alpha;
     const float denominator =
-        n_dot_h * n_dot_h * (alpha_squared - 1.0f) + 1.0f;
-    return alpha_squared /
-        std::max(kPi * denominator * denominator, 1.0e-12f);
+        (1.0f-n_dot_h)*(1.0f+n_dot_h)+alpha_squared*n_dot_h*n_dot_h;
+    // Keep the normalized peak of very smooth lobes and avoid cancellation.
+    // evaluate_pbr clamps perceptual roughness to at least .02.
+    return alpha_squared / (kPi * denominator * denominator);
 }
 
 float smith_g1(float n_dot_v, float alpha) {

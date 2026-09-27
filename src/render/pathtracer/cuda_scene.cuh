@@ -2972,8 +2972,11 @@ __device__ DVec3 fresnel_schlick(float cosine, DVec3 f0, DVec3 f90) {
 __device__ float ggx_distribution(float n_dot_h, float alpha) {
     const float alpha_squared = alpha * alpha;
     const float denominator =
-        n_dot_h * n_dot_h * (alpha_squared - 1.0f) + 1.0f;
-    return alpha_squared / fmaxf(kPi * denominator * denominator, 1.0e-12f);
+        (1.0f-n_dot_h)*(1.0f+n_dot_h)+alpha_squared*n_dot_h*n_dot_h;
+    // At perceptual roughness .02 the valid denominator is below 1e-12.
+    // Clamping it removes most of the lobe's energy. This form also avoids
+    // cancellation of alpha^2 near N.H=1. Callers clamp roughness above zero.
+    return alpha_squared / (kPi * denominator * denominator);
 }
 
 __device__ float smith_g1(float n_dot_v, float alpha) {
@@ -3203,7 +3206,8 @@ __device__ bool scatter(
     DVec3& attenuation,
     DRay& scattered,
     float& bsdf_pdf,
-    int& was_delta) {
+    int& was_delta,
+    DVec3* diffuse_fraction = nullptr) {
     if (material.type == static_cast<int>(MaterialType::Diffuse) ||
         material.type == static_cast<int>(MaterialType::Metal) ||
         material.type == static_cast<int>(MaterialType::Pbr)) {
@@ -3246,6 +3250,11 @@ __device__ bool scatter(
             return false;
         }
         attenuation = mul(evaluated.brdf, cosine / evaluated.pdf);
+        if(diffuse_fraction) {
+            *diffuse_fraction=v3(evaluated.diffuse.x/fmaxf(evaluated.brdf.x,1e-20f),
+                evaluated.diffuse.y/fmaxf(evaluated.brdf.y,1e-20f),
+                evaluated.diffuse.z/fmaxf(evaluated.brdf.z,1e-20f));
+        }
         scattered = DRay{offset_origin(hit.position, hit.geometric_normal, direction), direction};
         bsdf_pdf = evaluated.pdf;
         was_delta = 0;

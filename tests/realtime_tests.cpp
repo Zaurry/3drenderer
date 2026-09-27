@@ -97,7 +97,7 @@ RENDER_TEST(test_realtime_settings_roundtrip_and_sanitization) {
     RealtimeRenderSettings s; s.internal_scale=.5f; s.diffuse_history=48; s.specular_iterations=0;
     s.transmission=false; s.debug_view=RealtimeDebugView::Motion; s.sharpening=.3f;
     s.low_discrepancy=false;s.full_resolution_materials=false;s.shader_execution_reordering=false;
-    s.split_dielectric=false;
+    s.split_dielectric=false;s.specular_antialiasing=false;s.regularize_indirect=false;
     s.denoiser=RealtimeDenoiser::Optix;
     RENDER_CHECK(parse_realtime_settings(realtime_settings_json(s))==s);
     RENDER_CHECK(realtime_settings_json(s).at("denoiser")=="optix");
@@ -164,6 +164,9 @@ RENDER_TEST(test_realtime_motion_jitter_slope_cut_and_object_history) {
 
 RENDER_TEST(test_realtime_spatial_filter_preserves_constant_at_partial_tiles) {
     const auto context=device();auto scene=plane_scene();scene.materials[0].specular_factor=0;
+    // Also exercise the footprint filter's halo and inactive lanes at borders.
+    scene.materials[0].normal_texture_id=0;
+    scene.textures.emplace_back(1,1,std::vector<Color>{Color(.5f,.5f,1)});
     scene.directional_lights.push_back(DirectionalLight{Vec3(0,0,-1),Color::Constant(3)});
     const auto snapshot=make_render_scene_snapshot(scene);
     const Color expected=scene.materials[0].base_color*(3.0f/3.14159265358979323846f);
@@ -395,10 +398,12 @@ RENDER_TEST(test_realtime_performance_distribution) {
 }
 
 RENDER_TEST(test_realtime_secondary_reflection_motion_responds_without_reset) {
+    for(auto denoiser:{RealtimeDenoiser::Svgf,RealtimeDenoiser::Optix}) {
     for(float roughness:{.45f,.02f}) {
     for(bool upscale:{false,true}) {
     OptixRealtimeRenderer renderer(device());auto settings=small_settings(64);
     if(upscale)settings.realtime=realtime_1080p_quality_settings();
+    settings.realtime.denoiser=denoiser;
     settings.realtime.direct_lighting=false;settings.realtime.max_bounces=3;
     auto scene=plane_scene();scene.environment=Color::Zero();
     scene.materials[0].type=MaterialType::Metal;
@@ -418,6 +423,7 @@ RENDER_TEST(test_realtime_secondary_reflection_motion_responds_without_reset) {
         return mean/256;
     };
     for(int i=0;i<48;++i)renderer.render_next_frame(snapshot,front_camera(),settings,state,frame);
+    if(denoiser==RealtimeDenoiser::Optix)require_neural_denoiser(renderer);
     const double before=patch(frame);RENDER_CHECK(before>.7);
     translate(snapshot.instances.back(),Vec3(1000,0,0));++snapshot.revisions.transforms;
     // The mirror's primary surface and material remain unchanged. Only the
@@ -430,6 +436,7 @@ RENDER_TEST(test_realtime_secondary_reflection_motion_responds_without_reset) {
     export_metrics(report,{{"before",before},{"after_8_frames",after}});
     RENDER_CHECK(after<before*.1);
     RENDER_CHECK(renderer.statistics().realtime.history_resets==1);
+    }
     }
     }
 }
@@ -813,6 +820,155 @@ RENDER_TEST(test_realtime_shader_reordering_preserves_paths) {
     }
 }
 
+RENDER_TEST(test_realtime_wet_normal_highlight_stability) {
+    const auto context=device();Scene scene;Material material;material.type=MaterialType::Pbr;
+    material.base_color=Color::Constant(.025f);material.roughness=.02f;material.normal_texture_id=0;
+    scene.materials.push_back(material);
+    scene.directional_lights.push_back(DirectionalLight{Vec3(0,0,-1),Color::Constant(80)});
+    std::vector<Color> normals;
+    for(int y=0;y<256;++y)for(int x=0;x<256;++x) {
+        const Vec3 n=Vec3(.07f*std::sin(x*1.7f+y*.3f),.035f*std::cos(y*1.3f-x*.2f),1).normalized();
+        normals.push_back((n+Vec3::Ones())*.5f);
+    }
+    scene.textures.emplace_back(256,256,std::move(normals));TriangleVertex vertices[4];
+    for(int i=0;i<4;++i) {
+        const int x=i==1 || i==2,y=i>=2;
+        vertices[i].position=Vec3(x?1.3f:-1.3f,y?1.3f:-1.3f,-3);vertices[i].uv=Vec2(float(x),float(y));
+    }
+    scene.triangles.emplace_back(vertices[0],vertices[1],vertices[2],0);
+    scene.triangles.emplace_back(vertices[0],vertices[2],vertices[3],0);
+    const auto snapshot=make_render_scene_snapshot(scene);nlohmann::json results=nlohmann::json::array();double worst=0;
+    if(std::getenv("RTRT_WET_REFERENCE")) {
+        auto settings=small_settings(96);settings.path.samples_per_pixel=4096;settings.path.max_bounces=2;
+        const auto reference=render_cuda_path(snapshot,front_camera(),settings).image;Framebuffer ref(96,96);double energy=0;
+        for(int y=0;y<96;++y)for(int x=0;x<96;++x) {
+            ref.set_pixel(x,y,reference.pixel(x,y));
+            if(x>=8 && x<88 && y>=8 && y<88)energy+=reference.pixel(x,y).sum()/(3*80*80);
+        }
+        export_frame("wet-reference.png",ref);
+        std::cout<<"Wet highlight reference mean radiance "<<energy<<'\n';
+        export_metrics("wet-reference.json",{{"mean_radiance",energy},{"spp",4096}});
+    }
+    for(auto denoiser:{RealtimeDenoiser::Svgf,RealtimeDenoiser::Optix})for(bool moving:{false,true}) {
+        auto settings=small_settings(96);settings.realtime.denoiser=denoiser;settings.realtime.max_bounces=1;
+        if(std::getenv("RTRT_DISABLE_SPECULAR_AA"))settings.realtime.specular_antialiasing=false;
+        OptixRealtimeRenderer renderer(context);Framebuffer frame(1,1),previous(1,1);InteractiveFrameState state;
+        DisplaySettings display;display.tone_mapper=ToneMapper::Aces;double error=0,energy=0;
+        const std::string label=std::string(denoiser==RealtimeDenoiser::Svgf?"svgf":"optix")+(moving?"-moving":"-static");
+        for(int sample=0;sample<128;++sample) {
+            const float shift=moving?sample*.001f:0;
+            renderer.render_next_frame(snapshot,front_camera(shift),settings,state,frame);check_finite(frame);
+            if(denoiser==RealtimeDenoiser::Optix)require_neural_denoiser(renderer);
+            if(sample>=64)for(int y=8;y<88;++y)for(int x=8;x<88;++x) {
+                error+=(apply_display_transform(frame.pixel(x,y),display)-apply_display_transform(previous.pixel(x,y),display)).squaredNorm()/(64*3*80*80);
+                energy+=frame.pixel(x,y).sum()/(64*3*80*80);
+            }
+            if(std::getenv("RTRT_STABILITY_SEQUENCE") && sample>=96)
+                export_frame(("wet-"+label+"-"+std::to_string(sample)+".png").c_str(),frame);
+            previous=frame;
+        }
+        worst=std::max(worst,std::sqrt(error));
+        results.push_back({{"variant",label},{"display_flicker_rmse",std::sqrt(error)},{"mean_radiance",energy}});
+        std::cout<<"Wet highlight "<<results.back().dump()<<'\n';
+    }
+    export_metrics("wet-highlight.json",results);
+    RENDER_CHECK(worst<.003);
+}
+
+RENDER_TEST(test_realtime_optix_continuous_motion_diffuse_history) {
+    const auto context=device();auto scene=plane_scene();scene.environment=Color(.6f,.8f,1);
+    auto& material=scene.materials[0];material.type=MaterialType::Pbr;
+    material.roughness=.02f;material.specular_factor=0;
+    const auto snapshot=make_render_scene_snapshot(scene);nlohmann::json results=nlohmann::json::array();
+    for(float scale:{1.0f,.5f}) {
+        auto settings=small_settings(96);settings.realtime.denoiser=RealtimeDenoiser::Optix;
+        settings.realtime.internal_scale=scale;settings.realtime.max_bounces=2;
+        OptixRealtimeRenderer renderer(context);Framebuffer frame(1,1),previous(1,1);InteractiveFrameState state;
+        double error=0,reference_error=0;const Color expected=material.base_color.cwiseProduct(scene.environment);
+        for(int sample=0;sample<128;++sample) {
+            renderer.render_next_frame(snapshot,front_camera(sample*.004f),settings,state,frame);check_finite(frame);
+            require_neural_denoiser(renderer);
+            if(sample>=64)for(int y=16;y<80;++y)for(int x=16;x<80;++x) {
+                error+=(frame.pixel(x,y)-previous.pixel(x,y)).squaredNorm()/(64*3*64*64);
+                reference_error+=(frame.pixel(x,y)-expected).squaredNorm()/(64*3*64*64);
+            }
+            previous=frame;
+        }
+        results.push_back({{"internal_scale",scale},{"moving_rmse",std::sqrt(error)},
+            {"reference_rmse",std::sqrt(reference_error)}});
+        std::cout<<"Neural diffuse motion "<<results.back().dump()<<'\n';
+        RENDER_CHECK(renderer.statistics().realtime.history_resets==1);
+        RENDER_CHECK(std::sqrt(error)<.001 && std::sqrt(reference_error)<.004);
+    }
+    export_metrics("optix-diffuse-motion.json",results);
+}
+
+RENDER_TEST(test_realtime_cave_continuous_motion) {
+    if(!std::getenv("RTRT_CAVE_SEQUENCE"))RENDER_SKIP("set RTRT_CAVE_SEQUENCE=1 for the local wet cave asset");
+    const auto context=device();
+    const int output_width=std::getenv("RTRT_CAVE_WIDTH")?std::clamp(std::atoi(std::getenv("RTRT_CAVE_WIDTH")),320,1920):320;
+    const int output_height=output_width*9/16;
+    auto settings=small_settings(output_width);settings.height=output_height;
+    const char* scene_path=std::getenv("RTRT_CAVE_SCENE");
+    const auto document=[&] {
+        if(scene_path) {
+            std::ifstream input(scene_path);nlohmann::json session;input>>session;
+            return SceneDocument::from_session_snapshot(session,output_width,output_height);
+        }
+        return SceneDocument::load("Computer Graphics Archive/sceness/cave.rscene",output_width,output_height);
+    }();
+    const auto snapshot=document.render_scene_snapshot();
+    const Vec3 eye(4.189f,1.031f,2.073f),forward=(Vec3(2.922f,.980f,1.550f)-eye).normalized();
+    const Vec3 up=Vec3::UnitY(),right=forward.cross(up).normalized();
+    nlohmann::json results=nlohmann::json::array();
+    const float speed=std::getenv("RTRT_CAVE_SPEED")?std::stof(std::getenv("RTRT_CAVE_SPEED")):.004f;
+    for(auto denoiser:{RealtimeDenoiser::Svgf,RealtimeDenoiser::Optix})for(float scale:{1.0f,.5f}) {
+        const int variant=(denoiser==RealtimeDenoiser::Optix?2:0)+(scale<1?1:0);
+        if(const char* selected=std::getenv("RTRT_CAVE_VARIANT");selected && std::atoi(selected)!=variant)continue;
+        settings.realtime=RealtimeRenderSettings{};settings.realtime.denoiser=denoiser;settings.realtime.internal_scale=scale;
+        if(std::getenv("RTRT_DISABLE_SPECULAR_AA"))settings.realtime.specular_antialiasing=false;
+        OptixRealtimeRenderer renderer(context);Framebuffer frame(1,1),previous(1,1);InteractiveFrameState state;
+        DisplaySettings display;display.tone_mapper=ToneMapper::Aces;double errors[2]{},counts[2]{};
+        const std::string label=std::string(denoiser==RealtimeDenoiser::Svgf?"svgf":"optix")+(scale==1?"-native":"-half");
+        for(int sample=0;sample<192;++sample) {
+            const Vec3 p=eye+right*(sample<96?0:float(sample-95)*speed);
+            const Camera camera(p,p+forward,up,75,float(output_width)/output_height);
+            renderer.render_next_frame(snapshot,camera,settings,state,frame);check_finite(frame);
+            if(denoiser==RealtimeDenoiser::Optix)require_neural_denoiser(renderer);
+            if(sample>=64) {
+                const auto diagnostics=renderer.download_diagnostics();
+                const int width=renderer.statistics().internal_width,height=renderer.statistics().internal_height;
+                const int phase=sample>=96?1:0;
+                for(int y=8;y<output_height-8;++y)for(int x=8;x<output_width-8;++x) {
+                    const auto& d=diagnostics[std::min(height-1,y*height/output_height)*width+std::min(width-1,x*width/output_width)];
+                    const float px=x+d.motion_x*output_width,py=y+d.motion_y*output_height;
+                    const int bx=int(std::floor(px)),by=int(std::floor(py));
+                    if(bx<0 || by<0 || bx+1>=output_width || by+1>=output_height || d.depth<=0)continue;
+                    const float fx=px-bx,fy=py-by;
+                    const Color old=(previous.pixel(bx,by)*(1-fx)+previous.pixel(bx+1,by)*fx)*(1-fy)+
+                        (previous.pixel(bx,by+1)*(1-fx)+previous.pixel(bx+1,by+1)*fx)*fy;
+                    errors[phase]+=(apply_display_transform(frame.pixel(x,y),display)-apply_display_transform(old,display)).squaredNorm();
+                    counts[phase]+=3;
+                }
+            }
+            if(std::getenv("RTRT_STABILITY_SEQUENCE") && ((sample>=80 && sample<96) || sample>=160))
+                export_frame(("cave-"+label+"-"+std::to_string(sample)+".png").c_str(),frame);
+            if(sample==95 || sample==191)export_frame(("cave-"+label+"-"+std::to_string(sample)+".png").c_str(),frame);
+            if(std::getenv("RTRT_CAVE_REFERENCE") && variant==0 && (sample==95 || sample>=176)) {
+                auto reference_settings=settings;reference_settings.path.samples_per_pixel=256;reference_settings.path.max_bounces=8;
+                const auto reference=render_cuda_path(snapshot,camera,reference_settings).image;Framebuffer ref(output_width,output_height);
+                for(int y=0;y<output_height;++y)for(int x=0;x<output_width;++x)ref.set_pixel(x,y,reference.pixel(x,y));
+                export_frame(("cave-reference-"+std::to_string(sample)+".png").c_str(),ref);
+            }
+            previous=frame;
+        }
+        results.push_back({{"variant",label},{"static_rmse",std::sqrt(errors[0]/counts[0])},
+            {"moving_reprojected_rmse",std::sqrt(errors[1]/counts[1])}});
+        std::cout<<"Cave continuous motion "<<results.back().dump()<<'\n';
+    }
+    export_metrics("cave-motion.json",results);
+}
+
 RENDER_TEST(test_realtime_san_miguel_quality) {
     if(!std::getenv("RTRT_SAN_MIGUEL_QUALITY"))RENDER_SKIP("set RTRT_SAN_MIGUEL_QUALITY=1 for complex-scene reference validation");
     const auto context=device();auto settings=small_settings();
@@ -1029,6 +1185,22 @@ RENDER_TEST(test_realtime_optix_denoiser_switch_resize_and_resident_output) {
     RENDER_CHECK((f.pixel(16,16)-scene.environment).norm()<1e-5f);
 }
 
+RENDER_TEST(test_realtime_smooth_mirror_raw_furnace) {
+    auto scene=plane_scene();scene.environment=Color(.25f,.5f,1);
+    auto& material=scene.materials[0];material.type=MaterialType::Metal;
+    material.base_color=Color::Ones();material.roughness=.02f;
+    const auto snapshot=make_render_scene_snapshot(scene);auto settings=small_settings(48);
+    settings.realtime.debug_view=RealtimeDebugView::Raw;settings.realtime.direct_lighting=false;
+    settings.realtime.samples_per_pixel=32;settings.realtime.max_bounces=2;
+    OptixRealtimeRenderer renderer(device());Framebuffer frame(1,1);InteractiveFrameState state;double mean=0;
+    for(int i=0;i<8;++i) {
+        renderer.render_next_frame(snapshot,front_camera(.3f),settings,state,frame);check_finite(frame);
+        for(int y=8;y<40;++y)for(int x=8;x<40;++x)mean+=frame.pixel(x,y).z()/(8*32*32);
+    }
+    std::cout<<"Smooth mirror raw furnace energy="<<mean<<'\n';
+    RENDER_CHECK(std::abs(mean-1)<.01);
+}
+
 RENDER_TEST(test_realtime_optix_denoiser_native_glass_and_mirror) {
     const auto context=device();InteractiveFrameState state;Framebuffer frame(1,1);
     for(bool glass:{false,true})for(float scale:{1.0f,.5f}) {
@@ -1048,8 +1220,9 @@ RENDER_TEST(test_realtime_optix_denoiser_native_glass_and_mirror) {
         }
         // Both branches of glass and a white mirror see the same environment.
         // This also exercises the native optical mask after the low-res AOV pass.
-        RENDER_CHECK((frame.pixel(18,18)-scene.environment).norm()<.08f);
+        std::cout<<"Optical furnace glass="<<glass<<" scale="<<scale<<" center="<<frame.pixel(18,18).transpose()<<'\n';
         export_frame((std::string("optix-")+(glass?"glass-":"mirror-")+(scale<1?"half.png":"native.png")).c_str(),frame);
+        RENDER_CHECK((frame.pixel(18,18)-scene.environment).norm()<.08f);
     }
 }
 

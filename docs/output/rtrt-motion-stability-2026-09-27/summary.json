@@ -1,0 +1,693 @@
+{
+  "baseline_commit": "8575b8b17ef6f1b8c0c534923e1b03aa990d7e0a",
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 5080",
+    "driver": "616.64",
+    "cuda": "13.3",
+    "optix": "9.1"
+  },
+  "conditions": {
+    "spp": 1,
+    "max_bounces": 8,
+    "width": 320,
+    "height": 180,
+    "scene": "wet cave last-session snapshot with rectangular area light; sun disabled",
+    "camera_eye": [
+      4.189,
+      1.031,
+      2.073
+    ],
+    "camera_target": [
+      2.922,
+      0.98,
+      1.55
+    ],
+    "vertical_fov": 75,
+    "static_frames": 96,
+    "moving_frames": 96,
+    "translation_per_frame": 0.004,
+    "display_metric": "linear ACES, exposure 0, no display gamma",
+    "moving_metric_warning": "first-surface warped frame difference includes true changing reflections and coverage; not a pure noise metric"
+  },
+  "cave": {
+    "before": [
+      {
+        "moving_reprojected_rmse": 0.05225369629134562,
+        "static_rmse": 0.008016066028009779,
+        "variant": "svgf-native"
+      },
+      {
+        "moving_reprojected_rmse": 0.05910827864809506,
+        "static_rmse": 0.008132722575403,
+        "variant": "svgf-half"
+      },
+      {
+        "moving_reprojected_rmse": 0.009757338744109575,
+        "static_rmse": 0.001818810956244082,
+        "variant": "optix-native"
+      },
+      {
+        "moving_reprojected_rmse": 0.0186014915486462,
+        "static_rmse": 0.0020986082964253735,
+        "variant": "optix-half"
+      }
+    ],
+    "after": [
+      {
+        "moving_reprojected_rmse": 0.033172746176733985,
+        "static_rmse": 0.0023410129203962444,
+        "variant": "svgf-native"
+      },
+      {
+        "moving_reprojected_rmse": 0.04097816061283698,
+        "static_rmse": 0.002908565480731145,
+        "variant": "svgf-half"
+      },
+      {
+        "moving_reprojected_rmse": 0.01099618999073429,
+        "static_rmse": 0.0015518872300807952,
+        "variant": "optix-native"
+      },
+      {
+        "moving_reprojected_rmse": 0.017352004657014367,
+        "static_rmse": 0.0018159274461644402,
+        "variant": "optix-half"
+      }
+    ],
+    "fast_after": [
+      {
+        "moving_reprojected_rmse": 0.02316281374677758,
+        "static_rmse": 0.0023410129203962444,
+        "variant": "svgf-native"
+      },
+      {
+        "moving_reprojected_rmse": 0.027918537236096885,
+        "static_rmse": 0.002908565480731145,
+        "variant": "svgf-half"
+      },
+      {
+        "moving_reprojected_rmse": 0.010488329157020635,
+        "static_rmse": 0.0015518872300807952,
+        "variant": "optix-native"
+      },
+      {
+        "moving_reprojected_rmse": 0.012702186292768933,
+        "static_rmse": 0.0018159274461644402,
+        "variant": "optix-half"
+      }
+    ],
+    "1080_after": [
+      {
+        "moving_reprojected_rmse": 0.009501662514707323,
+        "static_rmse": 0.0005226703130647879,
+        "variant": "svgf-native"
+      },
+      {
+        "moving_reprojected_rmse": 0.007118465964474886,
+        "static_rmse": 0.0010974433318802098,
+        "variant": "optix-native"
+      }
+    ]
+  },
+  "wet_highlight": {
+    "before": [
+      {
+        "display_flicker_rmse": 0.0010050028064359617,
+        "mean_radiance": 0.6436946524906944,
+        "variant": "svgf-static"
+      },
+      {
+        "display_flicker_rmse": 0.005968540670294104,
+        "mean_radiance": 0.6192535546841782,
+        "variant": "svgf-moving"
+      },
+      {
+        "display_flicker_rmse": 0.001158258542068786,
+        "mean_radiance": 0.820399726773644,
+        "variant": "optix-static"
+      },
+      {
+        "display_flicker_rmse": 0.0039374406146680625,
+        "mean_radiance": 0.8096188904255541,
+        "variant": "optix-moving"
+      }
+    ],
+    "after": [
+      {
+        "display_flicker_rmse": 5.571768535765321e-05,
+        "mean_radiance": 6.481329271685695,
+        "variant": "svgf-static"
+      },
+      {
+        "display_flicker_rmse": 5.9044597300590945e-05,
+        "mean_radiance": 6.501782713450666,
+        "variant": "svgf-moving"
+      },
+      {
+        "display_flicker_rmse": 0.0004750234219804621,
+        "mean_radiance": 7.326320639930827,
+        "variant": "optix-static"
+      },
+      {
+        "display_flicker_rmse": 0.0025759327308436638,
+        "mean_radiance": 7.3126905269981535,
+        "variant": "optix-moving"
+      }
+    ],
+    "4096spp_reference": {
+      "mean_radiance": 9.157667862556991,
+      "spp": 4096
+    }
+  },
+  "optix_diffuse_motion_after": [
+    {
+      "internal_scale": 1.0,
+      "moving_rmse": 0.0003895294376109477,
+      "reference_rmse": 0.0006218006410613372
+    },
+    {
+      "internal_scale": 0.5,
+      "moving_rmse": 0.000701919379818568,
+      "reference_rmse": 0.0011871997144494056
+    }
+  ],
+  "cave_reference_comparison": [
+    {
+      "run": "session-before",
+      "variant": "svgf-native",
+      "reference_display_rmse": 0.08319265395402908,
+      "temporal_error_rmse": 0.06959900259971619,
+      "radiance_ratio": 0.7599650025367737,
+      "display_frame_rmse": 0.04999610036611557
+    },
+    {
+      "run": "session-before",
+      "variant": "svgf-half",
+      "reference_display_rmse": 0.0950167253613472,
+      "temporal_error_rmse": 0.07410266250371933,
+      "radiance_ratio": 0.7402819395065308,
+      "display_frame_rmse": 0.055877797305583954
+    },
+    {
+      "run": "session-before",
+      "variant": "optix-native",
+      "reference_display_rmse": 0.06830216944217682,
+      "temporal_error_rmse": 0.04956679046154022,
+      "radiance_ratio": 0.9068464040756226,
+      "display_frame_rmse": 0.009878386743366718
+    },
+    {
+      "run": "session-before",
+      "variant": "optix-half",
+      "reference_display_rmse": 0.08390972763299942,
+      "temporal_error_rmse": 0.051950857043266296,
+      "radiance_ratio": 0.92364901304245,
+      "display_frame_rmse": 0.018202513456344604
+    },
+    {
+      "run": "after",
+      "variant": "svgf-native",
+      "reference_display_rmse": 0.07530919462442398,
+      "temporal_error_rmse": 0.05818207189440727,
+      "radiance_ratio": 0.8856464624404907,
+      "display_frame_rmse": 0.03215375915169716
+    },
+    {
+      "run": "after",
+      "variant": "svgf-half",
+      "reference_display_rmse": 0.08504555374383926,
+      "temporal_error_rmse": 0.06269241869449615,
+      "radiance_ratio": 0.8403894305229187,
+      "display_frame_rmse": 0.039645399898290634
+    },
+    {
+      "run": "after",
+      "variant": "optix-native",
+      "reference_display_rmse": 0.07036434859037399,
+      "temporal_error_rmse": 0.049858689308166504,
+      "radiance_ratio": 0.9800868630409241,
+      "display_frame_rmse": 0.011372722685337067
+    },
+    {
+      "run": "after",
+      "variant": "optix-half",
+      "reference_display_rmse": 0.08551040291786194,
+      "temporal_error_rmse": 0.051636338233947754,
+      "radiance_ratio": 0.9952879548072815,
+      "display_frame_rmse": 0.017265623435378075
+    }
+  ],
+  "firefly_stress_after": {
+    "reference_spp": 2048,
+    "results": [
+      {
+        "energy_ratio": 0.9883296432021726,
+        "excess_luminance": 0.007149165758720723,
+        "flicker_mse": 0.005191856924149393,
+        "hardware_rt": true,
+        "hdr_mse": 0.3623945321365965,
+        "material": "mirror",
+        "profile": "native",
+        "samples": 160768,
+        "spike_count": 536
+      },
+      {
+        "energy_ratio": 0.9642726465769805,
+        "excess_luminance": 0.007864907720559247,
+        "flicker_mse": 0.002345690675039285,
+        "hardware_rt": true,
+        "hdr_mse": 0.5050908672176924,
+        "material": "mirror",
+        "profile": "half",
+        "samples": 160768,
+        "spike_count": 580
+      },
+      {
+        "energy_ratio": 0.8324031068887627,
+        "excess_luminance": 0.0,
+        "flicker_mse": 1.2242876247133404e-05,
+        "hardware_rt": true,
+        "hdr_mse": 5.078838129369936,
+        "material": "glossy",
+        "profile": "native",
+        "samples": 160768,
+        "spike_count": 0
+      },
+      {
+        "energy_ratio": 0.8220347797237569,
+        "excess_luminance": 0.0,
+        "flicker_mse": 1.3109491746533182e-05,
+        "hardware_rt": true,
+        "hdr_mse": 7.850855393505121,
+        "material": "glossy",
+        "profile": "half",
+        "samples": 160768,
+        "spike_count": 0
+      },
+      {
+        "energy_ratio": 0.9998752898440387,
+        "excess_luminance": 0.0,
+        "flicker_mse": 3.019721969982251e-05,
+        "hardware_rt": true,
+        "hdr_mse": 0.009842744365916022,
+        "material": "glass",
+        "profile": "native",
+        "samples": 160768,
+        "spike_count": 0
+      },
+      {
+        "energy_ratio": 0.9999060541609536,
+        "excess_luminance": 0.0,
+        "flicker_mse": 2.8006774477654516e-05,
+        "hardware_rt": true,
+        "hdr_mse": 0.009799781052735938,
+        "material": "glass",
+        "profile": "half",
+        "samples": 160768,
+        "spike_count": 0
+      }
+    ]
+  },
+  "cornell_performance": {
+    "before": [
+      {
+        "internal_scale": 1.0,
+        "moving": false,
+        "median_gpu_p50_ms": 4.021791934967041,
+        "median_gpu_p95_ms": 4.4746880531311035,
+        "framebuffer_bytes": 462412800
+      },
+      {
+        "internal_scale": 1.0,
+        "moving": true,
+        "median_gpu_p50_ms": 3.844640016555786,
+        "median_gpu_p95_ms": 4.4508161544799805,
+        "framebuffer_bytes": 462412800
+      },
+      {
+        "internal_scale": 0.5,
+        "moving": false,
+        "median_gpu_p50_ms": 1.6119359731674194,
+        "median_gpu_p95_ms": 1.8737280368804932,
+        "framebuffer_bytes": 231206404
+      },
+      {
+        "internal_scale": 0.5,
+        "moving": true,
+        "median_gpu_p50_ms": 1.6085760593414307,
+        "median_gpu_p95_ms": 1.892799973487854,
+        "framebuffer_bytes": 231206404
+      }
+    ],
+    "after": [
+      {
+        "internal_scale": 1.0,
+        "moving": false,
+        "median_gpu_p50_ms": 3.908384084701538,
+        "median_gpu_p95_ms": 4.611839771270752,
+        "framebuffer_bytes": 462412800
+      },
+      {
+        "internal_scale": 1.0,
+        "moving": true,
+        "median_gpu_p50_ms": 3.9026238918304443,
+        "median_gpu_p95_ms": 4.474720001220703,
+        "framebuffer_bytes": 462412800
+      },
+      {
+        "internal_scale": 0.5,
+        "moving": false,
+        "median_gpu_p50_ms": 1.596351981163025,
+        "median_gpu_p95_ms": 1.89900803565979,
+        "framebuffer_bytes": 231206404
+      },
+      {
+        "internal_scale": 0.5,
+        "moving": true,
+        "median_gpu_p50_ms": 1.6087360382080078,
+        "median_gpu_p95_ms": 2.003551959991455,
+        "framebuffer_bytes": 231206404
+      }
+    ]
+  },
+  "viewer_performance": {
+    "before-svgf": {
+      "camera_motion": true,
+      "camera_preset": "build/rtrt-motion-stability/cave-interior-camera.json",
+      "count": 180,
+      "height": 1080,
+      "measurement": "CPU frame start through GL finish after presentation; swap interval 0",
+      "mode": "rtrt",
+      "over_16_667_ms": 180,
+      "p50_ms": 27.16390037536621,
+      "p95_ms": 28.664899826049805,
+      "p99_ms": 29.02090072631836,
+      "scene_file": "build/rtrt-motion-stability/cave-session-document.rscene",
+      "settings": {
+        "debug_view": 0,
+        "denoise": true,
+        "denoiser": "svgf",
+        "depth_sigma": 1.0,
+        "depth_threshold": 0.019999999552965164,
+        "diffuse_history": 32,
+        "diffuse_iterations": 5,
+        "direct_lighting": true,
+        "firefly_filter": true,
+        "firefly_sigma": 6.0,
+        "full_resolution_materials": true,
+        "history_clamping": true,
+        "history_sigma": 2.0,
+        "indirect_diffuse": true,
+        "internal_scale": 1.0,
+        "light_samples": 1,
+        "low_discrepancy": true,
+        "luminance_sigma": 4.0,
+        "max_bounces": 8,
+        "normal_power": 64.0,
+        "normal_threshold": 0.8500000238418579,
+        "reactive_strength": 1.0,
+        "reflections": true,
+        "roulette_start": 3,
+        "samples_per_pixel": 1,
+        "shader_execution_reordering": true,
+        "shadows": true,
+        "sharpening": 0.0,
+        "soft_shadows": true,
+        "specular_history": 16,
+        "specular_iterations": 3,
+        "split_dielectric": true,
+        "taa": true,
+        "taa_clip_sigma": 1.5,
+        "taa_current_weight": 0.15000000596046448,
+        "temporal": true,
+        "temporal_upscale": true,
+        "transmission": true,
+        "transmission_history": 4
+      },
+      "triangles": 536896,
+      "warmup_frames": 60,
+      "width": 1920,
+      "runs": [
+        {
+          "p50_ms": 27.728500366210938,
+          "p95_ms": 30.278301239013672,
+          "p99_ms": 31.914499282836914,
+          "count": 180
+        },
+        {
+          "p50_ms": 27.023000717163086,
+          "p95_ms": 27.589500427246094,
+          "p99_ms": 27.91080093383789,
+          "count": 180
+        },
+        {
+          "p50_ms": 27.16390037536621,
+          "p95_ms": 28.664899826049805,
+          "p99_ms": 29.02090072631836,
+          "count": 180
+        }
+      ]
+    },
+    "before-optix": {
+      "camera_motion": true,
+      "camera_preset": "build/rtrt-motion-stability/cave-interior-camera.json",
+      "count": 180,
+      "height": 1080,
+      "measurement": "CPU frame start through GL finish after presentation; swap interval 0",
+      "mode": "rtrt",
+      "over_16_667_ms": 180,
+      "p50_ms": 26.68470001220703,
+      "p95_ms": 27.055500030517578,
+      "p99_ms": 27.548999786376953,
+      "scene_file": "build/rtrt-motion-stability/cave-session-document.rscene",
+      "settings": {
+        "debug_view": 0,
+        "denoise": true,
+        "denoiser": "optix",
+        "depth_sigma": 1.0,
+        "depth_threshold": 0.019999999552965164,
+        "diffuse_history": 32,
+        "diffuse_iterations": 5,
+        "direct_lighting": true,
+        "firefly_filter": true,
+        "firefly_sigma": 6.0,
+        "full_resolution_materials": true,
+        "history_clamping": true,
+        "history_sigma": 2.0,
+        "indirect_diffuse": true,
+        "internal_scale": 1.0,
+        "light_samples": 1,
+        "low_discrepancy": true,
+        "luminance_sigma": 4.0,
+        "max_bounces": 8,
+        "normal_power": 64.0,
+        "normal_threshold": 0.8500000238418579,
+        "reactive_strength": 1.0,
+        "reflections": true,
+        "roulette_start": 3,
+        "samples_per_pixel": 1,
+        "shader_execution_reordering": true,
+        "shadows": true,
+        "sharpening": 0.0,
+        "soft_shadows": true,
+        "specular_history": 16,
+        "specular_iterations": 3,
+        "split_dielectric": true,
+        "taa": true,
+        "taa_clip_sigma": 1.5,
+        "taa_current_weight": 0.15000000596046448,
+        "temporal": true,
+        "temporal_upscale": true,
+        "transmission": true,
+        "transmission_history": 4
+      },
+      "triangles": 536896,
+      "warmup_frames": 60,
+      "width": 1920,
+      "runs": [
+        {
+          "p50_ms": 26.59510040283203,
+          "p95_ms": 27.055500030517578,
+          "p99_ms": 27.341999053955078,
+          "count": 180
+        },
+        {
+          "p50_ms": 26.68470001220703,
+          "p95_ms": 26.979999542236328,
+          "p99_ms": 27.548999786376953,
+          "count": 180
+        },
+        {
+          "p50_ms": 26.775300979614258,
+          "p95_ms": 27.42490005493164,
+          "p99_ms": 28.570499420166016,
+          "count": 180
+        }
+      ]
+    },
+    "after-svgf": {
+      "camera_motion": true,
+      "camera_preset": "build/rtrt-motion-stability/cave-interior-camera.json",
+      "count": 180,
+      "height": 1080,
+      "measurement": "CPU frame start through GL finish after presentation; swap interval 0",
+      "mode": "rtrt",
+      "over_16_667_ms": 180,
+      "p50_ms": 28.358999252319336,
+      "p95_ms": 28.85179901123047,
+      "p99_ms": 29.345600128173828,
+      "scene_file": "build/rtrt-motion-stability/cave-session-document.rscene",
+      "settings": {
+        "debug_view": 0,
+        "denoise": true,
+        "denoiser": "svgf",
+        "depth_sigma": 1.0,
+        "depth_threshold": 0.019999999552965164,
+        "diffuse_history": 32,
+        "diffuse_iterations": 5,
+        "direct_lighting": true,
+        "firefly_filter": true,
+        "firefly_sigma": 6.0,
+        "full_resolution_materials": true,
+        "history_clamping": true,
+        "history_sigma": 2.0,
+        "indirect_diffuse": true,
+        "internal_scale": 1.0,
+        "light_samples": 1,
+        "low_discrepancy": true,
+        "luminance_sigma": 4.0,
+        "max_bounces": 8,
+        "normal_power": 64.0,
+        "normal_threshold": 0.8500000238418579,
+        "reactive_strength": 1.0,
+        "reflections": true,
+        "regularize_indirect": true,
+        "roulette_start": 3,
+        "samples_per_pixel": 1,
+        "shader_execution_reordering": true,
+        "shadows": true,
+        "sharpening": 0.0,
+        "soft_shadows": true,
+        "specular_antialiasing": true,
+        "specular_history": 16,
+        "specular_iterations": 3,
+        "split_dielectric": true,
+        "taa": true,
+        "taa_clip_sigma": 1.5,
+        "taa_current_weight": 0.15000000596046448,
+        "temporal": true,
+        "temporal_upscale": true,
+        "transmission": true,
+        "transmission_history": 4
+      },
+      "triangles": 536896,
+      "warmup_frames": 60,
+      "width": 1920,
+      "runs": [
+        {
+          "p50_ms": 28.358999252319336,
+          "p95_ms": 28.85179901123047,
+          "p99_ms": 29.345600128173828,
+          "count": 180
+        },
+        {
+          "p50_ms": 28.352399826049805,
+          "p95_ms": 28.808500289916992,
+          "p99_ms": 28.991500854492188,
+          "count": 180
+        },
+        {
+          "p50_ms": 28.52869987487793,
+          "p95_ms": 29.134599685668945,
+          "p99_ms": 29.520200729370117,
+          "count": 180
+        }
+      ]
+    },
+    "after-optix": {
+      "camera_motion": true,
+      "camera_preset": "build/rtrt-motion-stability/cave-interior-camera.json",
+      "count": 180,
+      "height": 1080,
+      "measurement": "CPU frame start through GL finish after presentation; swap interval 0",
+      "mode": "rtrt",
+      "over_16_667_ms": 180,
+      "p50_ms": 29.14219856262207,
+      "p95_ms": 29.58190155029297,
+      "p99_ms": 29.933300018310547,
+      "scene_file": "build/rtrt-motion-stability/cave-session-document.rscene",
+      "settings": {
+        "debug_view": 0,
+        "denoise": true,
+        "denoiser": "optix",
+        "depth_sigma": 1.0,
+        "depth_threshold": 0.019999999552965164,
+        "diffuse_history": 32,
+        "diffuse_iterations": 5,
+        "direct_lighting": true,
+        "firefly_filter": true,
+        "firefly_sigma": 6.0,
+        "full_resolution_materials": true,
+        "history_clamping": true,
+        "history_sigma": 2.0,
+        "indirect_diffuse": true,
+        "internal_scale": 1.0,
+        "light_samples": 1,
+        "low_discrepancy": true,
+        "luminance_sigma": 4.0,
+        "max_bounces": 8,
+        "normal_power": 64.0,
+        "normal_threshold": 0.8500000238418579,
+        "reactive_strength": 1.0,
+        "reflections": true,
+        "regularize_indirect": true,
+        "roulette_start": 3,
+        "samples_per_pixel": 1,
+        "shader_execution_reordering": true,
+        "shadows": true,
+        "sharpening": 0.0,
+        "soft_shadows": true,
+        "specular_antialiasing": true,
+        "specular_history": 16,
+        "specular_iterations": 3,
+        "split_dielectric": true,
+        "taa": true,
+        "taa_clip_sigma": 1.5,
+        "taa_current_weight": 0.15000000596046448,
+        "temporal": true,
+        "temporal_upscale": true,
+        "transmission": true,
+        "transmission_history": 4
+      },
+      "triangles": 536896,
+      "warmup_frames": 60,
+      "width": 1920,
+      "runs": [
+        {
+          "p50_ms": 29.094200134277344,
+          "p95_ms": 29.52859878540039,
+          "p99_ms": 29.864500045776367,
+          "count": 180
+        },
+        {
+          "p50_ms": 29.162601470947266,
+          "p95_ms": 29.58190155029297,
+          "p99_ms": 29.933300018310547,
+          "count": 180
+        },
+        {
+          "p50_ms": 29.14219856262207,
+          "p95_ms": 29.7367000579834,
+          "p99_ms": 30.082901000976562,
+          "count": 180
+        }
+      ]
+    }
+  },
+  "validation": {
+    "default_ctest": "11 passed",
+    "no_cuda_ctest": "11 passed, 1 expected skip",
+    "focused_memcheck": "wet_normal_highlight_stability + spatial_filter_preserves_constant_at_partial_tiles + smooth_mirror_raw_furnace: 3 passed, 0 errors, 0 leaked bytes",
+    "tiled_filter_equivalence": "320 floating-point frames byte-identical before/after shared-memory optimization"
+  }
+}

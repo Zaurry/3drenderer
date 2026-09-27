@@ -8,6 +8,8 @@ inline nlohmann::json realtime_settings_json(const RealtimeRenderSettings& input
         {"low_discrepancy", s.low_discrepancy},
         {"shader_execution_reordering", s.shader_execution_reordering},
         {"split_dielectric", s.split_dielectric},
+        {"specular_antialiasing", s.specular_antialiasing},
+        {"regularize_indirect", s.regularize_indirect},
         {"samples_per_pixel", s.samples_per_pixel},
         {"max_bounces", s.max_bounces},
         {"roulette_start", s.roulette_start},
@@ -52,6 +54,8 @@ inline RealtimeRenderSettings parse_realtime_settings(const nlohmann::json& j) {
     if(j.contains("low_discrepancy") && j.at("low_discrepancy").is_boolean()) s.low_discrepancy=j.at("low_discrepancy").get<bool>();
     if(j.contains("shader_execution_reordering") && j.at("shader_execution_reordering").is_boolean()) s.shader_execution_reordering=j.at("shader_execution_reordering").get<bool>();
     if(j.contains("split_dielectric") && j.at("split_dielectric").is_boolean()) s.split_dielectric=j.at("split_dielectric").get<bool>();
+    if(j.contains("specular_antialiasing") && j.at("specular_antialiasing").is_boolean()) s.specular_antialiasing=j.at("specular_antialiasing").get<bool>();
+    if(j.contains("regularize_indirect") && j.at("regularize_indirect").is_boolean()) s.regularize_indirect=j.at("regularize_indirect").get<bool>();
     const auto integer = [&](const char* name, int fallback) {
         const auto i=j.find(name);
         if (i==j.end() || !i->is_number()) return fallback;

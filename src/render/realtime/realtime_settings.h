@@ -19,6 +19,8 @@ struct RealtimeRenderSettings {
     bool low_discrepancy = true;
     bool shader_execution_reordering = true;
     bool split_dielectric = true;
+    bool specular_antialiasing = true;
+    bool regularize_indirect = true;
     int samples_per_pixel = 1;
     int max_bounces = 8;
     int roulette_start = 3;

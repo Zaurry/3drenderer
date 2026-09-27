@@ -5315,6 +5315,19 @@ RENDER_TEST(test_pbr_sampling_pdf_and_texture_sampler_contracts) {
         1.0f));
 }
 
+RENDER_TEST(test_smooth_ggx_peak_preserves_normalization) {
+    renderer::PbrSurface surface;surface.diffuse_color=renderer::Color::Zero();
+    surface.specular_f0=surface.specular_f90=renderer::Color::Ones();
+    const auto normal=renderer::Vec3::UnitZ();
+    for(float roughness:{.02f,.025f,.04f,.1f}) {
+        surface.roughness=roughness;
+        const auto value=renderer::evaluate_pbr(surface,normal,normal,normal);
+        const float expected=1/(4*3.14159265358979323846f*std::pow(roughness,4));
+        RENDER_CHECK(value.brdf.allFinite());
+        RENDER_CHECK(std::abs(value.brdf.x()/expected-1)<.002f);
+    }
+}
+
 RENDER_TEST(test_kulla_conty_ggx_white_furnace_and_reciprocity) {
     const renderer::Vec3 normal = renderer::Vec3::UnitZ();
     const auto integrate_white_furnace = [&](float roughness, float n_dot_v) {

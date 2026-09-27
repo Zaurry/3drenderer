@@ -14,6 +14,10 @@ inline void draw_realtime_panel(RealtimeRenderSettings& s) {
         ImGui::Checkbox("Stable glass sampling", &s.split_dielectric);
         if(ImGui::IsItemHovered())ImGui::SetTooltip("Samples reflection and refraction separately at the first two glass interfaces. Uses extra rays on glass pixels.");
         ImGui::Checkbox("Owen Sobol sampling", &s.low_discrepancy);
+        ImGui::Checkbox("Specular antialiasing", &s.specular_antialiasing);
+        if(ImGui::IsItemHovered())ImGui::SetTooltip("Filters highlights smaller than a pixel on normal-mapped surfaces. Preserves smooth mirrors and glass.");
+        ImGui::Checkbox("Stable indirect highlights", &s.regularize_indirect);
+        if(ImGui::IsItemHovered())ImGui::SetTooltip("Broadens very narrow indirect highlights after diffuse or rough scattering. Reduces fireflies at low SPP; fine indirect caustics become softer.");
         ImGui::SliderInt("SPP per frame", &s.samples_per_pixel, 1, 16);
         ImGui::SliderInt("Path depth", &s.max_bounces, 1, 64);
         ImGui::SliderInt("Roulette start", &s.roulette_start, 1, 64);
@@ -33,6 +37,8 @@ inline void draw_realtime_panel(RealtimeRenderSettings& s) {
             s.denoiser=static_cast<RealtimeDenoiser>(denoiser);
         ImGui::BeginDisabled(!s.denoise);
         ImGui::Checkbox("Temporal reuse", &s.temporal);
+        ImGui::Checkbox("Firefly suppression", &s.firefly_filter);
+        ImGui::SliderFloat("Firefly sigma", &s.firefly_sigma, 1, 16, "%.2f");
         if(s.denoiser==RealtimeDenoiser::Optix) {
             ImGui::TextWrapped("OptiX AI denoises HDR lighting with albedo, normals and motion. Disable temporal reuse for single-frame denoising. Native materials also denoise full-resolution glass and reflections. Falls back to SVGF if unavailable.");
         }
@@ -45,8 +51,6 @@ inline void draw_realtime_panel(RealtimeRenderSettings& s) {
         ImGui::SliderFloat("Reactive strength", &s.reactive_strength, 0, 4, "%.2f");
         ImGui::Checkbox("History clamping", &s.history_clamping);
         ImGui::SliderFloat("History clamp sigma", &s.history_sigma, .5f, 8, "%.2f");
-        ImGui::Checkbox("Firefly suppression", &s.firefly_filter);
-        ImGui::SliderFloat("Firefly sigma", &s.firefly_sigma, 1, 16, "%.2f");
         ImGui::SliderInt("Diffuse atrous passes", &s.diffuse_iterations, 0, 5);
         ImGui::SliderInt("Specular atrous passes", &s.specular_iterations, 0, 5);
         ImGui::SliderFloat("Filter depth sigma", &s.depth_sigma, .1f, 8, "%.2f");
@@ -74,7 +78,7 @@ inline void draw_realtime_panel(RealtimeRenderSettings& s) {
             s.debug_view = static_cast<RealtimeDebugView>(view);
         ImGui::TextWrapped("Diagnostic views and exposure do not enter lighting history. Reset render clears all temporal history.");
         if(s.denoiser==RealtimeDenoiser::Optix)
-            ImGui::TextWrapped("OptiX: Filtered shows the neural output before TAA. Temporal shows raw lighting; components show internal-resolution signals. SVGF variance and history diagnostics are unavailable.");
+            ImGui::TextWrapped("OptiX: Filtered shows the neural output before TAA. Temporal shows input lighting; components show internal-resolution signals. Variance estimates input noise; SVGF history diagnostics are unavailable.");
     }
     s = sanitize_realtime_settings(s);
     ImGui::PopItemWidth();

@@ -162,7 +162,7 @@ __device__ RtSignals rt_trace_hit(RtFrame f,const DCompactHit& primary,RtGuide& 
         DRay ray=rt_primary(f,i);
         DVec3 throughput=v3(1,1,1),wd{},ws{},wt{};
         float previous_pdf=0; int previous_delta=1;
-        bool split_exit=false,dielectric_chain=split_glass;
+        bool split_exit=false,dielectric_chain=split_glass,regularize_path=false;
         for(int bounce=0;bounce<f.settings.max_bounces;++bounce) {
             DCompactHit compact{};
             bool found=false;
@@ -185,7 +185,18 @@ __device__ RtSignals rt_trace_hit(RtFrame f,const DCompactHit& primary,RtGuide& 
                 break;
             }
             const DMaterial material=f.scene.materials[hit.material_id];
-            const DSurface surface=evaluate_surface(f.scene,material,hit);
+            DSurface surface=evaluate_surface(f.scene,material,hit);
+            // The primary footprint filter must affect evaluation, sampling and
+            // their PDFs together; changing only the denoiser guide is biased.
+            if(bounce==0) {surface.roughness=guide.roughness;surface.shading_normal=guide.normal;}
+            // Once a broad scattering event has destroyed directional detail,
+            // an almost-delta secondary lobe produces rare, unresolvable paths.
+            // Regularize only downstream of that event, keeping visible glossy
+            // surfaces and uninterrupted mirror/glass chains unchanged.
+            if(f.settings.regularize_indirect && regularize_path && material.type!=int(MaterialType::Dielectric)) {
+                const float alpha=surface.roughness*surface.roughness;
+                if(alpha<.3f)surface.roughness=sqrtf(fminf(.3f,fmaxf(.1f,2*alpha)));
+            }
             if(bounce==1) { distances+=hit.t; ++distance_samples; }
             const bool passthrough=effective_alpha_mode(material)==int(AlphaMode::Blend) && random_float(rng)>=surface.opacity;
             if(!passthrough && max_component(surface.emission)>0) {
@@ -195,7 +206,9 @@ __device__ RtSignals rt_trace_hit(RtFrame f,const DCompactHit& primary,RtGuide& 
                 else { output.c[1]=add(output.c[1],product(wd,incoming)); output.c[2]=add(output.c[2],product(ws,incoming)); output.c[3]=add(output.c[3],product(wt,incoming)); }
             }
             if(!passthrough && material.type==int(MaterialType::Emissive)) break;
-            const DVec3 outgoing=mul(ray.direction,-1);
+            // Match scatter()'s normalized view for direct BRDF/PDF evaluation;
+            // one ULP in N.H is significant for nearly delta GGX surfaces.
+            const DVec3 outgoing=normalize(mul(ray.direction,-1));
             if(!passthrough && material.type!=int(MaterialType::Dielectric) && (bounce>0 || f.settings.direct_lighting)) {
                 const RtDirect d=rt_direct(f,hit,surface,outgoing,rng,bounce+1<f.settings.max_bounces);
                 if(bounce==0) {
@@ -208,7 +221,7 @@ __device__ RtSignals rt_trace_hit(RtFrame f,const DCompactHit& primary,RtGuide& 
             }
             // No continuation ray is consumed after the final allowed vertex.
             if(bounce+1>=f.settings.max_bounces) break;
-            DRay scattered{}; DVec3 attenuation{}; float pdf=0; int delta=1;
+            DRay scattered{}; DVec3 attenuation{},diffuse_fraction{}; float pdf=0; int delta=1;
             if(passthrough) { scattered={offset_origin(hit.position,hit.geometric_normal,ray.direction),ray.direction}; attenuation=v3(1,1,1); }
             else if(split_glass && material.type==int(MaterialType::Dielectric) &&
                 (bounce==0 || (branch>0 && !split_exit))) {
@@ -230,7 +243,7 @@ __device__ RtSignals rt_trace_hit(RtFrame f,const DCompactHit& primary,RtGuide& 
                 attenuation=v3(weight,weight,weight);
                 if(bounce>0)split_exit=true;
             }
-            else if(!scatter(ray,hit,material,surface,rng,attenuation,scattered,pdf,delta)) break;
+            else if(!scatter(ray,hit,material,surface,rng,attenuation,scattered,pdf,delta,bounce==0?&diffuse_fraction:nullptr)) break;
             dielectric_chain=dielectric_chain && material.type==int(MaterialType::Dielectric);
             if(bounce==0) {
                 if(passthrough || material.type==int(MaterialType::Dielectric)) {
@@ -239,12 +252,15 @@ __device__ RtSignals rt_trace_hit(RtFrame f,const DCompactHit& primary,RtGuide& 
                     if(transmitted) wt=f.settings.transmission?attenuation:v3(0,0,0);
                     else ws=f.settings.reflections?attenuation:v3(0,0,0);
                 } else {
-                    const auto e=evaluate_pbr(surface,surface.shading_normal,outgoing,scattered.direction);
-                    const float cosine=fmaxf(0,dot(surface.shading_normal,scattered.direction));
-                    wd=f.settings.indirect_diffuse?mul(e.diffuse,cosine/fmaxf(pdf,1e-12f)):v3(0,0,0);
-                    ws=f.settings.reflections?mul(e.specular,cosine/fmaxf(pdf,1e-12f)):v3(0,0,0);
+                    // Reuse the evaluation that produced the sampling PDF.
+                    // Besides saving a BRDF evaluation, this avoids amplifying
+                    // normalization roundoff in almost-delta specular lobes.
+                    const DVec3 diffuse=product(attenuation,diffuse_fraction);
+                    wd=f.settings.indirect_diffuse?diffuse:v3(0,0,0);
+                    ws=f.settings.reflections?rt_safe(sub(attenuation,diffuse)):v3(0,0,0);
                 }
             } else { wd=product(wd,attenuation); ws=product(ws,attenuation); wt=product(wt,attenuation); }
+            if(!delta && (surface.roughness>=.2f || (bounce==0 && rt_luma(wd)>rt_luma(ws))))regularize_path=true;
             throughput=add(add(wd,ws),wt);
             if(!finite(throughput) || max_component(throughput)<=0) break;
             // Roulette on a weak but deterministic internal glass reflection
