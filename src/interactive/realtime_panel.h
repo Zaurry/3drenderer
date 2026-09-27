@@ -1,15 +1,19 @@
 #pragma once
 
-#include "render/realtime/realtime_settings.h"
+#include "render/realtime/realtime_defaults.h"
+#include "interactive/settings_widgets.h"
 #include <imgui.h>
 
 namespace renderer {
 
 inline void draw_realtime_panel(RealtimeRenderSettings& s) {
-    if(ImGui::Button("1080p RT quality preset"))s=realtime_1080p_quality_settings();
-    if(ImGui::IsItemHovered())ImGui::SetTooltip("960x540 broad lighting; native 1080p textures, mirrors and glass. Validated on RTX 5080 / San Miguel.");
+    if(ImGui::Button("Quality defaults"))s=RealtimeRenderSettings{};
+    if(ImGui::IsItemHovered())ImGui::SetTooltip("Restore all RTRT sections to the quality-focused defaults.");
+    ImGui::SameLine();
+    if(ImGui::Button("1080p performance preset"))s=realtime_1080p_quality_settings();
+    if(ImGui::IsItemHovered())ImGui::SetTooltip("Half-resolution lighting with native textures, mirrors and glass. Trades broad-lighting detail for frame rate.");
     ImGui::PushItemWidth(std::max(80.0f, ImGui::GetContentRegionAvail().x * .42f));
-    if (ImGui::CollapsingHeader("RTRT Lighting & Sampling", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (settings_header("RTRT Lighting & Sampling",[&]{reset_realtime_settings(s,RealtimeSettingsSection::Lighting);})) {
         ImGui::Checkbox("Shader execution reordering", &s.shader_execution_reordering);
         ImGui::Checkbox("Stable glass sampling", &s.split_dielectric);
         if(ImGui::IsItemHovered())ImGui::SetTooltip("Samples reflection and refraction separately at the first two glass interfaces. Uses extra rays on glass pixels.");
@@ -30,7 +34,7 @@ inline void draw_realtime_panel(RealtimeRenderSettings& s) {
         ImGui::Checkbox("Transmission / glass", &s.transmission);
         ImGui::TextWrapped("Light radius and sun angular radius control shadow softness. Every frame traces and publishes a complete image.");
     }
-    if (ImGui::CollapsingHeader("RTRT Denoising", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (settings_header("RTRT Denoising",[&]{reset_realtime_settings(s,RealtimeSettingsSection::Denoising);})) {
         ImGui::Checkbox("Enable denoising", &s.denoise);
         int denoiser=static_cast<int>(s.denoiser);
         if(ImGui::Combo("Denoiser", &denoiser, "SVGF\0OptiX AI\0"))
@@ -42,12 +46,13 @@ inline void draw_realtime_panel(RealtimeRenderSettings& s) {
         if(s.denoiser==RealtimeDenoiser::Optix) {
             ImGui::TextWrapped("OptiX AI denoises HDR lighting with albedo, normals and motion. Disable temporal reuse for single-frame denoising. Native materials also denoise full-resolution glass and reflections. Falls back to SVGF if unavailable.");
         }
+        ImGui::SliderInt("Diffuse / static history", &s.diffuse_history, 1, 128);
+        if(ImGui::IsItemHovered())ImGui::SetTooltip("SVGF diffuse history and stationary TAA accumulation for both denoisers. Moving TAA uses Current frame weight.");
+        ImGui::SliderFloat("Depth rejection", &s.depth_threshold, .001f, .2f, "%.3f", ImGuiSliderFlags_Logarithmic);
+        ImGui::SliderFloat("Normal rejection", &s.normal_threshold, 0, .9999f, "%.3f");
         ImGui::BeginDisabled(s.denoiser!=RealtimeDenoiser::Svgf);
-        ImGui::SliderInt("Diffuse history", &s.diffuse_history, 1, 128);
         ImGui::SliderInt("Specular history", &s.specular_history, 1, 64);
         ImGui::SliderInt("Transmission history", &s.transmission_history, 1, 16);
-        ImGui::SliderFloat("Depth rejection", &s.depth_threshold, .001f, .2f, "%.3f", ImGuiSliderFlags_Logarithmic);
-        ImGui::SliderFloat("Normal rejection", &s.normal_threshold, 0, 1, "%.3f");
         ImGui::SliderFloat("Reactive strength", &s.reactive_strength, 0, 4, "%.2f");
         ImGui::Checkbox("History clamping", &s.history_clamping);
         ImGui::SliderFloat("History clamp sigma", &s.history_sigma, .5f, 8, "%.2f");
@@ -60,23 +65,23 @@ inline void draw_realtime_panel(RealtimeRenderSettings& s) {
         ImGui::EndDisabled();
         ImGui::EndDisabled();
     }
-    if (ImGui::CollapsingHeader("TAA / Temporal Upscaling", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (settings_header("TAA / Temporal Upscaling",[&]{reset_realtime_settings(s,RealtimeSettingsSection::Reconstruction);})) {
         ImGui::Checkbox("Enable TAA", &s.taa);
         ImGui::SliderFloat("Internal resolution", &s.internal_scale, .25f, 1, "%.2fx");
         ImGui::Checkbox("Temporal upscaling", &s.temporal_upscale);
         ImGui::Checkbox("Native materials / sharp optics", &s.full_resolution_materials);
-        ImGui::SliderFloat("Current frame weight", &s.taa_current_weight, .01f, 1, "%.2f");
+        ImGui::SliderFloat("Current frame weight", &s.taa_current_weight, .02f, 1, "%.2f");
         ImGui::SliderFloat("TAA clip sigma", &s.taa_clip_sigma, .5f, 8, "%.2f");
         ImGui::SliderFloat("Sharpening", &s.sharpening, 0, 1, "%.2f");
         ImGui::TextWrapped("Native materials preserve texture and emission detail, with extra rays for glass and polished metal. Other lighting uses the internal resolution. A higher current frame weight responds faster.");
     }
-    if (ImGui::CollapsingHeader("RTRT Diagnostics", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (settings_header("RTRT Diagnostics",[&]{reset_realtime_settings(s,RealtimeSettingsSection::Diagnostics);})) {
         int view = static_cast<int>(s.debug_view);
         if (ImGui::Combo("View", &view,
             "Final\0Raw lighting\0Direct lighting\0Indirect diffuse\0Reflection\0Transmission\0"
             "Albedo\0Normal\0Depth\0Motion (UV)\0Variance\0History length\0History rejection\0Reactive mask\0Temporal\0Filtered\0"))
             s.debug_view = static_cast<RealtimeDebugView>(view);
-        ImGui::TextWrapped("Diagnostic views and exposure do not enter lighting history. Reset render clears all temporal history.");
+        ImGui::TextWrapped("Diagnostic views and exposure do not enter lighting history. Reset in Performance clears all temporal history.");
         if(s.denoiser==RealtimeDenoiser::Optix)
             ImGui::TextWrapped("OptiX: Filtered shows the neural output before TAA. Temporal shows input lighting; components show internal-resolution signals. Variance estimates input noise; SVGF history diagnostics are unavailable.");
     }

@@ -1,6 +1,7 @@
 #include "test_framework.h"
 #include "render/optix/optix_realtime_renderer.h"
 #include "render/realtime/realtime_settings_json.h"
+#include "render/realtime/realtime_defaults.h"
 #include "core/image.h"
 #include "scene/scene_document.h"
 #include <algorithm>
@@ -25,7 +26,12 @@ CudaDeviceContext device() {
 }
 Camera front_camera(float x=0) { return Camera(Vec3(x,0,0),Vec3(x,0,-3),Vec3::UnitY(),45,1); }
 RenderSettings small_settings(int size=32) {
-    RenderSettings s; s.width=s.height=size; s.path.cuda_device=0; return s;
+    RenderSettings s; s.width=s.height=size; s.path.cuda_device=0;
+    // Algorithm regressions intentionally exercise the one-SPP SVGF pipeline,
+    // independent of the viewer's preferred quality/denoiser policy.
+    s.realtime.samples_per_pixel=1;s.realtime.denoiser=RealtimeDenoiser::Svgf;
+    s.realtime.diffuse_history=32;s.realtime.sharpening=0;
+    return s;
 }
 Scene plane_scene(bool emissive=false, bool slope=false) {
     Scene s; s.environment=Color::Zero();
@@ -101,11 +107,12 @@ RENDER_TEST(test_realtime_settings_roundtrip_and_sanitization) {
     s.denoiser=RealtimeDenoiser::Optix;
     RENDER_CHECK(parse_realtime_settings(realtime_settings_json(s))==s);
     RENDER_CHECK(realtime_settings_json(s).at("denoiser")=="optix");
-    RENDER_CHECK(parse_realtime_settings({}).denoiser==RealtimeDenoiser::Svgf);
+    RENDER_CHECK(parse_realtime_settings({})==RealtimeRenderSettings{});
     for(const auto& value:{nlohmann::json("future"),nlohmann::json(999),nlohmann::json(nullptr)})
-        RENDER_CHECK(parse_realtime_settings({{"denoiser",value}}).denoiser==RealtimeDenoiser::Svgf);
+        RENDER_CHECK(parse_realtime_settings({{"denoiser",value}}).denoiser==RealtimeRenderSettings{}.denoiser);
+    RENDER_CHECK(parse_realtime_settings({{"denoiser","svgf"}}).denoiser==RealtimeDenoiser::Svgf);
     s.denoiser=static_cast<RealtimeDenoiser>(255);
-    RENDER_CHECK(sanitize_realtime_settings(s).denoiser==RealtimeDenoiser::Svgf);
+    RENDER_CHECK(sanitize_realtime_settings(s).denoiser==RealtimeRenderSettings{}.denoiser);
     s.internal_scale=std::numeric_limits<float>::quiet_NaN(); s.normal_threshold=std::numeric_limits<float>::infinity();
     s.max_bounces=-20; s.diffuse_iterations=900;
     auto safe=sanitize_realtime_settings(s);
@@ -113,6 +120,33 @@ RENDER_TEST(test_realtime_settings_roundtrip_and_sanitization) {
     RENDER_CHECK(safe.max_bounces==1 && safe.diffuse_iterations==5);
     const auto parsed=parse_realtime_settings({{"max_bounces",1e99},{"taa","invalid"},{"internal_scale",nullptr}});
     RENDER_CHECK(parsed.max_bounces==64 && parsed.taa && parsed.internal_scale==1);
+}
+
+RENDER_TEST(test_realtime_section_resets_are_independent_and_persist) {
+    const RealtimeRenderSettings defaults;
+    auto s=defaults;
+    s.samples_per_pixel=9;s.reflections=false;s.regularize_indirect=false;
+    s.denoise=false;s.firefly_filter=false;s.denoiser=RealtimeDenoiser::Svgf;s.diffuse_history=7;
+    s.internal_scale=.5f;s.taa=false;s.sharpening=.7f;
+    s.debug_view=RealtimeDebugView::Normal;
+    reset_realtime_settings(s,RealtimeSettingsSection::Denoising);
+    RENDER_CHECK(s.denoise && s.firefly_filter && s.denoiser==defaults.denoiser);
+    RENDER_CHECK(s.diffuse_history==defaults.diffuse_history);
+    RENDER_CHECK(s.samples_per_pixel==9 && !s.reflections && !s.regularize_indirect);
+    RENDER_CHECK(s.internal_scale==.5f && !s.taa && s.sharpening==.7f);
+    RENDER_CHECK(s.debug_view==RealtimeDebugView::Normal);
+    reset_realtime_settings(s,RealtimeSettingsSection::Lighting);
+    RENDER_CHECK(s.samples_per_pixel==defaults.samples_per_pixel && s.reflections && s.regularize_indirect);
+    RENDER_CHECK(s.internal_scale==.5f && s.debug_view==RealtimeDebugView::Normal);
+    reset_realtime_settings(s,RealtimeSettingsSection::Reconstruction);
+    RENDER_CHECK(s.internal_scale==defaults.internal_scale && s.taa && s.sharpening==defaults.sharpening);
+    RENDER_CHECK(s.debug_view==RealtimeDebugView::Normal);
+    reset_realtime_settings(s,RealtimeSettingsSection::Diagnostics);
+    RENDER_CHECK(s==defaults);
+    RENDER_CHECK(parse_realtime_settings(realtime_settings_json(s))==defaults);
+    // Resetting a section again must be harmless.
+    reset_realtime_settings(s,RealtimeSettingsSection::Denoising);
+    RENDER_CHECK(s==defaults);
 }
 
 RENDER_TEST(test_realtime_constant_preservation_resize_and_resident_output) {
@@ -774,7 +808,8 @@ RENDER_TEST(test_realtime_denoiser_static_edges_and_camera_stop) {
     const auto camera=[](float x) {return Camera(Vec3(x,.15f,1.5f),Vec3(x,.15f,-2),Vec3::UnitY(),45,1);};
     nlohmann::json metrics=nlohmann::json::array();double worst_static=0,worst_stop=0;
     for(auto denoiser:{RealtimeDenoiser::Svgf,RealtimeDenoiser::Optix})for(float scale:{1.0f,.5f}) {
-        auto settings=small_settings(96);settings.realtime.denoiser=denoiser;settings.realtime.internal_scale=scale;
+        auto settings=small_settings(96);settings.realtime=RealtimeRenderSettings{};
+        settings.realtime.denoiser=denoiser;settings.realtime.internal_scale=scale;
         OptixRealtimeRenderer renderer(context);Framebuffer frame(1,1),previous(1,1);InteractiveFrameState state;
         const std::string label=std::string(denoiser==RealtimeDenoiser::Svgf?"svgf":"optix")+(scale==1?"-native":"-half");
         double flicker=0,stopped=0,blocks=0;DisplaySettings display;display.tone_mapper=ToneMapper::Aces;
@@ -850,7 +885,8 @@ RENDER_TEST(test_realtime_wet_normal_highlight_stability) {
         export_metrics("wet-reference.json",{{"mean_radiance",energy},{"spp",4096}});
     }
     for(auto denoiser:{RealtimeDenoiser::Svgf,RealtimeDenoiser::Optix})for(bool moving:{false,true}) {
-        auto settings=small_settings(96);settings.realtime.denoiser=denoiser;settings.realtime.max_bounces=1;
+        auto settings=small_settings(96);settings.realtime=RealtimeRenderSettings{};
+        settings.realtime.denoiser=denoiser;settings.realtime.max_bounces=1;
         if(std::getenv("RTRT_DISABLE_SPECULAR_AA"))settings.realtime.specular_antialiasing=false;
         OptixRealtimeRenderer renderer(context);Framebuffer frame(1,1),previous(1,1);InteractiveFrameState state;
         DisplaySettings display;display.tone_mapper=ToneMapper::Aces;double error=0,energy=0;
@@ -922,10 +958,15 @@ RENDER_TEST(test_realtime_cave_continuous_motion) {
     const Vec3 up=Vec3::UnitY(),right=forward.cross(up).normalized();
     nlohmann::json results=nlohmann::json::array();
     const float speed=std::getenv("RTRT_CAVE_SPEED")?std::stof(std::getenv("RTRT_CAVE_SPEED")):.004f;
+    RealtimeRenderSettings configured;
+    if(const char* path=std::getenv("RTRT_CAVE_CONFIG")) {
+        std::ifstream input(path);nlohmann::json config;input>>config;
+        configured=parse_realtime_settings(config);
+    }
     for(auto denoiser:{RealtimeDenoiser::Svgf,RealtimeDenoiser::Optix})for(float scale:{1.0f,.5f}) {
         const int variant=(denoiser==RealtimeDenoiser::Optix?2:0)+(scale<1?1:0);
         if(const char* selected=std::getenv("RTRT_CAVE_VARIANT");selected && std::atoi(selected)!=variant)continue;
-        settings.realtime=RealtimeRenderSettings{};settings.realtime.denoiser=denoiser;settings.realtime.internal_scale=scale;
+        settings.realtime=configured;settings.realtime.denoiser=denoiser;settings.realtime.internal_scale=scale;
         if(std::getenv("RTRT_DISABLE_SPECULAR_AA"))settings.realtime.specular_antialiasing=false;
         OptixRealtimeRenderer renderer(context);Framebuffer frame(1,1),previous(1,1);InteractiveFrameState state;
         DisplaySettings display;display.tone_mapper=ToneMapper::Aces;double errors[2]{},counts[2]{};
@@ -1132,7 +1173,9 @@ RENDER_TEST(test_realtime_native_optics_dense_and_empty_worklists) {
 
 RENDER_TEST(test_realtime_optix_denoiser_switch_resize_and_resident_output) {
     OptixRealtimeRenderer r(device());auto s=small_settings(32);
-    s.realtime.denoiser=RealtimeDenoiser::Optix;
+    // Exercise the actual preferred profile as well as the explicit one-SPP
+    // algorithm fixtures above, including fallback, resize and scene cuts.
+    s.realtime=RealtimeRenderSettings{};
     Scene scene;scene.environment=Color(.3f,.6f,2);auto snapshot=make_render_scene_snapshot(scene);
     InteractiveFrameState state;Framebuffer f(1,1);
     r.render_next_frame(snapshot,front_camera(),s,state,f);
@@ -1347,11 +1390,19 @@ RENDER_TEST(test_realtime_thin_mirror_highlight_preserves_energy) {
     const auto reference=render_cuda_path(snapshot,front_camera(),settings).image;
     for(bool upscale:{false,true}) {
         settings.realtime=upscale?realtime_1080p_quality_settings():RealtimeRenderSettings{};
+        if(!upscale)if(const char* path=std::getenv("RTRT_QUALITY_CONFIG")) {
+            std::ifstream input(path);RENDER_CHECK(input.good());
+            nlohmann::json config;input>>config;
+            settings.realtime=parse_realtime_settings(config);
+        }
         OptixRealtimeRenderer renderer(context);Framebuffer frame(1,1);InteractiveFrameState state;
         double error=0,energy=0,reference_energy=0;int count=0;
-        for(int f=0;f<64;++f) {
+        // Compare settled profiles after two history lengths, including the
+        // quality profile's longer stationary accumulation.
+        const int warmup=std::max(48,2*settings.realtime.diffuse_history);
+        for(int f=0;f<warmup+16;++f) {
             renderer.render_next_frame(snapshot,front_camera(),settings,state,frame);
-            if(f<48)continue;
+            if(f<warmup)continue;
             for(int y=24;y<104;++y)for(int x=24;x<104;++x) {
                 if((x-63.5f)*(x-63.5f)+(y-63.5f)*(y-63.5f)>40*40)continue;
                 const Color c=frame.pixel(x,y),r=reference.pixel(x,y);

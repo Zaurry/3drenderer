@@ -74,8 +74,10 @@ inline RealtimeRenderSettings parse_realtime_settings(const nlohmann::json& j) {
     if (j.contains("reflections") && j.at("reflections").is_boolean()) s.reflections = j.at("reflections").get<bool>();
     if (j.contains("transmission") && j.at("transmission").is_boolean()) s.transmission = j.at("transmission").get<bool>();
     if (j.contains("denoise") && j.at("denoise").is_boolean()) s.denoise = j.at("denoise").get<bool>();
-    if (j.contains("denoiser") && j.at("denoiser").is_string())
-        s.denoiser = j.at("denoiser") == "optix" ? RealtimeDenoiser::Optix : RealtimeDenoiser::Svgf;
+    if (j.contains("denoiser") && j.at("denoiser").is_string()) {
+        if(j.at("denoiser")=="optix")s.denoiser=RealtimeDenoiser::Optix;
+        else if(j.at("denoiser")=="svgf")s.denoiser=RealtimeDenoiser::Svgf;
+    }
     if (j.contains("temporal") && j.at("temporal").is_boolean()) s.temporal = j.at("temporal").get<bool>();
     if (j.contains("firefly_filter") && j.at("firefly_filter").is_boolean()) s.firefly_filter = j.at("firefly_filter").get<bool>();
     if (j.contains("firefly_sigma") && j.at("firefly_sigma").is_number()) s.firefly_sigma = j.at("firefly_sigma").get<float>();

@@ -731,9 +731,8 @@ int main(int argc, char** argv) {
             free_camera.set_movement_speed(
                 saved_camera.free_movement_speed);
         }
-        renderer::OrbitCameraController initial_orbit_camera = orbit_camera;
-        renderer::FreeCameraController initial_free_camera = free_camera;
         const auto reset_cameras_for_scene = [&]() {
+            viewer_scene.bounds=viewer_scene.document.scene_bounds();
             const float aspect_ratio =
                 static_cast<float>(settings.width) /
                 static_cast<float>(settings.height);
@@ -747,8 +746,6 @@ int main(int argc, char** argv) {
                 orbit_camera.camera(),
                 aspect_ratio,
                 radius);
-            initial_orbit_camera = orbit_camera;
-            initial_free_camera = free_camera;
             ui_state.camera_mode = renderer::ViewerCameraMode::Orbit;
         };
 
@@ -1121,9 +1118,7 @@ int main(int argc, char** argv) {
                 }
             }
             if (ui_actions.camera_reset_requested) {
-                orbit_camera = initial_orbit_camera;
-                free_camera = initial_free_camera;
-                ui_state.camera_mode = renderer::ViewerCameraMode::Orbit;
+                reset_cameras_for_scene();
                 camera_changed = true;
             } else if (ui_actions.camera_mode_changed || previous_camera_mode != ui_state.camera_mode) {
                 transition_camera_mode(

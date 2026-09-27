@@ -58,7 +58,7 @@ OptiX 启动参数使用有完成事件保护的固定页内存循环缓冲，�
 
 ## ImGui 与参数保存
 
-`RTRT Denoising → Denoiser` 可在 `SVGF` 与 `OptiX AI` 间切换，`Enable denoising` 控制总开关，旧会话和默认配置继续使用 SVGF。OptiX 使用 9.1 的 `TEMPORAL_AOV` 神经模型；关闭 `Temporal reuse` 时使用单帧 `AOV` 模型。依赖已固定到 [NVIDIA OptiX 9.1 头文件](https://github.com/NVIDIA/optix-dev/blob/f1f6dd803f3159992d248178f6e09421c6eb8b6d/include/optix_types.h)，不需要单独下载模型，实际模型由兼容 NVIDIA 驱动提供。
+`RTRT Denoising → Denoiser` 可在 `SVGF` 与 `OptiX AI` 间切换，`Enable denoising` 控制总开关。新会话默认 OptiX AI，已有会话保留明确保存的选择；神经降噪不可用时回退 SVGF。OptiX 使用 9.1 的 `TEMPORAL_AOV` 神经模型；关闭 `Temporal reuse` 时使用单帧 `AOV` 模型。依赖已固定到 [NVIDIA OptiX 9.1 头文件](https://github.com/NVIDIA/optix-dev/blob/f1f6dd803f3159992d248178f6e09421c6eb8b6d/include/optix_types.h)，不需要单独下载模型，实际模型由兼容 NVIDIA 驱动提供。
 
 OptiX 路径将当前帧线性 HDR 合成图送入网络，提供反照率、世界空间着色法线、前帧到当前帧的像素运动向量，以及依据深度、几何法线和表面身份计算的运动可信度。网络前的异常值抑制只改变间接漫反射，直接光、反射和透射保留原输入；各分量同时估计输入方差。运动向量转换同时处理方向、分辨率和两帧采样抖动；可信度逐个验证与神经历史相同的抖动网格上的双线性样本。相机或场景变化时，玻璃和低粗糙度反射的首表面运动不能代表次级像，因此关闭这些像素的神经历史复用；判断同时考虑源材质的粗糙度，避免像素滤波误将它们变为可信反射。没有镜面分量的材质不因未使用的低粗糙度而丢弃历史。完全静止时可复用只受采样抖动影响的历史。背景辐亮度原样保留。
 
@@ -81,11 +81,15 @@ CLI 配置示例：`{"denoise": true, "denoiser": "optix", "temporal": true}`。
 | 公共 | 场景、相机、灯光、HDRI、输出比例、曝光、色调映射 |
 | OpenGL | NPR、IBL / LTC、阴影 / PCSS、AO、SSR、SSGI |
 | RTRT Lighting & Sampling | SER、稳定玻璃采样、Owen Sobol 采样、高光抗锯齿、稳定间接高光、每帧 SPP、路径深度、轮盘赌起始层、光源样本、直接光、阴影、软阴影、GI、反射、透射 |
-| RTRT Denoising | SVGF / OptiX AI 切换、降噪总开关、时域复用、亮点抑制；SVGF 的各分量历史、阈值和空间滤波参数 |
+| RTRT Denoising | SVGF / OptiX AI 切换、降噪总开关、时域复用、亮点抑制、共用静止历史与几何拒绝阈值；SVGF 的分量历史和空间滤波参数 |
 | TAA / Temporal Upscaling | TAA、内部光照比例、原生材质和清晰光学采样、时域上采样、当前帧权重、裁剪、锐化 |
 | RTRT Diagnostics | 原始及分量光照、Albedo / Normal / Depth、UV 运动、方差、历史长度、历史拒绝、反应掩码、时域和空间重建结果 |
 
-默认 1 SPP、8 层路径，漫反射 / 镜面 / 透射历史分别为 32 / 16 / 4，空间滤波 5 / 3 / 0 轮。已有会话保存的镜面历史值仍会保留，可在面板调整为 16。`Output scale` 控制输出尺寸，RTRT 的 `Internal resolution` 仅控制内部采样尺寸。降低内部比例时默认使用 TAAU。关闭 SVGF 后仍可单独使用 TAA；检查原始采样可选择 `Raw lighting`。调试视图、曝光和显示变换不会污染光照历史。
+画质默认值为 OptiX AI、原生分辨率、1 SPP、1 个光源样本、8 层路径；漫反射 / 静止历史 64 帧，SVGF 镜面 / 透射历史为 16 / 4，空间滤波 5 / 3 轮，清晰光学跳过宽空间核。TAA 当前帧权重 0.15、裁剪 sigma 1.5、轻度锐化 0.05；高光抗锯齿、间接高光稳定和亮点抑制均开启。Viewer 默认曝光 0 EV、ACES，离线显示默认值保持原样。参数选择依据和性能见 [默认参数验证](rtrt-defaults-2026-09-27.md)。
+
+每个参数板块标题右侧有独立 `Reset`，折叠或效果关闭时也可操作；只恢复该板块。`Quality defaults` 一次恢复全部 RTRT 参数，`1080p performance preset` 使用原有半分辨率 SVGF 配置。Performance 的 Reset 清空渲染历史，Camera 的 Reset 按当前场景重新适配视角，DDGI 的 Reset 同时重新适配体积并清空探针历史。环境光 Reset 保留 HDRI 来源。已有会话继续保留用户显式保存的设置，Reset 后会正常保存。
+
+`Output scale` 控制输出尺寸，RTRT 的 `Internal resolution` 仅控制内部采样尺寸。降低内部比例时默认使用 TAAU。关闭降噪后仍可单独使用 TAA；检查原始采样可选择 `Raw lighting`。调试视图、曝光和显示变换不会污染光照历史。
 
 会话版本 7 分别保存 `render.opengl` 和 `render.realtime`；旧会话中的交互 Path 自动映射至 RTRT，旧暂停和自动预览状态不再作用于新管线。模式切换保留两套参数。
 

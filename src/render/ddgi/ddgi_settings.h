@@ -39,6 +39,13 @@ struct DdgiSettings {
     bool operator==(const DdgiSettings &) const = default;
 };
 
+inline void reset_ddgi_settings(DdgiSettings& settings) {
+    // Commands must advance even when Reset is pressed twice in a row.
+    const auto reset=settings.reset_generation+1,fit=settings.fit_generation+1;
+    settings=DdgiSettings{};
+    settings.reset_generation=reset;settings.fit_generation=fit;
+}
+
 inline DdgiSettings normalized_ddgi_settings(DdgiSettings s) {
     const auto bounded = [](float v, float fallback, float lo, float hi) {
         return std::isfinite(v) ? std::clamp(v, lo, hi) : fallback;

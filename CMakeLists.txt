@@ -471,6 +471,10 @@ set(RENDERER_TEST_TARGETS
     realtime_tests)
 
 if(RENDERER_BUILD_VIEWER)
+    add_executable(viewer_ui_tests tests/viewer_ui_tests.cpp tests/test_main.cpp)
+    target_include_directories(viewer_ui_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(viewer_ui_tests PRIVATE renderer_imgui)
+    list(APPEND RENDERER_TEST_TARGETS viewer_ui_tests)
     add_executable(opengl_transport_tests
         tests/opengl_transport_tests.cpp tests/test_main.cpp)
     target_link_libraries(opengl_transport_tests PRIVATE
@@ -649,6 +653,7 @@ add_test(NAME document_tests COMMAND document_tests)
 add_test(NAME opengl_contract_tests COMMAND opengl_contract_tests)
 add_test(NAME opengl_shader_lint_tests COMMAND opengl_shader_lint_tests)
 if(RENDERER_BUILD_VIEWER)
+    add_test(NAME viewer_ui_tests COMMAND viewer_ui_tests)
     add_test(NAME opengl_transport_tests COMMAND opengl_transport_tests)
     add_test(NAME ddgi_tests COMMAND ddgi_tests)
     add_test(NAME optix_interop_tests COMMAND optix_interop_tests)

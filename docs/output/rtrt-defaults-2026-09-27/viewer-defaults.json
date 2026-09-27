@@ -1,0 +1,165 @@
+{
+  "display": {
+    "exposure_ev": 0.0,
+    "tone_mapper": "aces"
+  },
+  "render": {
+    "cuda_device": 0,
+    "max_bounces": 64,
+    "opengl": {
+      "ambient_occlusion": {
+        "debug_view": 0,
+        "denoise": {
+          "depth_sigma_fraction": 0.10000000149011612,
+          "enabled": true,
+          "kernel_radius": 2,
+          "normal_power": 8.0
+        },
+        "gtao": {
+          "bent_normals_enabled": true,
+          "falloff_fraction": 0.6000000238418579,
+          "intensity": 1.0,
+          "radius_scale": 0.10000000149011612,
+          "samples_per_side": 3,
+          "slice_count": 3,
+          "thickness_fraction": 0.20000000298023224
+        },
+        "mode": 2,
+        "ssao": {
+          "depth_bias_fraction": 0.019999999552965164,
+          "intensity": 1.0,
+          "radius_scale": 0.10000000149011612,
+          "sample_count": 32
+        }
+      },
+      "ddgi": {
+        "auto_fit": true,
+        "classification": true,
+        "debug_view": 0,
+        "enabled": true,
+        "extent": [
+          10.0,
+          6.0,
+          10.0
+        ],
+        "hysteresis": 0.949999988079071,
+        "intensity": 1.0,
+        "normal_bias": 0.10000000149011612,
+        "origin": [
+          -5.0,
+          -3.0,
+          -5.0
+        ],
+        "paused": false,
+        "probe_counts": [
+          12,
+          8,
+          12
+        ],
+        "probes_per_frame": 256,
+        "rays_per_probe": 128,
+        "relocation": true,
+        "show_probes": false,
+        "view_bias": 0.019999999552965164
+      },
+      "dominant_light": {
+        "enabled": true,
+        "intensity_scale": 1.0,
+        "minimum_energy_fraction": 0.009999999776482582,
+        "peak_threshold_ev": 3.0
+      },
+      "ibl_enabled": true,
+      "ltc_area_lights_enabled": true,
+      "npr": {
+        "outline_strength": 0.8500000238418579,
+        "outline_width": 1.5,
+        "sketch_scale": 8.0,
+        "sketch_tone": 1.0,
+        "sketch_use_uv": false,
+        "style": 0,
+        "toon_levels": 3
+      },
+      "pcss": {
+        "blocker_samples": 16,
+        "enabled": true,
+        "filter_samples": 32,
+        "light_size_scale": 1.0,
+        "max_penumbra_texels": 64.0
+      },
+      "shadow_map": {
+        "constant_bias": 0.0005000000237487257,
+        "debug_shadow_slot": 0,
+        "debug_view": 0,
+        "enabled": true,
+        "max_shadow_lights": 8,
+        "projection_padding": 0.05000000074505806,
+        "resolution": 1024,
+        "slope_bias": 0.0024999999441206455
+      },
+      "ssr": {
+        "debug_view": 0,
+        "denoise_depth_sigma_fraction": 0.05000000074505806,
+        "denoise_normal_power": 16.0,
+        "denoise_passes": 3,
+        "edge_fade": 0.15000000596046448,
+        "enabled": true,
+        "max_distance_scale": 1.0,
+        "max_history_frames": 32,
+        "max_steps": 64,
+        "rays_per_pixel": 2,
+        "thickness_scale": 0.0020000000949949026
+      }
+    },
+    "realtime": {
+      "debug_view": 0,
+      "denoise": true,
+      "denoiser": "optix",
+      "depth_sigma": 1.0,
+      "depth_threshold": 0.019999999552965164,
+      "diffuse_history": 64,
+      "diffuse_iterations": 5,
+      "direct_lighting": true,
+      "firefly_filter": true,
+      "firefly_sigma": 6.0,
+      "full_resolution_materials": true,
+      "history_clamping": true,
+      "history_sigma": 2.0,
+      "indirect_diffuse": true,
+      "internal_scale": 1.0,
+      "light_samples": 1,
+      "low_discrepancy": true,
+      "luminance_sigma": 4.0,
+      "max_bounces": 8,
+      "normal_power": 64.0,
+      "normal_threshold": 0.8500000238418579,
+      "reactive_strength": 1.0,
+      "reflections": true,
+      "regularize_indirect": true,
+      "roulette_start": 3,
+      "samples_per_pixel": 1,
+      "shader_execution_reordering": true,
+      "shadows": true,
+      "sharpening": 0.05000000074505806,
+      "soft_shadows": true,
+      "specular_antialiasing": true,
+      "specular_history": 16,
+      "specular_iterations": 3,
+      "split_dielectric": true,
+      "taa": true,
+      "taa_clip_sigma": 1.5,
+      "taa_current_weight": 0.15000000596046448,
+      "temporal": true,
+      "temporal_upscale": true,
+      "transmission": true,
+      "transmission_history": 4
+    },
+    "rr_max_probability": 0.949999988079071,
+    "rr_min_probability": 0.05000000074505806,
+    "rr_start_bounce": 3
+  },
+  "view": {
+    "render_scale": 1.0,
+    "ui_font_scale": 1.0,
+    "show_point_light_markers": true
+  }
+}

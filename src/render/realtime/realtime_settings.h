@@ -33,13 +33,13 @@ struct RealtimeRenderSettings {
     bool reflections = true;
     bool transmission = true;
     bool denoise = true;
-    RealtimeDenoiser denoiser = RealtimeDenoiser::Svgf;
+    RealtimeDenoiser denoiser = RealtimeDenoiser::Optix;
     bool temporal = true;
     bool firefly_filter = true;
     float firefly_sigma = 6.0f;
     bool history_clamping = true;
     float history_sigma = 2.0f;
-    int diffuse_history = 32;
+    int diffuse_history = 64;
     int specular_history = 16;
     int transmission_history = 4;
     float depth_threshold = 0.02f;
@@ -55,7 +55,7 @@ struct RealtimeRenderSettings {
     bool full_resolution_materials = true;
     float taa_current_weight = 0.15f;
     float taa_clip_sigma = 1.5f;
-    float sharpening = 0.0f;
+    float sharpening = 0.05f;
     RealtimeDebugView debug_view = RealtimeDebugView::Final;
 
     bool operator==(const RealtimeRenderSettings&) const = default;
@@ -85,18 +85,21 @@ inline RealtimeRenderSettings sanitize_realtime_settings(RealtimeRenderSettings 
     s.luminance_sigma = bounded(s.luminance_sigma, 0.1f, 32.0f, 4.0f);
     s.taa_current_weight = bounded(s.taa_current_weight, 0.02f, 1.0f, 0.15f);
     s.taa_clip_sigma = bounded(s.taa_clip_sigma, 0.5f, 8.0f, 1.5f);
-    s.sharpening = bounded(s.sharpening, 0.0f, 1.0f, 0.0f);
+    s.sharpening = bounded(s.sharpening, 0.0f, 1.0f, RealtimeRenderSettings{}.sharpening);
     if (static_cast<unsigned>(s.denoiser) >= static_cast<unsigned>(RealtimeDenoiser::Count))
-        s.denoiser = RealtimeDenoiser::Svgf;
+        s.denoiser = RealtimeRenderSettings{}.denoiser;
     if (static_cast<unsigned>(s.debug_view) >= static_cast<unsigned>(RealtimeDebugView::Count))
         s.debug_view = RealtimeDebugView::Final;
     return s;
 }
 
-// Measured on RTX 5080 / 1080p / San Miguel; output materials remain native.
+// Performance alternative measured on RTX 5080 / 1080p / San Miguel.
+// Keep its original one-sample SVGF cost when quality defaults change.
 inline RealtimeRenderSettings realtime_1080p_quality_settings() {
-    RealtimeRenderSettings s;s.internal_scale=.5f;
+    RealtimeRenderSettings s;s.internal_scale=.5f;s.samples_per_pixel=1;
+    s.light_samples=1;s.denoiser=RealtimeDenoiser::Svgf;s.diffuse_history=32;
     s.taa_current_weight=.03f;s.taa_clip_sigma=3;
+    s.sharpening=0;
     return s;
 }
 

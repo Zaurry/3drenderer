@@ -47,6 +47,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -5008,6 +5009,36 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
     RENDER_CHECK(rejected_version);
 
     std::filesystem::remove_all(directory);
+}
+
+RENDER_TEST(test_viewer_quality_defaults_survive_session_roundtrip) {
+    const std::filesystem::path path="test_viewer_quality_defaults.json";
+    renderer::ViewerSessionState defaults;
+    defaults.document.create_point_light("Test light",renderer::Vec3::Zero(),renderer::Color::Ones());
+    renderer::ViewerSessionStore::save(path,defaults.document,defaults);
+    const auto loaded=renderer::ViewerSessionStore::load(path);
+    RENDER_CHECK(loaded.render_settings.realtime==defaults.render_settings.realtime);
+    RENDER_CHECK(loaded.render_settings.opengl==defaults.render_settings.opengl);
+    RENDER_CHECK(loaded.ui.display.tone_mapper==renderer::ToneMapper::Aces);
+    RENDER_CHECK(loaded.ui.display.exposure_ev==0 && loaded.ui.render_scale==1);
+    // Optional canonical export for repeatable viewer profile validation.
+    if(const char* output=std::getenv("VIEWER_DEFAULTS_EXPORT"))
+        renderer::ViewerSessionStore::save(output,defaults.document,defaults);
+    std::filesystem::remove(path);
+}
+
+RENDER_TEST(test_ddgi_reset_repeatedly_invalidates_probe_history_and_fit) {
+    renderer::DdgiSettings settings;
+    settings.reset_generation=7;settings.fit_generation=11;
+    settings.enabled=false;settings.paused=true;settings.auto_fit=false;
+    settings.intensity=4;settings.show_probes=true;
+    settings.origin={20,30,40};settings.probe_counts={3,3,3};
+    for(int click=1;click<=2;++click) {
+        renderer::reset_ddgi_settings(settings);
+        auto expected=renderer::DdgiSettings{};
+        expected.reset_generation=7+click;expected.fit_generation=11+click;
+        RENDER_CHECK(settings==expected);
+    }
 }
 
 RENDER_TEST(test_viewer_session_omits_and_skips_unreferenced_assets) {

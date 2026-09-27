@@ -556,7 +556,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
         if (ImGui::Begin("Rendering", &state.rendering_panel_visible)) {
             const RenderModeCapability active_capabilities =
                 render_mode_descriptor(state.mode).capabilities;
-            if (ImGui::CollapsingHeader("Performance", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (settings_header("Performance",[&]{actions.reset_requested=true;},"Clear rendering history and restart accumulation.")) {
                 if (performance.valid) {
                     ImGui::Text("%.1f FPS  |  %.2f ms",
                                 performance.frames_per_second,
@@ -588,12 +588,15 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         (unsigned long long)cuda_statistics.framebuffer_downloads);
                     ImGui::Text("Scene upload %.2f ms | TLAS refit %.2f ms", cuda_statistics.upload_milliseconds, cuda_statistics.tlas_refit_milliseconds);
                 }
-                if (ImGui::Button("Reset render")) {
-                    actions.reset_requested = true;
-                }
             }
 
-            if (ImGui::CollapsingHeader("Rendering", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (settings_header("Rendering",[&] {
+                    const auto mode=optix_realtime_available(render_settings.path.cuda_device)
+                        ?InteractiveRenderMode::Rtrt:InteractiveRenderMode::OpenGl;
+                    actions.mode_changed=state.mode!=mode;state.mode=mode;
+                    render_settings.opengl.npr=NprRenderSettings{};
+                    actions.render_scale_changed=state.render_scale!=1.0f;state.render_scale=1.0f;
+                })) {
                 const RenderModeDescriptor& active_mode =
                     render_mode_descriptor(state.mode);
                 if (ImGui::BeginCombo("Mode", active_mode.label)) {
@@ -670,7 +673,10 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
             if (has_capability(
                     active_capabilities,
                     RenderModeCapability::ShaderReload) &&
-                ImGui::CollapsingHeader("GLSL Shader", ImGuiTreeNodeFlags_DefaultOpen)) {
+                settings_header("GLSL Shader",[&] {
+                    shader_state.auto_reload=true;actions.shader_auto_reload_changed=true;
+                    actions.shader_reload_requested=true;
+                },"Enable automatic reload and reload the current shader files.")) {
                 ImGui::TextUnformatted(shader_state.valid ? "Program: active"
                                                           : "Program: unavailable");
                 ImGui::TextWrapped("Vertex: %s", shader_state.vertex_path.c_str());
@@ -693,7 +699,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 }
             }
 
-            if (ImGui::CollapsingHeader("Display", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (settings_header("Display",[&]{state.display=ViewerUiState{}.display;})) {
                 // Display settings are applied directly via
                 // ui_state.display at present time; no action flag needed.
                 ImGui::SliderFloat(
@@ -706,15 +712,14 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 ImGui::TextDisabled("Current: %s", tone_mapper_label(state.display.tone_mapper));
             }
 
-            if (ImGui::CollapsingHeader("Interface", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (settings_header("Interface",[&] {
+                    state.ui_font_scale=ViewerUiState{}.ui_font_scale;
+                    ImGui::GetStyle().FontScaleMain=state.ui_font_scale;
+                })) {
                 int font_scale_percent =
                     static_cast<int>(std::lround(state.ui_font_scale * 100.0f));
                 if (ImGui::SliderInt("Font size", &font_scale_percent, 75, 200, "%d%%")) {
                     state.ui_font_scale = static_cast<float>(font_scale_percent) / 100.0f;
-                    ImGui::GetStyle().FontScaleMain = state.ui_font_scale;
-                }
-                if (ImGui::SmallButton("Reset font size")) {
-                    state.ui_font_scale = 1.0f;
                     ImGui::GetStyle().FontScaleMain = state.ui_font_scale;
                 }
             }
@@ -729,7 +734,8 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
 
     if (state.camera_lighting_panel_visible) {
         if (ImGui::Begin("Camera", &state.camera_lighting_panel_visible)) {
-            if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (settings_header("Camera",[&]{actions.camera_reset_requested=true;},
+                    "Fit the current scene with default field of view, orbit distance and movement speed.")) {
                 int camera_mode = static_cast<int>(state.camera_mode);
                 constexpr const char* camera_modes[] = {"Orbit", "Free"};
                 if (ImGui::Combo("Control mode", &camera_mode, camera_modes, 2)) {
@@ -769,9 +775,6 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         free_camera.set_movement_speed(movement_speed);
                     }
                 }
-                if (ImGui::Button("Reset camera")) {
-                    actions.camera_reset_requested = true;
-                }
             }
 
         }
@@ -780,11 +783,27 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
 
     if (state.techniques_panel_visible) {
         if (ImGui::Begin("Techniques", &state.techniques_panel_visible)) {
-            if (ImGui::CollapsingHeader(
-                    "Direct Lighting",
-                    ImGuiTreeNodeFlags_DefaultOpen)) {
+            const auto reset_environment=[&] {
+                const SceneDocument defaults;
+                document.set_environment(document.environment_map()?Color::Ones():defaults.environment());
+                document.set_environment_intensity(defaults.environment_intensity());
+                document.set_environment_rotation_degrees(defaults.environment_rotation_degrees());
+                document.set_environment_background_visible(defaults.environment_background_visible());
+                render_settings.opengl.ibl_enabled=OpenGlRenderSettings{}.ibl_enabled;
+                document.checkpoint();actions.scene_changes|=SceneChange::Environment;
+            };
+            if (settings_header("Direct Lighting",[&] {
+                    const OpenGlRenderSettings defaults;
+                    state.show_point_light_markers=ViewerUiState{}.show_point_light_markers;
+                    render_settings.opengl.shadow_map=defaults.shadow_map;
+                    render_settings.opengl.pcss=defaults.pcss;
+                    render_settings.opengl.dominant_light=defaults.dominant_light;
+                    render_settings.opengl.ltc_area_lights_enabled=defaults.ltc_area_lights_enabled;
+                    reset_environment();
+                },"Restore lighting controls and environment adjustments. Keep the HDRI source and scene lights.")) {
                 ImGui::Checkbox("Show point light markers", &state.show_point_light_markers);
-                ImGui::SeparatorText("Environment IBL");
+                settings_subsection("Environment IBL",reset_environment,
+                    "Restore tint, intensity, rotation and background visibility. Keep the HDRI source.");
                 const bool open_gl_mode = state.mode == InteractiveRenderMode::OpenGl;
                 if (open_gl_mode) ImGui::Checkbox("Enable IBL", &render_settings.opengl.ibl_enabled);
                 const std::string environment_path = document.environment_path().empty()
@@ -849,7 +868,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     document.checkpoint();
                 }
                 if (open_gl_mode) {
-                ImGui::SeparatorText("Shadow Map");
+                settings_subsection("Shadow Map",[&]{render_settings.opengl.shadow_map=ShadowMapRenderSettings{};});
                 ImGui::BeginDisabled(!open_gl_mode);
                 ImGui::Checkbox(
                     "Enable Shadow Map",
@@ -938,7 +957,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     }
                 }
 
-                ImGui::SeparatorText("PCSS");
+                settings_subsection("PCSS",[&]{render_settings.opengl.pcss=PcssRenderSettings{};});
                 ImGui::BeginDisabled(
                     !open_gl_mode || !render_settings.opengl.shadow_map.enabled);
                 ImGui::Checkbox("Enable PCSS", &render_settings.opengl.pcss.enabled);
@@ -968,7 +987,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 ImGui::EndDisabled();
                 ImGui::EndDisabled();
 
-                ImGui::SeparatorText("Dominant Light Extraction");
+                settings_subsection("Dominant Light Extraction",[&]{render_settings.opengl.dominant_light=DominantLightExtractionRenderSettings{};});
                 ImGui::BeginDisabled(!open_gl_mode);
                 ImGui::Checkbox(
                     "Enable dominant environment light",
@@ -1014,7 +1033,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     ImGui::TextDisabled("No qualifying highlight region.");
                 }
 
-                ImGui::SeparatorText("LTC Area Lights");
+                settings_subsection("LTC Area Lights",[&]{render_settings.opengl.ltc_area_lights_enabled=OpenGlRenderSettings{}.ltc_area_lights_enabled;});
                 ImGui::BeginDisabled(!open_gl_mode);
                 ImGui::Checkbox(
                     "Enable LTC rectangular lights",
@@ -1084,9 +1103,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
             if (state.mode == InteractiveRenderMode::Rtrt) {
                 draw_realtime_panel(render_settings.realtime);
             } else {
-            if (ImGui::CollapsingHeader(
-                    "Ambient Occlusion",
-                    ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (settings_header("Ambient Occlusion",[&]{render_settings.opengl.ambient_occlusion=AmbientOcclusionRenderSettings{};})) {
                 const bool open_gl_mode =
                     state.mode == InteractiveRenderMode::OpenGl;
                 auto& ao = render_settings.opengl.ambient_occlusion;
@@ -1107,7 +1124,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 }
 
                 if (ao.mode == OpenGlAmbientOcclusionMode::Ssao) {
-                    ImGui::SeparatorText("SSAO");
+                    settings_subsection("SSAO",[&]{ao.ssao=SsaoRenderSettings{};});
                     ImGui::SliderInt(
                         "Samples##SSAO", &ao.ssao.sample_count, 8, 64);
                     ImGui::SliderFloat(
@@ -1130,7 +1147,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         4.0f,
                         "%.2f");
                 } else if (ao.mode == OpenGlAmbientOcclusionMode::Gtao) {
-                    ImGui::SeparatorText("GTAO + Bent Normal");
+                    settings_subsection("GTAO + Bent Normal",[&]{ao.gtao=GtaoRenderSettings{};});
                     ImGui::SliderInt(
                         "Horizon slices", &ao.gtao.slice_count, 1, 8);
                     ImGui::SliderInt(
@@ -1168,7 +1185,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                         &ao.gtao.bent_normals_enabled);
                 }
 
-                ImGui::SeparatorText("Spatial filter");
+                settings_subsection("Spatial filter",[&]{ao.denoise=AmbientOcclusionDenoiseSettings{};});
                 ImGui::Checkbox("Enable AO denoise", &ao.denoise.enabled);
                 ImGui::BeginDisabled(!ao.denoise.enabled);
                 ImGui::SliderInt(
@@ -1230,7 +1247,8 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     "AO attenuates indirect lighting, including DDGI and environment IBL.");
             }
 
-            if (ImGui::CollapsingHeader("DDGI - Dynamic Diffuse GI", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (settings_header("DDGI - Dynamic Diffuse GI",[&]{reset_ddgi_settings(render_settings.opengl.ddgi);},
+                    "Restore DDGI defaults, refit the volume and restart probe history.")) {
                 auto& ddgi = render_settings.opengl.ddgi;
                 const auto& diagnostic = shader_state.ddgi;
                 ImGui::Checkbox("Enable DDGI", &ddgi.enabled);
@@ -1280,9 +1298,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 ImGui::TextWrapped("DDGI updates diffuse lighting in world space. SSR supplies glossy reflections. Camera motion keeps the probe history.");
             }
 
-            if (ImGui::CollapsingHeader(
-                    "SSR - Screen Space Ray Tracing",
-                    ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (settings_header("SSR - Screen Space Ray Tracing",[&]{render_settings.opengl.ssr=SsrRenderSettings{};})) {
                 const bool open_gl_mode =
                     state.mode == InteractiveRenderMode::OpenGl;
                 auto& ssr = render_settings.opengl.ssr;

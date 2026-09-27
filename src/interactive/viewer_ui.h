@@ -28,7 +28,7 @@ enum class ViewerCameraMode {
 struct ViewerUiState {
     InteractiveRenderMode mode = InteractiveRenderMode::Rtrt;
     ViewerCameraMode camera_mode = ViewerCameraMode::Orbit;
-    DisplaySettings display;
+    DisplaySettings display{0.0f,ToneMapper::Aces};
     float render_scale = 1.0f;
     float ui_font_scale = 1.0f;
     bool automatic_interaction_quality = true;
