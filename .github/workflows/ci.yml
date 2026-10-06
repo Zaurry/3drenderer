@@ -7,14 +7,19 @@ on:
 jobs:
   no-cuda-windows:
     runs-on: windows-latest
+    strategy:
+      matrix:
+        preset: [dxr-no-cuda, dxr-off]
     steps:
       - uses: actions/checkout@v4
       - name: Configure no-CUDA Release
-        run: cmake --preset no-cuda
+        run: cmake --preset ${{ matrix.preset }}
       - name: Build no-CUDA Release
-        run: cmake --build --preset no-cuda-release
+        run: cmake --build --preset ${{ matrix.preset }}-release
       - name: Test no-CUDA Release
-        run: ctest --preset no-cuda-release
+        run: ctest --preset ${{ matrix.preset }}-release --verbose
+      # Hosted runners have no DXR adapter. dxr_tests reports every skipped
+      # hardware case; DXR_STRICT=1 is reserved for local hardware acceptance.
 
   no-cuda-linux-mesa:
     runs-on: ubuntu-latest

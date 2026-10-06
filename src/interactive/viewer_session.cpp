@@ -2,6 +2,7 @@
 
 #include "core/io/atomic_file.h"
 #include "render/realtime/realtime_settings_json.h"
+#include "render/dxr/dxr_settings_json.h"
 #include "render/ddgi/ddgi_settings_json.h"
 #include "render/pathtracer/cuda_pathtracer.h"
 
@@ -19,7 +20,7 @@ namespace renderer {
 // upgrades oldest-first (v1 legacy backend note, v3 OpenGL techniques,
 // v5 temporal SSGI, v6 RTRT and unified screen-space ray tracing, v7 DDGI);
 // save() always writes this version.
-constexpr int kViewerSessionVersion = 7;
+constexpr int kViewerSessionVersion = 8;
 
 namespace {
 
@@ -454,6 +455,7 @@ ViewerSessionState ViewerSessionStore::load(
     if (version >= 6 && render.contains("realtime")) {
         state.render_settings.realtime = parse_realtime_settings(render.at("realtime"));
     }
+    if(version>=8 && render.contains("dxr"))state.render_settings.dxr=parse_dxr_settings(render.at("dxr"));
     if (version < 7) state.render_settings.opengl.ddgi.enabled = false;
     if (version >= 3 && render.contains("opengl")) {
         restore_opengl_settings(
@@ -565,6 +567,7 @@ void ViewerSessionStore::save(
         },
     };
     root["render"]["realtime"] = realtime_settings_json(state.render_settings.realtime);
+    root["render"]["dxr"] = dxr_settings_json(state.render_settings.dxr);
     root["render"]["opengl"] = {
         {"ibl_enabled", state.render_settings.opengl.ibl_enabled},
         {"ltc_area_lights_enabled", state.render_settings.opengl.ltc_area_lights_enabled},

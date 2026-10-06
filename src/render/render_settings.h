@@ -3,6 +3,7 @@
 #include <cstdint>
 #include "render/ddgi/ddgi_settings.h"
 #include "render/realtime/realtime_settings.h"
+#include "render/dxr/dxr_settings.h"
 
 namespace renderer {
 
@@ -174,6 +175,7 @@ struct RenderSettings {
     OpenGlRenderSettings opengl;
     PathRenderSettings path;
     RealtimeRenderSettings realtime;
+    DxrRenderSettings dxr;
 };
 
 }  // namespace renderer

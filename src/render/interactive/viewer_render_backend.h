@@ -32,7 +32,10 @@ struct CudaPathViewerStatistics {
 
 using ViewerRenderBackendStatistics = std::variant<
     OpenGlViewerStatistics,
-    CudaPathViewerStatistics>;
+    CudaPathViewerStatistics,
+    DxrStatistics>;
+using DxrViewerStatistics = DxrStatistics;
+class D3d12Context;
 
 class OpenGlShaderControl {
 public:
@@ -58,6 +61,7 @@ public:
     // The last completed frame, valid until the next render() call.
     virtual const RenderFrameOutput& output() const = 0;
     virtual ViewerRenderBackendStatistics statistics() const = 0;
+    virtual void readback(Framebuffer& destination);
 };
 
 OpenGlShaderControl* open_gl_shader_control(ViewerRenderBackend& backend);
@@ -66,6 +70,7 @@ std::unique_ptr<ViewerRenderBackend> make_viewer_render_backend(
     InteractiveRenderMode mode,
     const std::filesystem::path& vertex_shader_path,
     const std::filesystem::path& fragment_shader_path,
-    bool disable_cuda_interop = false);
+    bool disable_cuda_interop = false,
+    std::shared_ptr<D3d12Context> dxr_context = {});
 
 }  // namespace renderer

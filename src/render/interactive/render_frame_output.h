@@ -27,9 +27,17 @@ struct OpenGlTextureHandle {
     std::shared_ptr<const TextureLifetimeOwner> lifetime;
 };
 
+class DxrFrameResource;
+struct DxrTextureHandle {
+    std::shared_ptr<DxrFrameResource> resource;
+    int width = 0, height = 0;
+    std::uint64_t completion_fence = 0;
+};
+
 using RenderFrameOutput = std::variant<
     std::monostate,
     HostFrameHandle,
-    OpenGlTextureHandle>;
+    OpenGlTextureHandle,
+    DxrTextureHandle>;
 
 }  // namespace renderer

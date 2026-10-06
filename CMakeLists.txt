@@ -76,6 +76,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_BINARY_DIR}/bin")
 
+include(cmake/RendererDxr.cmake)
+
 find_package(Eigen3 CONFIG QUIET)
 if(NOT TARGET Eigen3::Eigen)
     FetchContent_Declare(
@@ -167,6 +169,10 @@ if(RENDERER_BUILD_VIEWER)
         "${imgui_SOURCE_DIR}/backends"
     )
     target_link_libraries(renderer_imgui PUBLIC ${RENDERER_SDL_TARGET} OpenGL::GL)
+    if(RENDERER_HAS_DXR)
+        target_sources(renderer_imgui PRIVATE "${imgui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp")
+        target_link_libraries(renderer_imgui PUBLIC renderer_dxr_runtime)
+    endif()
 
 endif()
 
@@ -237,6 +243,63 @@ add_library(renderer_render_common STATIC ${RENDERER_RENDER_COMMON_SOURCES})
 target_include_directories(renderer_render_common PUBLIC
     ${RENDERER_PUBLIC_INCLUDE_DIRECTORIES})
 target_link_libraries(renderer_render_common PUBLIC renderer_scene)
+
+if(RENDERER_HAS_DXR)
+    add_library(renderer_dxr STATIC src/render/dxr/dxr_renderer.cpp src/render/dxr/dxr_scene.cpp src/render/dxr/dxr_nrd.cpp src/render/dxr/dxr_omm.cpp)
+    target_link_libraries(renderer_dxr PUBLIC renderer_scene renderer_render_common renderer_dxr_runtime)
+    target_link_libraries(renderer_dxr PRIVATE NRD)
+    file(GLOB DXR_SHADER_INCLUDES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/shaders/dxr/*.hlsli")
+    set(DXR_SHADER_OUTPUTS)
+    function(renderer_dxr_shader name source profile)
+        set(output "${CMAKE_BINARY_DIR}/generated/dxr/${name}.dxil")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/generated/dxr"
+            COMMAND "${RENDERER_DXC}" -T ${profile} -HV 2021 -I "${CMAKE_SOURCE_DIR}/src"
+                -I "${CMAKE_SOURCE_DIR}/shaders/dxr" -I "${dxr_rtxdi_SOURCE_DIR}/Include" -D DXR_INLINE=0 ${ARGN}
+                -I "${dxr_nrd_SOURCE_DIR}/Shaders"
+                -Fo "${output}" "${CMAKE_SOURCE_DIR}/shaders/dxr/${source}"
+            DEPENDS "${CMAKE_SOURCE_DIR}/shaders/dxr/${source}" ${DXR_SHADER_INCLUDES}
+                src/render/generated/ggx_directional_albedo_lut.inc src/render/generated/ggx_average_albedo_lut.inc
+                "${dxr_nrd_SOURCE_DIR}/Shaders/NRD.hlsli" "${dxr_nrd_SOURCE_DIR}/Shaders/NRDConfig.hlsli"
+            VERBATIM)
+        set(DXR_SHADER_OUTPUTS ${DXR_SHADER_OUTPUTS} "${output}" PARENT_SCOPE)
+    endfunction()
+    renderer_dxr_shader(pathtrace pathtrace.hlsl lib_6_6 -D DXR_SER=0)
+    renderer_dxr_shader(pathtrace_ser pathtrace.hlsl lib_6_9 -D DXR_SER=1)
+    renderer_dxr_shader(resolve resolve.hlsl cs_6_6 -E Resolve)
+    renderer_dxr_shader(prepare_guides prepare_guides.hlsl cs_6_6 -E PrepareGuides)
+    renderer_dxr_shader(compose_dlss prepare_guides.hlsl cs_6_6 -E ComposeForDlss)
+    renderer_dxr_shader(di_initial restir_di.hlsl cs_6_6 -E DiInitialTemporal)
+    renderer_dxr_shader(di_spatial restir_di.hlsl cs_6_6 -E DiSpatialShade)
+    renderer_dxr_shader(di_initial_omm restir_di.hlsl cs_6_9 -D DXR_OMM=1 -E DiInitialTemporal)
+    renderer_dxr_shader(di_spatial_omm restir_di.hlsl cs_6_9 -D DXR_OMM=1 -E DiSpatialShade)
+    foreach(pass RANGE 0 2)
+        renderer_dxr_shader(pt_${pass} restir_pt.hlsl lib_6_6 -enable-16bit-types -D PT_PASS=${pass} -D DXR_SER=0)
+        renderer_dxr_shader(pt_${pass}_ser restir_pt.hlsl lib_6_9 -enable-16bit-types -D PT_PASS=${pass} -D DXR_SER=1)
+    endforeach()
+    renderer_dxr_shader(present_vs present.hlsl vs_6_6 -E VS)
+    renderer_dxr_shader(present_ps present.hlsl ps_6_6 -E PS)
+    add_custom_target(renderer_dxr_shaders DEPENDS ${DXR_SHADER_OUTPUTS})
+    add_dependencies(renderer_dxr renderer_dxr_shaders)
+    function(renderer_deploy_dxr_shaders target)
+        renderer_deploy_dxr(${target})
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_BINARY_DIR}/generated/dxr" "$<TARGET_FILE_DIR:${target}>/shaders/dxr"
+            VERBATIM)
+    endfunction()
+else()
+    add_library(renderer_dxr STATIC src/render/dxr/dxr_renderer_stub.cpp)
+    target_link_libraries(renderer_dxr PUBLIC renderer_scene renderer_render_common)
+    target_compile_definitions(renderer_dxr PUBLIC RENDERER_HAS_DXR=0)
+endif()
+if(MSVC)
+    target_compile_options(renderer_dxr PRIVATE /utf-8)
+endif()
+add_executable(dxr_tests tests/dxr_tests.cpp tests/test_main.cpp)
+target_link_libraries(dxr_tests PRIVATE renderer_dxr)
+if(RENDERER_HAS_DXR)
+    renderer_deploy_dxr_shaders(dxr_tests)
+endif()
 
 # CUDA availability probing and device context (small; stubbed without CUDA).
 add_library(renderer_cuda_api STATIC ${RENDERER_CUDA_API_SOURCES})
@@ -366,6 +429,13 @@ target_link_libraries(renderer_ddgi PUBLIC renderer_scene renderer_render_common
 add_executable(renderer src/main.cpp)
 target_link_libraries(renderer PRIVATE renderer_core)
 
+if(RENDERER_HAS_DXR)
+    add_executable(dxr_quality tools/dxr_quality.cpp)
+    target_link_libraries(dxr_quality PRIVATE renderer_dxr renderer_core)
+    target_compile_options(dxr_quality PRIVATE /utf-8)
+    renderer_deploy_dxr_shaders(dxr_quality)
+endif()
+
 if(RENDERER_BUILD_VIEWER)
     set(RENDERER_OPENGL_SOURCES
         src/platform/opengl/gl_shader_program.cpp
@@ -392,6 +462,7 @@ if(RENDERER_BUILD_VIEWER)
         renderer_interactive
         renderer_ddgi
         renderer_realtime
+        renderer_dxr
         renderer_cuda_api
         renderer_glad)
     if(RENDERER_HAS_CUDA)
@@ -409,6 +480,15 @@ if(RENDERER_BUILD_VIEWER)
         src/platform/sdl/sdl_display_backend.cpp
         src/viewer_main.cpp
     )
+    if(RENDERER_HAS_DXR)
+        target_sources(viewer PRIVATE src/platform/d3d12/d3d12_presenter.cpp)
+        renderer_deploy_dxr_shaders(viewer)
+        add_executable(dxr_lifecycle_tests tests/dxr_lifecycle_tests.cpp tests/test_main.cpp
+            src/platform/sdl/sdl_display_backend.cpp src/platform/d3d12/d3d12_presenter.cpp)
+        target_link_libraries(dxr_lifecycle_tests PRIVATE renderer_core renderer_opengl renderer_imgui renderer_glad ${RENDERER_SDL_TARGET})
+        target_compile_definitions(dxr_lifecycle_tests PRIVATE RENDERER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+        renderer_deploy_dxr_shaders(dxr_lifecycle_tests)
+    endif()
     # Explicit GPU integration check; excluded from portable CPU-only CTest runs.
     add_executable(opengl_npr_smoke EXCLUDE_FROM_ALL tests/opengl_npr_smoke.cpp)
     target_link_libraries(opengl_npr_smoke PRIVATE
@@ -461,6 +541,7 @@ add_executable(realtime_tests tests/realtime_tests.cpp tests/test_main.cpp)
 target_link_libraries(realtime_tests PRIVATE renderer_cuda)
 
 set(RENDERER_TEST_TARGETS
+    dxr_tests
     renderer_tests
     scene_tests
     sampling_tests
@@ -647,6 +728,11 @@ endforeach()
 
 enable_testing()
 add_test(NAME renderer_tests COMMAND renderer_tests)
+add_test(NAME dxr_tests COMMAND dxr_tests)
+if(TARGET dxr_lifecycle_tests)
+    add_test(NAME dxr_lifecycle_tests COMMAND dxr_lifecycle_tests)
+    set_tests_properties(dxr_lifecycle_tests PROPERTIES SKIP_RETURN_CODE 77 RUN_SERIAL TRUE)
+endif()
 add_test(NAME scene_tests COMMAND scene_tests)
 add_test(NAME sampling_tests COMMAND sampling_tests)
 add_test(NAME document_tests COMMAND document_tests)

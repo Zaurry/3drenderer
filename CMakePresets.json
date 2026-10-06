@@ -34,6 +34,20 @@
       }
     },
     {
+      "name": "dxr-no-cuda",
+      "displayName": "DXR without CUDA",
+      "description": "Windows native DXR with the pinned DirectX, RTXDI, NRD, and Streamline SDKs.",
+      "inherits": "no-cuda",
+      "condition": {"type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows"},
+      "cacheVariables": {"RENDERER_DXR": "ON"}
+    },
+    {
+      "name": "dxr-off",
+      "displayName": "No DXR or CUDA",
+      "inherits": "no-cuda",
+      "cacheVariables": {"RENDERER_DXR": "OFF"}
+    },
+    {
       "name": "cuda-native",
       "displayName": "CUDA Native",
       "description": "Requires CUDA and compiles for the GPU installed on the build host.",
@@ -45,6 +59,8 @@
     }
   ],
   "buildPresets": [
+    {"name": "dxr-no-cuda-release", "configurePreset": "dxr-no-cuda", "configuration": "Release", "jobs": 4},
+    {"name": "dxr-off-release", "configurePreset": "dxr-off", "configuration": "Release", "jobs": 4},
     {
       "name": "default-release",
       "configurePreset": "default",
@@ -65,6 +81,8 @@
     }
   ],
   "testPresets": [
+    {"name": "dxr-no-cuda-release", "configurePreset": "dxr-no-cuda", "configuration": "Release", "output": {"outputOnFailure": true}, "execution": {"jobs": 4, "noTestsAction": "error"}},
+    {"name": "dxr-off-release", "configurePreset": "dxr-off", "configuration": "Release", "output": {"outputOnFailure": true}, "execution": {"jobs": 4, "noTestsAction": "error"}},
     {
       "name": "default-release",
       "configurePreset": "default",

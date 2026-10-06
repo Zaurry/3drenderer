@@ -2,6 +2,9 @@
 #include "platform/sdl/sdl_display_backend.h"
 
 #include "platform/opengl/gl_shader_program.h"
+#if RENDERER_HAS_DXR
+#include "platform/d3d12/d3d12_presenter.h"
+#endif
 
 #include <SDL3/SDL.h>
 #include <glad/gl.h>
@@ -17,6 +20,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <iostream>
 
 namespace renderer {
 
@@ -157,8 +161,7 @@ SdlDisplayBackend::~SdlDisplayBackend() {
             ImGui::SaveIniSettingsToDisk(imgui_ini_path_.c_str());
             ImGui::GetIO().IniFilename = nullptr;
         }
-        ImGui_ImplOpenGL3_Shutdown();
-        ImGui_ImplSDL3_Shutdown();
+        destroy_presentation();
         ImGui::DestroyContext();
         imgui_initialized_ = false;
     }
@@ -177,71 +180,18 @@ SdlDisplayBackend::~SdlDisplayBackend() {
     }
 }
 
-bool SdlDisplayBackend::initialize(int width, int height, const char* title) {
+bool SdlDisplayBackend::initialize(int width, int height, const char* title, bool dxr, bool persist_layout) {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         set_error_from_sdl("SDL_Init failed");
         return false;
     }
     sdl_initialized_ = true;
 
-    if (!SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4) ||
-        !SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 5) ||
-        !SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE) ||
-        !SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1) ||
-        !SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24)) {
-        set_error_from_sdl("SDL_GL_SetAttribute failed");
-        return false;
-    }
-#ifndef NDEBUG
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
-#endif
-
-    window_ = SDL_CreateWindow(
-        title,
-        width,
-        height,
-        SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL | SDL_WINDOW_HIGH_PIXEL_DENSITY);
-    if (!window_) {
-        set_error_from_sdl("SDL_CreateWindow failed");
-        return false;
-    }
-    SDL_SetWindowMinimumSize(window_, 1, 1);
-
-    gl_context_ = SDL_GL_CreateContext(window_);
-    if (!gl_context_) {
-        set_error_from_sdl("SDL_GL_CreateContext failed");
-        return false;
-    }
-    if (!SDL_GL_MakeCurrent(window_, static_cast<SDL_GLContext>(gl_context_))) {
-        set_error_from_sdl("SDL_GL_MakeCurrent failed");
-        return false;
-    }
-
-    const int loaded_version = gladLoadGL(
-        reinterpret_cast<GLADloadfunc>(SDL_GL_GetProcAddress));
-    if (loaded_version == 0 ||
-        GLAD_VERSION_MAJOR(loaded_version) < 4 ||
-        (GLAD_VERSION_MAJOR(loaded_version) == 4 && GLAD_VERSION_MINOR(loaded_version) < 5)) {
-        last_error_ = "OpenGL 4.5 Core is required";
-        return false;
-    }
-    SDL_GL_SetSwapInterval(0);
-
-    std::string shader_error;
-    if (!compositor_program_->load_sources(
-            compositor_vertex_shader,
-            compositor_fragment_shader,
-            shader_error)) {
-        last_error_ = "Display compositor initialization failed: " + shader_error;
-        return false;
-    }
-    glGenVertexArrays(1, &fullscreen_vao_);
-
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    imgui_ini_path_ = preferred_data_path("imgui.ini").string();
-    io.IniFilename = imgui_ini_path_.c_str();
+    imgui_ini_path_ = persist_layout ? preferred_data_path("imgui.ini").string() : std::string{};
+    io.IniFilename = imgui_ini_path_.empty() ? nullptr : imgui_ini_path_.c_str();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 #ifdef _WIN32
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
@@ -251,22 +201,92 @@ bool SdlDisplayBackend::initialize(int width, int height, const char* title) {
     io.Fonts->AddFontDefaultVector();
     ImGui::StyleColorsDark();
 #ifdef _WIN32
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding = 0.0f;
-    style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+    ImGui::GetStyle().WindowRounding = 0.0f;
+    ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 1.0f;
 #endif
+    imgui_initialized_ = true;
+    try {create_presentation(width,height,title,dxr);return true;}
+    catch(const std::exception& e){last_error_=e.what();std::cerr<<"Display initialization: "<<last_error_<<'\n';return false;}
+}
+
+void SdlDisplayBackend::create_presentation(int width,int height,const char* title,bool dxr) {
+    dxr_presentation_=dxr;
+    if (!dxr && (!SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4) ||
+        !SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 5) ||
+        !SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE) ||
+        !SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1) ||
+        !SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24))) {
+        set_error_from_sdl("SDL_GL_SetAttribute failed");
+        throw std::runtime_error(last_error_);
+    }
+#ifndef NDEBUG
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
+#endif
+
+    window_ = SDL_CreateWindow(
+        title,
+        width,
+        height,
+        SDL_WINDOW_RESIZABLE | (dxr?0:SDL_WINDOW_OPENGL) | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    if (!window_) {
+        set_error_from_sdl("SDL_CreateWindow failed");
+        throw std::runtime_error(last_error_);
+    }
+    SDL_SetWindowMinimumSize(window_, 1, 1);
+
+    if(dxr) {
+#if RENDERER_HAS_DXR
+        if(!ImGui_ImplSDL3_InitForD3D(window_))throw std::runtime_error("ImGui SDL3/D3D initialization failed");
+        platform_initialized_=true;
+        auto hwnd=static_cast<HWND>(SDL_GetPointerProperty(SDL_GetWindowProperties(window_),SDL_PROP_WINDOW_WIN32_HWND_POINTER,nullptr));
+        SDL_GetWindowSizeInPixels(window_,&window_width_,&window_height_);
+        dxr_presenter_=std::make_unique<D3d12Presenter>(hwnd,window_width_,window_height_);
+        return;
+#else
+        throw std::runtime_error("DXR is disabled in this build");
+#endif
+    }
+
+    gl_context_ = SDL_GL_CreateContext(window_);
+    if (!gl_context_) {
+        set_error_from_sdl("SDL_GL_CreateContext failed");
+        throw std::runtime_error(last_error_);
+    }
+    if (!SDL_GL_MakeCurrent(window_, static_cast<SDL_GLContext>(gl_context_))) {
+        set_error_from_sdl("SDL_GL_MakeCurrent failed");
+        throw std::runtime_error(last_error_);
+    }
+
+    const int loaded_version = gladLoadGL(
+        reinterpret_cast<GLADloadfunc>(SDL_GL_GetProcAddress));
+    if (loaded_version == 0 ||
+        GLAD_VERSION_MAJOR(loaded_version) < 4 ||
+        (GLAD_VERSION_MAJOR(loaded_version) == 4 && GLAD_VERSION_MINOR(loaded_version) < 5)) {
+        last_error_ = "OpenGL 4.5 Core is required";
+        throw std::runtime_error(last_error_);
+    }
+    SDL_GL_SetSwapInterval(0);
+
+    std::string shader_error;
+    if (!compositor_program_->load_sources(
+            compositor_vertex_shader,
+            compositor_fragment_shader,
+            shader_error)) {
+        last_error_ = "Display compositor initialization failed: " + shader_error;
+        throw std::runtime_error(last_error_);
+    }
+    glGenVertexArrays(1, &fullscreen_vao_);
+
     if (!ImGui_ImplSDL3_InitForOpenGL(
             window_,
             static_cast<SDL_GLContext>(gl_context_))) {
         last_error_ = "ImGui SDL3/OpenGL initialization failed";
-        ImGui::DestroyContext();
-        return false;
+        throw std::runtime_error(last_error_);
     }
+    platform_initialized_=true;
     if (!ImGui_ImplOpenGL3_Init("#version 450 core")) {
-        ImGui_ImplSDL3_Shutdown();
-        ImGui::DestroyContext();
         last_error_ = "ImGui OpenGL initialization failed";
-        return false;
+        throw std::runtime_error(last_error_);
     }
     imgui_initialized_ = true;
 
@@ -274,7 +294,43 @@ bool SdlDisplayBackend::initialize(int width, int height, const char* title) {
         window_width_ = std::max(1, width);
         window_height_ = std::max(1, height);
     }
-    return true;
+}
+
+void SdlDisplayBackend::destroy_presentation() {
+    if(ui_frame_started_){ImGui::EndFrame();ui_frame_started_=false;}
+    // Each renderer backend releases its main-viewport data before destroying
+    // platform windows. Calling DestroyPlatformWindows here bypasses that order.
+#if RENDERER_HAS_DXR
+    dxr_presenter_.reset();
+#endif
+    if(!dxr_presentation_ && ImGui::GetCurrentContext() && ImGui::GetIO().BackendRendererUserData)ImGui_ImplOpenGL3_Shutdown();
+    if(platform_initialized_){ImGui_ImplSDL3_Shutdown();platform_initialized_=false;}
+    if(gl_context_){SDL_GL_MakeCurrent(window_,static_cast<SDL_GLContext>(gl_context_));release_gl_resources();SDL_GL_DestroyContext(static_cast<SDL_GLContext>(gl_context_));gl_context_=nullptr;}
+    if(window_){SDL_DestroyWindow(window_);window_=nullptr;}
+    left_mouse_down_=right_mouse_down_=relative_mouse_mode_=false;
+}
+
+void SdlDisplayBackend::switch_presentation(bool dxr) {
+    if(window_ && dxr_presentation_==dxr)return;
+    if(ui_frame_started_)throw std::logic_error("presentation must switch at a frame boundary");
+    int w=std::max(1,window_width_),h=std::max(1,window_height_),x=SDL_WINDOWPOS_UNDEFINED,y=SDL_WINDOWPOS_UNDEFINED;
+    std::string title="3D Renderer Viewer";
+    if(window_){SDL_GetWindowSize(window_,&w,&h);SDL_GetWindowPosition(window_,&x,&y);title=SDL_GetWindowTitle(window_);}
+    const std::string layout=ImGui::SaveIniSettingsToMemory();destroy_presentation();
+    create_presentation(w,h,title.c_str(),dxr);SDL_SetWindowPosition(window_,x,y);ImGui::LoadIniSettingsFromMemory(layout.c_str());
+}
+
+std::shared_ptr<D3d12Context> SdlDisplayBackend::dxr_context() const {
+#if RENDERER_HAS_DXR
+    if(dxr_presenter_)return dxr_presenter_->context();
+#endif
+    return {};
+}
+void SdlDisplayBackend::wait_for_frame() {
+#if RENDERER_HAS_DXR
+    if(dxr_presenter_){dxr_presenter_->context()->flush();dxr_presenter_->context()->check_validation();return;}
+#endif
+    if(gl_context_)glFinish();
 }
 
 bool SdlDisplayBackend::constrain_window_to_display() {
@@ -427,6 +483,8 @@ InputState SdlDisplayBackend::poll_input() {
                     input.render_mode_hotkey = 1;
                 } else if (event.key.scancode == SDL_SCANCODE_2) {
                     input.render_mode_hotkey = 2;
+                } else if (event.key.scancode == SDL_SCANCODE_3) {
+                    input.render_mode_hotkey = 3;
                 } else if (event.key.scancode == SDL_SCANCODE_F5) {
                     input.reload_shaders = true;
                 } else if (event.key.scancode == SDL_SCANCODE_R &&
@@ -478,6 +536,9 @@ void SdlDisplayBackend::begin_ui_frame() {
     if (!imgui_initialized_) {
         throw std::runtime_error("ImGui frame requires an initialized display");
     }
+#if RENDERER_HAS_DXR
+    if(dxr_presenter_)dxr_presenter_->new_ui_frame();else
+#endif
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
@@ -665,6 +726,15 @@ void SdlDisplayBackend::present(
 void SdlDisplayBackend::present(
     const RenderFrameOutput& output,
     const DisplaySettings& display_settings) {
+#if RENDERER_HAS_DXR
+    if(const auto* dxr=std::get_if<DxrTextureHandle>(&output)) {
+        if(!dxr_presenter_ || !ui_frame_started_)throw std::runtime_error("DXR presentation has not been initialized");
+        SDL_GetWindowSizeInPixels(window_,&window_width_,&window_height_);
+        ImGui::Render();dxr_presenter_->present(*dxr,display_settings,window_width_,window_height_,ImGui::GetDrawData());
+        if(ImGui::GetIO().ConfigFlags&ImGuiConfigFlags_ViewportsEnable){ImGui::UpdatePlatformWindows();ImGui::RenderPlatformWindowsDefault();}
+        ui_frame_started_=false;return;
+    }
+#endif
     if (const auto* host = std::get_if<HostFrameHandle>(&output);
         host && host->framebuffer) {
         present(*host->framebuffer, display_settings);

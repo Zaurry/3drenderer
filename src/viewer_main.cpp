@@ -11,6 +11,7 @@
 #include "render/interactive/viewer_render_backend.h"
 #include "render/pathtracer/cuda_pathtracer.h"
 #include "render/realtime/realtime_settings_json.h"
+#include "render/dxr/dxr_settings_json.h"
 #include <fstream>
 #include "scene/scene.h"
 #include "scene/scene_asset_loader.h"
@@ -45,8 +46,11 @@ struct ViewerOptions {
     std::filesystem::path scene_file;
     renderer::InteractiveRenderMode mode = renderer::InteractiveRenderMode::Rtrt;
     std::filesystem::path realtime_config;
+    std::filesystem::path dxr_config;
+    bool strict_dxr = false;
     std::filesystem::path frame_report, camera_preset;
     int warmup_frames = 60;
+    bool dxr_settle_before_warmup = false;
     bool camera_motion = false;
     int width = 960;
     int height = 540;
@@ -58,6 +62,7 @@ struct ViewerOptions {
     float environment_intensity = 1.0f;
     float environment_yaw_degrees = 0.0f;
     bool environment_background_visible = true;
+    bool environment_intensity_set=false,environment_yaw_set=false,environment_background_set=false;
     bool restore_last_session = true;
     bool disable_cuda_interop = false;
 };
@@ -137,9 +142,10 @@ void print_help() {
     std::cout
         << "3D Renderer Viewer\n\n"
         << "Usage:\n"
-        << "  viewer --scene builtin|asset [--asset path\\to\\model-or-directory ...] --mode opengl|rtrt [options]\n\n"
+        << "  viewer --scene builtin|asset [--asset path\\to\\model-or-directory ...] --mode opengl|rtrt|dxr [options]\n\n"
         << "Options:\n"
         << "  --asset path      OBJ/glTF/GLB file or directory; may be repeated\n"
+        << "  --scene many-lights  deterministic Cornell scene with 256 point lights\n"
         << "  --scene-file path open a saved .rscene document\n"
         << "  --environment path  2:1 HDR/EXR/PNG/JPG environment map\n"
         << "  --environment-intensity value  environment multiplier, default 1\n"
@@ -151,12 +157,15 @@ void print_help() {
         << "  --ddgi on|off      enable or disable OpenGL dynamic irradiance probes\n"
         << "  --frame-report path.json  measure full frames through GPU presentation completion\n"
         << "  --warmup-frames integer  exclude initial frames from report, default 60\n"
+        << "  --dxr-settle-before-warmup  finish OMM/SER initialization before the scheduled frames\n"
         << "  --camera-preset path.json  read the camera object from a benchmark case\n"
         << "  --camera-motion   repeat 600 frames of lateral motion and 300 settled frames\n"
         << "  --style realistic|toon|sketch  OpenGL rendering style\n"
         << "  --capture path.png  save the final render without UI (use with --frames)\n"
         << "  --no-cuda-interop  use host presentation (diagnose interop compatibility)\n"
         << "  --rtrt-config path.json  RTRT settings object (same fields as session render.realtime)\n"
+        << "  --dxr-config path.json  independent DXR settings object\n"
+        << "  --strict-dxr       fail if DXR cannot run; never fall back\n"
         << "  --cuda-device N    CUDA device index for RTRT/DDGI; default GL-compatible\n"
         << "  --gl-vertex-shader path    OpenGL vertex shader override\n"
         << "  --gl-fragment-shader path  OpenGL fragment shader override\n"
@@ -231,6 +240,10 @@ ViewerOptions parse_args(int argc, char** argv) {
             options.disable_cuda_interop = true;
         } else if (arg == "--rtrt-config") {
             options.realtime_config = require_value(argc, argv, i, arg);
+        } else if (arg == "--dxr-config") {
+            options.dxr_config = require_value(argc, argv, i, arg);
+        } else if (arg == "--strict-dxr") {
+            options.strict_dxr = true;
         } else if (arg == "--style") {
             const std::string style = require_value(argc, argv, i, arg);
             if (style == "realistic") options.style = renderer::OpenGlRenderStyle::Realistic;
@@ -253,6 +266,8 @@ ViewerOptions parse_args(int argc, char** argv) {
             options.frame_report = require_value(argc, argv, i, arg);
         } else if (arg == "--warmup-frames") {
             options.warmup_frames = parse_nonnegative_int(require_value(argc, argv, i, arg), arg);
+        } else if (arg == "--dxr-settle-before-warmup") {
+            options.dxr_settle_before_warmup = true;
         } else if (arg == "--camera-preset") {
             options.camera_preset = require_value(argc, argv, i, arg);
         } else if (arg == "--camera-motion") {
@@ -268,15 +283,18 @@ ViewerOptions parse_args(int argc, char** argv) {
         } else if (arg == "--environment") {
             options.environment_path = require_value(argc, argv, i, arg);
         } else if (arg == "--environment-intensity") {
+            options.environment_intensity_set=true;
             options.environment_intensity =
                 parse_finite_float(require_value(argc, argv, i, arg), arg);
             if (options.environment_intensity < 0.0f) {
                 throw std::invalid_argument(arg + " must be non-negative");
             }
         } else if (arg == "--environment-yaw") {
+            options.environment_yaw_set=true;
             options.environment_yaw_degrees =
                 parse_finite_float(require_value(argc, argv, i, arg), arg);
         } else if (arg == "--hide-environment-background") {
+            options.environment_background_set=true;
             options.environment_background_visible = false;
         } else if (arg == "--no-restore-last") {
             options.restore_last_session = false;
@@ -284,11 +302,15 @@ ViewerOptions parse_args(int argc, char** argv) {
             throw std::invalid_argument("unknown argument: " + arg);
         }
     }
-    if (options.scene != "builtin" && options.scene != "asset") {
-        throw std::invalid_argument("--scene must be builtin or asset");
+    if (options.scene != "builtin" && options.scene != "asset" && options.scene != "many-lights") {
+        throw std::invalid_argument("--scene must be builtin, asset, or many-lights");
     }
-    if (!options.scene_file.empty() && options.scene == "builtin") {
-        throw std::invalid_argument("--scene-file cannot be combined with --scene builtin");
+    if (!options.scene_file.empty() && options.scene != "asset") {
+        throw std::invalid_argument("--scene-file requires --scene asset");
+    }
+    if (options.dxr_settle_before_warmup && (options.mode != renderer::InteractiveRenderMode::Dxr ||
+        options.frame_report.empty() || options.frame_limit <= options.warmup_frames)) {
+        throw std::invalid_argument("--dxr-settle-before-warmup requires --mode dxr, --frame-report, and --frames greater than --warmup-frames");
     }
     return options;
 }
@@ -362,10 +384,9 @@ ViewerScene load_viewer_scene(
         if (!options.environment_path.empty()) {
             document.set_environment_map(options.environment_path);
         }
-        document.set_environment_intensity(options.environment_intensity);
-        document.set_environment_rotation_degrees(options.environment_yaw_degrees);
-        document.set_environment_background_visible(
-            options.environment_background_visible);
+        if(options.scene_file.empty() || options.environment_intensity_set)document.set_environment_intensity(options.environment_intensity);
+        if(options.scene_file.empty() || options.environment_yaw_set)document.set_environment_rotation_degrees(options.environment_yaw_degrees);
+        if(options.scene_file.empty() || options.environment_background_set)document.set_environment_background_visible(options.environment_background_visible);
         for (const std::string& warning : document.warnings()) {
             std::cerr << "warning: " << warning << '\n';
         }
@@ -392,6 +413,12 @@ ViewerScene load_viewer_scene(
     }
 
     renderer::Scene scene = renderer::make_cornell_box_scene();
+    if(options.scene=="many-lights") {
+        for(int layer=0;layer<2;++layer)for(int y=0;y<8;++y)for(int x=0;x<16;++x) {
+            renderer::PointLight light;light.position=renderer::Vec3(-.9f+1.8f*x/15.f,-.8f+1.6f*y/7.f,-.3f-1.4f*layer);
+            light.intensity=.025f*renderer::Color(.3f+.7f*x/15.f,.3f+.7f*y/7.f,.4f+.6f*layer);scene.point_lights.push_back(light);
+        }
+    }
     renderer::Bounds3 bounds = scene_bounds(scene);
     renderer::SceneDocument document =
         renderer::SceneDocument::from_scene(
@@ -463,6 +490,7 @@ struct ViewerSessionSignature {
     float russian_roulette_max_probability = 0.95f;
     renderer::OpenGlRenderSettings opengl;
     renderer::RealtimeRenderSettings realtime;
+    renderer::DxrRenderSettings dxr;
     int logical_width = 0;
     int logical_height = 0;
     float render_scale = 1.0f;
@@ -508,6 +536,7 @@ ViewerSessionSignature make_session_signature(
         settings.path.russian_roulette_max_probability;
     signature.opengl = settings.opengl;
     signature.realtime = settings.realtime;
+    signature.dxr = settings.dxr;
     signature.logical_width = logical_size.first;
     signature.logical_height = logical_size.second;
     signature.render_scale = ui.render_scale;
@@ -615,8 +644,12 @@ int main(int argc, char** argv) {
         }
 
         renderer::SdlDisplayBackend display;
-        if (!display.initialize(options.width, options.height, "3D Renderer Viewer")) {
-            throw std::runtime_error(display.last_error());
+        const bool startup_dxr=(restored_session?restored_session->ui.mode:options.mode)==renderer::InteractiveRenderMode::Dxr;
+        bool dxr_startup_failed=false;
+        if (!display.initialize(options.width, options.height, "3D Renderer Viewer",startup_dxr,options.frame_limit==0)) {
+            if(!startup_dxr || options.strict_dxr)throw std::runtime_error(display.last_error());
+            startup_status="DXR unavailable; switched to OpenGL: "+display.last_error();dxr_startup_failed=true;display.switch_presentation(false);
+            std::cout<<"dxr-mode-unavailable: "<<startup_status<<'\n';
         }
         if (restored_session && !display.constrain_window_to_display()) {
             std::cerr << "warning: failed to constrain restored window size: "
@@ -636,6 +669,7 @@ int main(int argc, char** argv) {
         if (!startup_status.empty()) {
             ui_state.scene_status = startup_status;
         }
+        if(dxr_startup_failed)ui_state.mode=renderer::InteractiveRenderMode::OpenGl;
         renderer::ViewerUi viewer_ui;
 
         const auto initial_drawable_size = display.drawable_size();
@@ -653,6 +687,10 @@ int main(int argc, char** argv) {
             if (!config_file) throw std::runtime_error("cannot open RTRT config");
             nlohmann::json config; config_file >> config;
             settings.realtime = renderer::parse_realtime_settings(config);
+        }
+        if(!options.dxr_config.empty()) {
+            std::ifstream input(options.dxr_config);if(!input)throw std::runtime_error("cannot open DXR config");
+            nlohmann::json config;input>>config;settings.dxr=renderer::parse_dxr_settings(config);
         }
         if (options.style) {
             settings.opengl.npr.style = *options.style;
@@ -756,17 +794,20 @@ int main(int argc, char** argv) {
             };
         const auto reset_render_backend = [&]() {
             const auto create = [&]() {
+                render_backend.reset();
+                display.switch_presentation(ui_state.mode==renderer::InteractiveRenderMode::Dxr);
                 auto next = renderer::make_viewer_render_backend(
                     ui_state.mode, options.gl_vertex_shader,
-                    options.gl_fragment_shader, options.disable_cuda_interop);
+                    options.gl_fragment_shader, options.disable_cuda_interop,display.dxr_context());
                 next->reset(current_render_scene_snapshot(), settings);
                 render_backend = std::move(next);
             };
             try { create(); }
             catch (const std::exception& error) {
-                if (ui_state.mode != renderer::InteractiveRenderMode::Rtrt) throw;
+                const bool dxr=ui_state.mode==renderer::InteractiveRenderMode::Dxr;
+                if (ui_state.mode==renderer::InteractiveRenderMode::OpenGl || (dxr && options.strict_dxr)) throw;
                 ui_state.mode = renderer::InteractiveRenderMode::OpenGl;
-                ui_state.scene_status = "OptiX RTRT unavailable; switched to OpenGL: " + std::string(error.what());
+                ui_state.scene_status = std::string(dxr?"DXR":"OptiX RTRT")+" unavailable; switched to OpenGL: " + error.what();
                 std::cerr << "warning: " << ui_state.scene_status << '\n';
                 std::cout << "path-mode-unavailable: switched to OpenGL (" << error.what() << ")\n";
                 create();
@@ -844,11 +885,16 @@ int main(int argc, char** argv) {
         auto session_changed_at = std::chrono::steady_clock::now();
 
         int rendered_frames = 0;
+        int startup_settling_frames = 0;
+        bool startup_settling = options.dxr_settle_before_warmup;
+        double startup_settling_ms = 0;
+        const auto startup_begin = std::chrono::steady_clock::now();
         nlohmann::json measured_frames=nlohmann::json::array();
         std::string reported_interop_reason;
         bool running = true;
         auto previous_time = std::chrono::steady_clock::now();
         while (running) {
+            if(render_backend->mode()!=ui_state.mode){reset_render_backend();frame_rate_counter.reset();}
             const auto frame_begin = std::chrono::steady_clock::now();
             // Clamp the frame delta: dialog pauses, shader compiles, or a
             // dragged window would otherwise produce spikes that teleport the
@@ -959,6 +1005,8 @@ int main(int argc, char** argv) {
                 render_backend->statistics();
             int accumulated_samples = 0;
             renderer::CudaPathStatistics cuda_statistics;
+            renderer::DxrStatistics dxr_statistics;
+            if(const auto* dxr=std::get_if<renderer::DxrStatistics>(&backend_statistics))dxr_statistics=*dxr;
             renderer::OpenGlTechniqueDiagnostics technique_diagnostics;
             if (const auto* gl = std::get_if<renderer::OpenGlViewerStatistics>(
                     &backend_statistics)) {
@@ -994,7 +1042,7 @@ int main(int argc, char** argv) {
                 cuda_statistics,
                 technique_diagnostics,
                 shader_ui_state,
-                display.main_window_has_keyboard_focus());
+                display.main_window_has_keyboard_focus(),dxr_statistics);
 
             // Escape quits only when neither ImGui nor the viewer wants the
             // keyboard (dismissing a popup/text edit must not close the app).
@@ -1083,7 +1131,7 @@ int main(int argc, char** argv) {
 
             const bool mode_changed = ui_actions.mode_changed || previous_mode != ui_state.mode;
             if (mode_changed) {
-                reset_render_backend();
+                // The next iteration rebuilds presentation before ImGui starts a frame.
                 frame_rate_counter.reset();
                 std::cout << "mode=" << mode_name(ui_state.mode) << '\n';
             }
@@ -1239,9 +1287,10 @@ int main(int argc, char** argv) {
                 camera=renderer::Camera(vector("eye"),vector("eye")+vector("forward"),vector("up"),
                     camera_preset.at("vertical_fov_degrees").get<float>(),float(settings.width)/settings.height);
             }
-            const bool scripted_motion=options.camera_motion && rendered_frames%900<600;
-            if(options.camera_motion) {
-                const float shift=scripted_motion?.5f*std::sin(float(rendered_frames%900)*2*3.14159265358979323846f/600):0;
+            const int scheduled_frame=rendered_frames-startup_settling_frames;
+            const bool scripted_motion=options.camera_motion && !startup_settling && scheduled_frame%900<600;
+            if(options.camera_motion && !startup_settling) {
+                const float shift=scripted_motion?.5f*std::sin(float(scheduled_frame%900)*2*3.14159265358979323846f/600):0;
                 const auto eye=camera.eye()+camera.right()*shift;
                 const float fov=2*std::atan(camera.viewport_height()*.5f)*180/3.14159265358979323846f;
                 camera=renderer::Camera(eye,eye+camera.forward(),camera.up(),fov,float(settings.width)/settings.height);
@@ -1294,7 +1343,11 @@ int main(int argc, char** argv) {
                 ui_state,
                 viewer_scene.document,
                 camera);
-            render_backend->render(current_render_scene_snapshot(), camera, settings, frame_state);
+            const auto snapshot_begin=std::chrono::steady_clock::now();
+            const auto& render_scene=current_render_scene_snapshot();
+            const auto snapshot_end=std::chrono::steady_clock::now();
+            render_backend->render(render_scene, camera, settings, frame_state);
+            const auto render_end=std::chrono::steady_clock::now();
             const renderer::ViewerRenderBackendStatistics current_statistics =
                 render_backend->statistics();
             const auto* current_path =
@@ -1309,6 +1362,7 @@ int main(int argc, char** argv) {
                           << reported_interop_reason << '\n';
             }
             display.present(render_backend->output(), ui_state.display);
+            const auto present_end=std::chrono::steady_clock::now();
 
             if (session_enabled) {
                 const ViewerSessionSignature signature =
@@ -1339,12 +1393,37 @@ int main(int argc, char** argv) {
             // Profiling only: close the GL/CUDA queue so the measured frame
             // includes completed rendering, UI composition and swap submission.
             // Normal interactive rendering remains asynchronous.
-            if(!options.frame_report.empty()) glFinish();
+            const auto completion_wait_begin=std::chrono::steady_clock::now();
+            if(!options.frame_report.empty()) display.wait_for_frame();
             const auto frame_end = std::chrono::steady_clock::now();
             const float frame_seconds =
                 std::chrono::duration<float>(frame_end - frame_begin).count();
-            if(!options.frame_report.empty() && rendered_frames>options.warmup_frames) {
-                nlohmann::json sample={{"frame",rendered_frames},{"moving",scripted_motion},{"frame_ms",1000*frame_seconds}};
+            if(startup_settling) {
+                ++startup_settling_frames;
+                startup_settling_ms=std::chrono::duration<double,std::milli>(frame_end-startup_begin).count();
+                const auto* dxr=std::get_if<renderer::DxrStatistics>(&current_statistics);
+                if(!dxr || !dxr->active) throw std::runtime_error("DXR startup settling requires an active DXR backend");
+                const bool ser_ready=!settings.dxr.shader_execution_reordering || !dxr->device.ser_supported ||
+                    !dxr->device.ser_reorders || dxr->ser_probe_complete;
+                if(dxr->omm_pending==0 && ser_ready) {
+                    startup_settling=false;
+                    std::cout<<"dxr_startup_settling frames="<<startup_settling_frames<<" milliseconds="<<startup_settling_ms<<'\n';
+                } else if(startup_settling_ms>120000) {
+                    throw std::runtime_error("DXR startup did not settle within 120 seconds (OMM pending="+
+                        std::to_string(dxr->omm_pending)+", SER probe complete="+std::to_string(dxr->ser_probe_complete)+")");
+                }
+            }
+            const int completed_scheduled_frames=rendered_frames-startup_settling_frames;
+            if(!options.frame_report.empty() && completed_scheduled_frames>options.warmup_frames) {
+                nlohmann::json sample={{"frame",completed_scheduled_frames},{"rendered_frame",rendered_frames},
+                    {"moving",scripted_motion},{"frame_ms",1000*frame_seconds}};
+                const auto ms=[](auto begin,auto end){return std::chrono::duration<double,std::milli>(end-begin).count();};
+                sample.update({{"cpu_ui_input_ms",ms(frame_begin,snapshot_begin)},
+                    {"cpu_scene_snapshot_ms",ms(snapshot_begin,snapshot_end)},
+                    {"cpu_render_record_ms",ms(snapshot_end,render_end)},
+                    {"cpu_present_ms",ms(render_end,present_end)},
+                    {"cpu_session_ms",ms(present_end,completion_wait_begin)},
+                    {"cpu_completion_wait_ms",ms(completion_wait_begin,frame_end)}});
                 const auto statistics=render_backend->statistics();
                 if(const auto* path=std::get_if<renderer::CudaPathViewerStatistics>(&statistics)) {
                     const auto& rt=path->cuda.realtime;
@@ -1368,6 +1447,23 @@ int main(int argc, char** argv) {
                         {"updated_probes",d.updated_probes},{"maximum_probe_age",d.maximum_age},
                         {"probe_memory_bytes",d.memory_bytes},{"atlas_downloads",d.atlas_downloads},{"probe_resets",d.reset_count}});
                 }
+                if(const auto* d=std::get_if<renderer::DxrStatistics>(&statistics)) {
+                    sample.update({{"adapter",d->device.adapter},{"dxr_tier",d->device.raytracing_tier},{"shader_model",d->device.shader_model},
+                        {"ser_supported",d->device.ser_supported},{"ser_active",d->ser_active},{"omm_supported",d->device.omm_supported},{"omm_active",d->omm_active},
+                        {"omm_builds",d->omm_builds},{"omm_pending",d->omm_pending},{"omm_states",d->omm_states},
+                        {"enhanced_barriers_supported",d->device.enhanced_barriers},{"enhanced_barriers_active",d->enhanced_barriers_active},
+                        {"restir_di",d->restir_di_active},{"restir_pt",d->restir_pt_active},{"reconstruction",d->reconstruction},{"detail",d->detail},
+                        {"acceleration_ms",d->acceleration_ms},{"gbuffer_ms",d->gbuffer_ms},{"direct_ms",d->direct_ms},{"indirect_ms",d->indirect_ms},{"reconstruction_ms",d->reconstruction_ms},{"gpu_ms",d->total_ms},
+                        {"allocated_bytes",d->allocated_bytes},{"internal_width",d->internal_width},{"internal_height",d->internal_height},{"readbacks",d->readbacks},{"history_resets",d->history_resets}});
+                    sample.update({{"pooled_bytes",d->pooled_bytes},{"resource_creations",d->resource_creations},{"resource_reuses",d->resource_reuses},{"pipeline_cache_hits",d->pipeline_cache_hits}});
+                    sample.update({{"video_memory_available",d->video_memory_available},{"video_memory_usage",d->video_memory_usage},{"video_memory_budget",d->video_memory_budget}});
+                    sample["presentation_ms"]=d->presentation_ms;
+                    sample.update({{"blas_builds",d->blas_builds},{"tlas_builds",d->tlas_builds},{"tlas_updates",d->tlas_updates}});
+                    sample.update({{"pt_initial_ms",d->pt_initial_ms},{"pt_temporal_ms",d->pt_temporal_ms},{"pt_spatial_ms",d->pt_spatial_ms},
+                        {"debug_layer_active",d->device.debug_layer_active},{"gpu_validation_active",d->device.gpu_validation_active}});
+                    sample.update({{"ser_actually_reorders",d->device.ser_reorders},{"ser_probe_complete",d->ser_probe_complete},
+                        {"ser_measured_speedup",d->ser_measured_speedup},{"ser_probe_ms",d->ser_probe_ms},{"trace_probe_ms",d->trace_probe_ms}});
+                }
                 measured_frames.push_back(std::move(sample));
             }
             if (frame_rate_counter.tick(frame_seconds) ||
@@ -1377,7 +1473,7 @@ int main(int argc, char** argv) {
                 rendered_frames == 1) {
                 set_viewer_title(path_samples);
             }
-            if (options.frame_limit > 0 && rendered_frames >= options.frame_limit) {
+            if (options.frame_limit > 0 && completed_scheduled_frames >= options.frame_limit) {
                 running = false;
             }
         }
@@ -1386,6 +1482,7 @@ int main(int argc, char** argv) {
             save_session_now();
         }
         if(!options.frame_report.empty()) {
+            if(startup_settling) throw std::runtime_error("DXR startup settling was interrupted before measurement");
             if(measured_frames.empty()) throw std::runtime_error("Frame report has no samples after warmup");
             std::vector<double> times;for(const auto& frame:measured_frames)times.push_back(frame.at("frame_ms").get<double>());
             std::sort(times.begin(),times.end());
@@ -1400,6 +1497,23 @@ int main(int argc, char** argv) {
                 {"over_16_667_ms",std::count_if(times.begin(),times.end(),[](double ms){return ms>1000.0/60;})},
                 {"samples",std::move(measured_frames)}};
             report["mode"] = mode_name(ui_state.mode);
+            report["startup_settling_enabled"]=options.dxr_settle_before_warmup;
+            report["startup_settling_frames"]=startup_settling_frames;
+            report["startup_settling_ms"]=startup_settling_ms;
+            report["rendered_frames"]=rendered_frames;
+            if(ui_state.mode==renderer::InteractiveRenderMode::Dxr){
+                report["settings"]=renderer::dxr_settings_json(settings.dxr);report["measurement"]="CPU frame start through D3D12 fence after DXGI presentation submission; vsync off";
+                const auto stats=std::get<renderer::DxrStatistics>(render_backend->statistics());
+                report["driver_version"]=stats.device.driver_version;report["dlss_runtime_pinned"]=stats.dlss_runtime_pinned;
+                report["runtime_modules"]=nlohmann::json::array();
+                for(const auto& module:stats.runtime_modules)report["runtime_modules"].push_back({{"name",module.name},{"path",module.path},{"version",module.version},{"sha256",module.sha256},{"expected_sha256",module.expected_sha256},{"pinned",module.pinned}});
+                report["sdk_versions"]={{"agility","1.619.6"},{"dxc","1.9.2609"},{"rtxdi","3.1.0"},{"rtxdi_library","f12037fa8e97ebc08e9e3edfd2de528ed1772a4b"},{"nrd","4.17.3"},{"streamline","2.14.1"}};
+#ifdef _MSC_FULL_VER
+                report["compiler"]="MSVC "+std::to_string(_MSC_FULL_VER);
+#else
+                report["compiler"]=__VERSION__;
+#endif
+            }
             report["ddgi_settings"] = renderer::ddgi_settings_json(settings.opengl.ddgi);
             if(!options.frame_report.parent_path().empty())std::filesystem::create_directories(options.frame_report.parent_path());
             std::ofstream output(options.frame_report);output<<report.dump(2);
@@ -1407,28 +1521,12 @@ int main(int argc, char** argv) {
             std::cout<<"frame_report count="<<times.size()<<" p50_ms="<<quantile(.5)<<" p95_ms="<<quantile(.95)<<" p99_ms="<<quantile(.99)<<'\n';
         }
         if (!options.capture_path.empty()) {
-            const auto output = render_backend->output();
-            const auto* texture = std::get_if<renderer::OpenGlTextureHandle>(&output);
-            const auto* host = std::get_if<renderer::HostFrameHandle>(&output);
-            int capture_width=0,capture_height=0;
-            bool top_left_origin=true;
-            std::vector<float> pixels;
-            if (texture && texture->texture) {
-                capture_width=texture->width;capture_height=texture->height;
-                top_left_origin=texture->flip_y;
-                pixels.resize(static_cast<std::size_t>(capture_width)*capture_height*4);
-                glBindTexture(GL_TEXTURE_2D, texture->texture);
-                glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, pixels.data());
-            } else if (host && host->framebuffer) {
-                capture_width=host->framebuffer->width();capture_height=host->framebuffer->height();
-                pixels=host->framebuffer->to_rgba32f();
-            } else throw std::runtime_error("Capture requires a completed render frame");
+            renderer::Framebuffer frame(1,1);render_backend->readback(frame);
+            const int capture_width=frame.width(),capture_height=frame.height();
             renderer::Image capture(capture_width,capture_height);
             for (int y=0;y<capture_height;++y) {
                 for (int x=0;x<capture_width;++x) {
-                    const int source_y=top_left_origin?y:capture_height-1-y;
-                    const std::size_t index=(static_cast<std::size_t>(source_y)*capture_width+x)*4;
-                    const renderer::Color color(pixels[index],pixels[index+1],pixels[index+2]);
+                    const renderer::Color color=frame.pixel(x,y);
                     if (!color.allFinite()) throw std::runtime_error("Capture contains non-finite pixels");
                     capture.set_pixel(x,y,renderer::apply_display_transform(color,ui_state.display));
                 }
@@ -1456,6 +1554,10 @@ int main(int argc, char** argv) {
             if (!gl.shader_error.empty()) {
                 std::cerr << "\nshader error: " << gl.shader_error;
             }
+        } else if (ui_state.mode == renderer::InteractiveRenderMode::Dxr) {
+            const auto& d=std::get<renderer::DxrStatistics>(final_statistics);
+            std::cout<<" adapter="<<d.device.adapter<<" dxr="<<d.device.raytracing_tier<<" ser_active="<<d.ser_active<<" omm_active="<<d.omm_active
+                <<" reconstruction="<<d.reconstruction<<" internal="<<d.internal_width<<'x'<<d.internal_height<<" gpu_ms="<<d.total_ms<<" readbacks="<<d.readbacks;
         } else if (ui_state.mode == renderer::InteractiveRenderMode::Rtrt) {
             const auto& path =
                 std::get<renderer::CudaPathViewerStatistics>(final_statistics);

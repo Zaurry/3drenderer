@@ -19,7 +19,11 @@
 #include "render/display_settings.h"
 #include "render/renderer.h"
 #include "render/render_settings.h"
+#include "render/dxr/dxr_ser_tuner.h"
+#include "render/dxr/dxr_alias_table.h"
+#include "render/dxr/dxr_settings_json.h"
 #include "render/framebuffer.h"
+
 #include "render/ggx_energy_compensation.h"
 #include "render/interactive/interactive_render_session.h"
 #include "render/interactive/path_interactive_session.h"
@@ -695,13 +699,17 @@ RENDER_TEST(test_viewer_title_format_includes_fps_without_progressive_samples) {
     RENDER_CHECK(opengl_title.find("spp") == std::string::npos);
 }
 
-RENDER_TEST(test_interactive_mode_catalog_contains_opengl_and_rtrt) {
+RENDER_TEST(test_interactive_mode_catalog_contains_opengl_rtrt_and_dxr) {
     const auto& modes = renderer::interactive_render_modes();
-    RENDER_CHECK(modes.size() == 2);
+    RENDER_CHECK(modes.size() == 3);
     RENDER_CHECK(modes[0].mode == renderer::InteractiveRenderMode::OpenGl);
     RENDER_CHECK(modes[0].hotkey == 1);
     RENDER_CHECK(modes[1].mode == renderer::InteractiveRenderMode::Path);
     RENDER_CHECK(modes[1].hotkey == 2);
+    RENDER_CHECK(modes[2].mode == renderer::InteractiveRenderMode::Dxr);
+    RENDER_CHECK(modes[2].hotkey == 3);
+    RENDER_CHECK(renderer::interactive_render_mode_from_hotkey(3)==renderer::InteractiveRenderMode::Dxr);
+    RENDER_CHECK(renderer::parse_interactive_render_mode("dxr")==renderer::InteractiveRenderMode::Dxr);
     RENDER_CHECK(
         renderer::interactive_render_mode_from_hotkey(1) ==
         renderer::InteractiveRenderMode::OpenGl);
@@ -4540,7 +4548,7 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
         std::ifstream input(session_path);
         input >> saved_json;
     }
-    RENDER_CHECK(saved_json.at("version").get<int>() == 7);
+    RENDER_CHECK(saved_json.at("version").get<int>() == 8);
     const auto& source =
         saved_json.at("document").at("snapshot").at("assets").at(0).at("source");
     RENDER_CHECK(source.at("kind").get<std::string>() == "obj");
@@ -4551,6 +4559,7 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
         renderer::ViewerSessionStore::load(session_path);
     RENDER_CHECK(loaded.window_width == 1400);
     RENDER_CHECK(loaded.render_settings.realtime == state.render_settings.realtime);
+    RENDER_CHECK(loaded.render_settings.dxr == state.render_settings.dxr);
     RENDER_CHECK(loaded.render_settings.opengl.ddgi == state.render_settings.opengl.ddgi);
     RENDER_CHECK(!saved_json.at("view").contains("path_accumulation_paused"));
     RENDER_CHECK(loaded.render_settings.opengl.npr == state.render_settings.opengl.npr);
@@ -4767,6 +4776,11 @@ RENDER_TEST(test_viewer_session_roundtrip_and_partial_asset_recovery) {
         renderer::InteractiveRenderMode::OpenGl);
     state.ui.mode = renderer::InteractiveRenderMode::Path;
 
+    for(int legacy_version=1;legacy_version<=7;++legacy_version) {
+        auto legacy=saved_json;legacy["version"]=legacy_version;legacy["render"].erase("dxr");
+        {std::ofstream output(session_path);output<<legacy.dump(2);}
+        RENDER_CHECK(renderer::ViewerSessionStore::load(session_path).render_settings.dxr==renderer::DxrRenderSettings{});
+    }
     auto version_six_json = saved_json;
     version_six_json["version"] = 6;
     version_six_json["render"]["opengl"].erase("ddgi");
@@ -5904,6 +5918,28 @@ RENDER_TEST(test_render_scene_snapshot_validates_optional_material_slots) {
     RENDER_CHECK(rejected);
 }
 
+RENDER_TEST(test_scene_snapshot_retains_geometry_and_updates_materials_after_edits) {
+    using namespace renderer;
+    auto document=SceneDocument::from_scene(make_triangle_scene(),"Cached snapshot");
+    const auto object=document.objects().front().id;
+    const auto initial=document.render_scene_snapshot();
+    Mat4 moved=Mat4::Identity();moved(0,0)=-2;moved(0,3)=3;
+    RENDER_CHECK(document.set_world_matrix(object,moved));
+    auto material=document.material_properties(object,0);RENDER_CHECK(material.has_value());
+    material->base_color=Color(.2f,.4f,.6f);RENDER_CHECK(document.set_material_override(object,*material));
+    document.set_environment_intensity(2);
+    const auto& updated=document.render_scene_snapshot();
+    RENDER_CHECK(updated.assets.size()==initial.assets.size());
+    RENDER_CHECK(updated.assets[0].local_scene==initial.assets[0].local_scene);
+    RENDER_CHECK(updated.assets[0].triangle_material_slots==initial.assets[0].triangle_material_slots);
+    RENDER_CHECK(updated.assets[0].local_bounds.min.isApprox(initial.assets[0].local_bounds.min));
+    RENDER_CHECK(updated.assets[0].local_bounds.max.isApprox(initial.assets[0].local_bounds.max));
+    RENDER_CHECK(updated.instances[0].object_to_world.isApprox(moved));
+    RENDER_CHECK(updated.instances[0].materials[0].base_color.isApprox(material->base_color));
+    RENDER_CHECK(updated.environment_intensity==2);
+    RENDER_CHECK(updated.revisions==document.revisions());
+}
+
 RENDER_TEST(test_scene_revisions_and_mergeable_edit_transactions) {
     renderer::SceneDocument document = renderer::SceneDocument::from_scene(
         renderer::make_triangle_scene(),
@@ -6106,4 +6142,57 @@ RENDER_TEST(test_document_sphere_mesh_negative_nonuniform_scale_and_pick) {
     RENDER_CHECK(
         renderer::flatten_render_scene_snapshot(document.render_scene_snapshot()).triangles.size() ==
         snapshot.assets[0].local_scene->triangles.size());
+}
+
+RENDER_TEST(test_dxr_alias_distribution_preserves_hdr_probability_mass) {
+    using namespace renderer;
+    const auto check=[](const std::vector<float>& weights) {
+        const auto table=make_dxr_alias_table(weights);
+        std::vector<double> probabilities(table.size());double total=0;for(float weight:weights)total+=weight;
+        for(std::size_t i=0;i<table.size();++i) {
+            RENDER_CHECK(table[i].alias<table.size());RENDER_CHECK(table[i].threshold>=0 && table[i].threshold<=1);
+            probabilities[i]+=table[i].threshold/table.size();
+            probabilities[table[i].alias]+=(1.-table[i].threshold)/table.size();
+        }
+        for(std::size_t i=0;i<table.size();++i) {
+            const double expected=total>0?weights[i]/total:1./table.size();
+            RENDER_CHECK(std::abs(probabilities[i]-expected)<1e-7);
+            RENDER_CHECK(std::abs(table[i].pmf-expected)<1e-7);
+            if(weights[i]>0)RENDER_CHECK(table[i].pmf>0);
+        }
+    };
+    check({0,1,0,4,3});check({0,0,0});check({1});
+    std::vector<float> hdr(131072,1e-9f);hdr[0]=10000;hdr.back()=1;check(hdr);
+    RENDER_CHECK(make_dxr_alias_table({}).empty());
+}
+
+RENDER_TEST(test_dxr_spatial_budgets_preserve_legacy_settings) {
+    using namespace renderer;
+    const auto defaults=parse_dxr_settings(nlohmann::json::object());
+    RENDER_CHECK(defaults.spatial_samples==4 && defaults.pt_spatial_samples==2 && defaults.pt_disocclusion_samples==4);
+    RENDER_CHECK(defaults.full_resolution_materials);
+    const auto legacy=parse_dxr_settings({{"spatial_samples",7}});
+    RENDER_CHECK(legacy.spatial_samples==7 && legacy.pt_spatial_samples==7 && legacy.pt_disocclusion_samples==7);
+    const auto configured=parse_dxr_settings({{"spatial_samples",3},{"pt_spatial_samples",6},{"pt_disocclusion_samples",1},{"full_resolution_materials",false}});
+    RENDER_CHECK(configured.spatial_samples==3 && configured.pt_spatial_samples==6 && configured.pt_disocclusion_samples==6);
+    RENDER_CHECK(!configured.full_resolution_materials);
+    RENDER_CHECK(parse_dxr_settings(dxr_settings_json(configured))==configured);
+}
+
+RENDER_TEST(test_dxr_ser_auto_uses_completed_fence_samples_and_rejects_stale_epochs) {
+    renderer::DxrSerTuner tuner;
+    auto old=tuner.tag(0,true,true);tuner.reset();
+    for(unsigned i=0;i<200;++i)tuner.observe(old,100); // A previous scene cannot influence this scene.
+    RENDER_CHECK(!tuner.complete() && tuner.use_ser());
+    unsigned frame=1;
+    for(int i=0;i<32;++i){auto tag=tuner.tag(frame++,true,true);tuner.observe(tag,12);tuner.observe(tag,1000);}
+    RENDER_CHECK(!tuner.complete() && !tuner.use_ser());
+    for(int i=0;i<32;++i)tuner.observe(tuner.tag(frame++,false,true),8);
+    RENDER_CHECK(tuner.complete() && !tuner.use_ser());
+    RENDER_CHECK(std::abs(tuner.ser_ms()-12)<1e-6f && std::abs(tuner.trace_ms()-8)<1e-6f);
+    tuner.reset();
+    for(int i=0;i<100;++i)tuner.observe(tuner.tag(frame++,true,false),1); // Motion/build frames are excluded.
+    RENDER_CHECK(!tuner.complete());
+    for(bool ser:{true,false})for(int i=0;i<32;++i)tuner.observe(tuner.tag(frame++,ser,true),ser?6.f:8.f);
+    RENDER_CHECK(tuner.complete() && tuner.use_ser() && tuner.speedup()>.3f);
 }

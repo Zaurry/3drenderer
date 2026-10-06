@@ -4,6 +4,7 @@
 #include "core/math/types.h"
 
 #include <cmath>
+#include <cstdint>
 
 namespace renderer {
 
@@ -14,6 +15,7 @@ struct PointLight {
     float source_radius = 0.05f;
     bool casts_shadows = true;
     int shadow_priority = 0;
+    std::uint64_t stable_id = 0;
 };
 
 struct DirectionalLight {
@@ -22,6 +24,7 @@ struct DirectionalLight {
     float angular_radius_radians = 0.00464257581f;
     bool casts_shadows = true;
     int shadow_priority = 0;
+    std::uint64_t stable_id = 0;
 };
 
 struct SpotLight {
@@ -34,6 +37,7 @@ struct SpotLight {
     float source_radius = 0.05f;
     bool casts_shadows = true;
     int shadow_priority = 0;
+    std::uint64_t stable_id = 0;
 };
 
 struct RectAreaLight {
@@ -44,6 +48,7 @@ struct RectAreaLight {
     bool two_sided = false;
     bool casts_shadows = true;
     int shadow_priority = 0;
+    std::uint64_t stable_id = 0;
 };
 
 // The canonical visible quad is wound toward local -Z. Consequently the

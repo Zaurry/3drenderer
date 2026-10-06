@@ -14,6 +14,8 @@ struct SDL_Window;
 namespace renderer {
 
 class GlShaderProgram;
+class D3d12Context;
+class D3d12Presenter;
 
 enum class FileDialogKind {
     ImportFiles,
@@ -73,7 +75,11 @@ public:
 
     static std::filesystem::path preferred_session_path();
 
-    bool initialize(int width, int height, const char* title);
+    bool initialize(int width, int height, const char* title, bool dxr = false,
+        bool persist_layout = true);
+    void switch_presentation(bool dxr);
+    std::shared_ptr<D3d12Context> dxr_context() const;
+    void wait_for_frame();
     bool constrain_window_to_display();
     std::pair<int, int> logical_window_size() const;
     std::pair<int, int> drawable_size() const;
@@ -106,6 +112,11 @@ private:
     struct DialogCallbackData;
 
     SDL_Window* window_ = nullptr;
+#if RENDERER_HAS_DXR
+    std::unique_ptr<D3d12Presenter> dxr_presenter_;
+#endif
+    bool dxr_presentation_ = false;
+    bool platform_initialized_ = false;
     void* gl_context_ = nullptr;
     unsigned int framebuffer_texture_ = 0;
     unsigned int fullscreen_vao_ = 0;
@@ -133,6 +144,8 @@ private:
     void set_error_from_sdl(const char* prefix);
     void ensure_framebuffer_texture(int width, int height);
     void release_gl_resources();
+    void create_presentation(int width,int height,const char* title,bool dxr);
+    void destroy_presentation();
 };
 
 }  // namespace renderer

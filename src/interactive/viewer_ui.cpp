@@ -454,7 +454,8 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                                const CudaPathStatistics& cuda_statistics,
                                const OpenGlTechniqueDiagnostics& technique_diagnostics,
                                OpenGlShaderUiState& shader_state,
-                               bool scene_shortcuts_enabled) {
+                               bool scene_shortcuts_enabled,
+                               const DxrStatistics& dxr_statistics) {
     ViewerUiActions actions;
     state.ui_font_scale = std::clamp(state.ui_font_scale, 0.75f, 2.0f);
     ImGui::GetStyle().FontScaleMain = state.ui_font_scale;
@@ -564,6 +565,27 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                 } else {
                     ImGui::TextUnformatted("Collecting frame timing...");
                 }
+                if(state.mode==InteractiveRenderMode::Dxr) {
+                    const auto& d=dxr_statistics;
+                    ImGui::TextWrapped("%s",d.device.adapter.c_str());
+                    ImGui::Text("DXR %.1f | SM %.1f",d.device.raytracing_tier/10.0f,d.device.shader_model/16+(d.device.shader_model%16)/10.0f);
+                    ImGui::Text("Internal %d x %d | GPU %.2f ms",d.internal_width,d.internal_height,d.total_ms);
+                    ImGui::Text("PT: candidates %.2f | temporal %.2f | spatial %.2f ms",d.pt_initial_ms,d.pt_temporal_ms,d.pt_spatial_ms);
+                    ImGui::Text("Reconstruction: %s",d.reconstruction.c_str());
+                    ImGui::TextWrapped("%s",d.detail.c_str());
+                    ImGui::Text("SER: requested %s | supported %s | active %s",render_settings.dxr.shader_execution_reordering?"yes":"no",d.device.ser_supported?"yes":"no",d.ser_active?"yes":"no");
+                    if(render_settings.dxr.shader_execution_reordering && d.device.ser_reorders) {
+                        if(d.ser_probe_complete)ImGui::Text("SER measured ray-stage speedup: %+.1f%% (%.2f / %.2f ms)",d.ser_measured_speedup*100,d.ser_probe_ms,d.trace_probe_ms);
+                        else ImGui::TextUnformatted("SER Auto: measuring stable frames during warmup");
+                    }
+                    ImGui::Text("OMM: requested %s | supported %s | active %s",render_settings.dxr.opacity_micromaps?"yes":"no",d.device.omm_supported?"yes":"no",d.omm_active?"yes":"no");
+                    ImGui::Text("OMM bakes: %llu | pending: %llu",static_cast<unsigned long long>(d.omm_builds),static_cast<unsigned long long>(d.omm_pending));
+                    ImGui::Text("ReSTIR DI %s | PT %s",d.restir_di_active?"active":"off",d.restir_pt_active?"active":"off");
+                    ImGui::Text("BLAS builds %llu | TLAS builds %llu / updates %llu",(unsigned long long)d.blas_builds,(unsigned long long)d.tlas_builds,(unsigned long long)d.tlas_updates);
+                    ImGui::Text("Managed GPU allocations %.1f MiB | image readbacks %llu",double(d.allocated_bytes)/1048576,(unsigned long long)d.readbacks);
+                    if(d.video_memory_available)ImGui::Text("Process local VRAM %.1f / %.1f MiB budget",double(d.video_memory_usage)/1048576,double(d.video_memory_budget)/1048576);
+                    else ImGui::TextUnformatted("Process local VRAM: unavailable");
+                }
                 if (state.mode == InteractiveRenderMode::Rtrt) {
                     const auto& rt = cuda_statistics.realtime;
                     ImGui::Text("CUDA/OpenGL interop: %s", interop_state.status.c_str());
@@ -603,12 +625,12 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                     std::string cuda_reason;
                     const bool cuda_available =
                         optix_realtime_available(render_settings.path.cuda_device,&cuda_reason);
+                    std::string dxr_reason;const bool dxr_supported=dxr_available(&dxr_reason);
                     for (const RenderModeDescriptor& descriptor :
                          interactive_render_modes()) {
                         const bool selected = descriptor.mode == state.mode;
-                        const bool enabled =
-                            descriptor.mode != InteractiveRenderMode::Rtrt ||
-                            cuda_available;
+                        const bool enabled = descriptor.mode==InteractiveRenderMode::Dxr?dxr_supported:
+                            descriptor.mode!=InteractiveRenderMode::Rtrt || cuda_available;
                         if (!enabled) {
                             ImGui::BeginDisabled();
                         }
@@ -620,8 +642,7 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
                             ImGui::IsItemHovered(
                                 ImGuiHoveredFlags_AllowWhenDisabled)) {
                             ImGui::SetTooltip(
-                                "OptiX RTRT unavailable: %s",
-                                cuda_reason.c_str());
+                                "%s",descriptor.mode==InteractiveRenderMode::Dxr?dxr_reason.c_str():cuda_reason.c_str());
                         }
                         if (selected) {
                             ImGui::SetItemDefaultFocus();
@@ -1102,6 +1123,26 @@ ViewerUiActions ViewerUi::draw(ViewerUiState& state,
 
             if (state.mode == InteractiveRenderMode::Rtrt) {
                 draw_realtime_panel(render_settings.realtime);
+            } else if(state.mode==InteractiveRenderMode::Dxr) {
+                auto& s=render_settings.dxr;
+                if(settings_header("DXR",[&]{s=DxrRenderSettings{};})) {
+                    ImGui::SliderInt("Samples per pixel",&s.samples_per_pixel,1,16);
+                    ImGui::SliderInt("Maximum bounces",&s.max_bounces,1,16);
+                    ImGui::Checkbox("ReSTIR direct lighting",&s.restir_di);ImGui::Checkbox("ReSTIR path reuse",&s.restir_pt);
+                    ImGui::Checkbox("Shader execution reordering (Auto)",&s.shader_execution_reordering);
+                    ImGui::Checkbox("Opacity micromaps (Auto)",&s.opacity_micromaps);
+                    ImGui::Checkbox("Specular motion / PSR",&s.specular_antialiasing);
+                    ImGui::Checkbox("Material color detail (TAAU)",&s.full_resolution_materials);
+                    const char* reconstructions[]={"Auto","NRD RELAX + TAAU","NRD RELAX + DLSS SR","DLSS Ray Reconstruction","Reference (raw path tracing)"};
+                    int reconstruction=int(s.reconstruction);if(ImGui::Combo("Reconstruction",&reconstruction,reconstructions,5))s.reconstruction=DxrReconstruction(reconstruction);
+                    if(s.reconstruction==DxrReconstruction::NrdTaau)ImGui::SliderFloat("Internal linear scale",&s.internal_scale,.25f,1.f,"%.3f");
+                    ImGui::SliderInt("DI candidates",&s.di_candidates,1,32);ImGui::SliderInt("DI spatial samples",&s.spatial_samples,0,16);
+                    ImGui::SliderInt("PT spatial samples",&s.pt_spatial_samples,0,16);
+                    ImGui::SliderInt("PT disocclusion samples",&s.pt_disocclusion_samples,s.pt_spatial_samples,16);
+                    ImGui::SliderInt("Reuse history length",&s.history_length,1,64);
+                    const char* views[]={"Final","Raw","Light samples + visible emission","Path contribution (includes BRDF direct)","Albedo","Normal","Depth","Motion","Specular motion","Reservoir age","Reservoir weight","History rejection","NRD validation","BRDF hit distance (diffuse / specular)","TAA history (red age / green rejection)"};
+                    int view=int(s.debug_view);if(ImGui::Combo("Debug view",&view,views,IM_ARRAYSIZE(views)))s.debug_view=DxrDebugView(view);
+                }
             } else {
             if (settings_header("Ambient Occlusion",[&]{render_settings.opengl.ambient_occlusion=AmbientOcclusionRenderSettings{};})) {
                 const bool open_gl_mode =

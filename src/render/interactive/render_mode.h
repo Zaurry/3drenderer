@@ -8,6 +8,7 @@ namespace renderer {
 enum class InteractiveRenderMode {
     OpenGl,
     Rtrt,
+    Dxr,
     Path = Rtrt, // Legacy source compatibility; interactive Path now uses RTRT.
 };
 
@@ -42,7 +43,7 @@ struct RenderModeDescriptor {
     RenderModeCapability capabilities;
 };
 
-const std::array<RenderModeDescriptor, 2>& interactive_render_modes();
+const std::array<RenderModeDescriptor, 3>& interactive_render_modes();
 const RenderModeDescriptor& render_mode_descriptor(InteractiveRenderMode mode);
 InteractiveRenderMode parse_interactive_render_mode(const std::string& value);
 InteractiveRenderMode interactive_render_mode_from_hotkey(int hotkey);

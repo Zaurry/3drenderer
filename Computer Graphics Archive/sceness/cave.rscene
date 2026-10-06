@@ -85,6 +85,8 @@
   },
   "objects": [
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 0,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -93,37 +95,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 26,
+      "light_casts_shadows": true,
       "light_color": [
         89.55599975585938,
         73.79414367675781,
         78.0032730102539
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          0.7479689717292786,
+          0.6635212898254395,
+          -0.016767175868153572,
+          0.0
+        ],
+        [
+          -0.312713623046875,
+          0.37457096576690674,
+          0.8728726506233215,
+          0.0
+        ],
+        [
+          0.5854498744010925,
+          -0.6476384997367859,
+          0.4876600503921509,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Sun",
       "parent": 0,
-      "rotation_degrees": [
-        126.97907257080078,
-        -144.1652069091797,
-        157.3109893798828
-      ],
-      "scale": [
-        0.9999995231628418,
-        0.9999998211860657,
-        1.0000001192092896
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "directional_light",
-      "visible": true
+      "visible": false
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 0,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -132,37 +152,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 28,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "cave",
       "parent": 0,
-      "rotation_degrees": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "group",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 0,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -171,37 +209,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 29,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          0.5968299508094788,
+          0.7977893352508545,
+          0.08559367060661316,
+          4.793028831481934
+        ],
+        [
+          -0.008234675042331219,
+          0.11276103556156158,
+          -0.9935879707336426,
+          2.0424835681915283
+        ],
+        [
+          -0.8023254871368408,
+          0.5922982692718506,
+          0.07386869937181473,
+          2.7747764587402344
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Camera",
       "parent": 28,
-      "rotation_degrees": [
-        -97.10896301269531,
-        126.64724731445313,
-        179.2095184326172
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        4.793028831481934,
-        2.0424835681915283,
-        2.7747764587402344
-      ],
       "type": "group",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 0,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -210,37 +266,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 30,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          -1.1393897533416748
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          6.269222736358643
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.16920316219329834
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Sun",
       "parent": 28,
-      "rotation_degrees": [
-        0.0,
-        -0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        -1.1393897533416748,
-        6.269222736358643,
-        0.16920316219329834
-      ],
       "type": "group",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 0,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -249,37 +323,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 31,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          0.9999999403953552,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -1.6292067073209182e-07,
+          -0.9999999403953552,
+          0.0
+        ],
+        [
+          0.0,
+          0.9999999403953552,
+          -1.6292067073209182e-07,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0",
       "parent": 28,
-      "rotation_degrees": [
-        90.00000762939453,
-        -0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        0.9999999403953552,
-        0.9999999403953552
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "group",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 1,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -288,37 +380,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 32,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0 Mesh",
       "parent": 31,
-      "rotation_degrees": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "mesh",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 0,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -327,37 +437,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 33,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          0.9999999403953552,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -1.6292067073209182e-07,
+          -0.9999999403953552,
+          0.0
+        ],
+        [
+          0.0,
+          0.9999999403953552,
+          -1.6292067073209182e-07,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "平面",
       "parent": 28,
-      "rotation_degrees": [
-        90.00000762939453,
-        -0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        0.9999999403953552,
-        0.9999999403953552
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "group",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 2,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -366,37 +494,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 34,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "平面 Mesh",
       "parent": 33,
-      "rotation_degrees": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "mesh",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 0,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -405,37 +551,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 35,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          0.9999999403953552,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -1.6292067073209182e-07,
+          -0.9999999403953552,
+          0.0
+        ],
+        [
+          0.0,
+          0.9999999403953552,
+          -1.6292067073209182e-07,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.001_Aset_rock_assembly_XL_",
       "parent": 28,
-      "rotation_degrees": [
-        90.00000762939453,
-        -0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        0.9999999403953552,
-        0.9999999403953552
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "group",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 3,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -444,37 +608,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 36,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.001_Aset_rock_assembly_XL_ Mesh",
       "parent": 35,
-      "rotation_degrees": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "mesh",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 0,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -483,37 +665,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 37,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          0.9999999403953552,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -1.6292067073209182e-07,
+          -0.9999999403953552,
+          0.0
+        ],
+        [
+          0.0,
+          0.9999999403953552,
+          -1.6292067073209182e-07,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.002_Aset_rock_assembly_XL_siEo",
       "parent": 28,
-      "rotation_degrees": [
-        90.00000762939453,
-        -0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        0.9999999403953552,
-        0.9999999403953552
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "group",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 4,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -522,37 +722,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 38,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.002_Aset_rock_assembly_XL_siEo Mesh",
       "parent": 37,
-      "rotation_degrees": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "mesh",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 0,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -561,37 +779,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 39,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          0.9999999403953552,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -1.6292067073209182e-07,
+          -0.9999999403953552,
+          0.0
+        ],
+        [
+          0.0,
+          0.9999999403953552,
+          -1.6292067073209182e-07,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.003_Aset_rock_assembly_XL_siEo",
       "parent": 28,
-      "rotation_degrees": [
-        90.00000762939453,
-        -0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        0.9999999403953552,
-        0.9999999403953552
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "group",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 5,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -600,37 +836,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 40,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.003_Aset_rock_assembly_XL_siEo Mesh",
       "parent": 39,
-      "rotation_degrees": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "mesh",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 0,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -639,37 +893,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 41,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          0.9999999403953552,
+          0.0,
+          0.0,
+          1.0165818929672241
+        ],
+        [
+          0.0,
+          -1.6292067073209182e-07,
+          -0.9999999403953552,
+          0.0
+        ],
+        [
+          0.0,
+          0.9999999403953552,
+          -1.6292067073209182e-07,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.004_Aset_rock_assembly_XL_siEo",
       "parent": 28,
-      "rotation_degrees": [
-        90.00000762939453,
-        -0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        0.9999999403953552,
-        0.9999999403953552
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        1.0165818929672241,
-        0.0,
-        0.0
-      ],
       "type": "group",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 6,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -678,37 +950,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 42,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.004_Aset_rock_assembly_XL_siEo Mesh",
       "parent": 41,
-      "rotation_degrees": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "mesh",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 0,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -717,37 +1007,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 43,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          0.9999999403953552,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -1.6292067073209182e-07,
+          -0.9999999403953552,
+          0.0
+        ],
+        [
+          0.0,
+          0.9999999403953552,
+          -1.6292067073209182e-07,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.005_Aset_rock_assembly_XL_siEo",
       "parent": 28,
-      "rotation_degrees": [
-        90.00000762939453,
-        -0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        0.9999999403953552,
-        0.9999999403953552
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "group",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 7,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -756,37 +1064,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 44,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.005_Aset_rock_assembly_XL_siEo Mesh",
       "parent": 43,
-      "rotation_degrees": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "mesh",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 0,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -795,37 +1121,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 45,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          0.9999999403953552,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -1.6292067073209182e-07,
+          -0.9999999403953552,
+          0.0
+        ],
+        [
+          0.0,
+          0.9999999403953552,
+          -1.6292067073209182e-07,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.006_Aset_rock_assembly_XL_siEo",
       "parent": 28,
-      "rotation_degrees": [
-        90.00000762939453,
-        -0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        0.9999999403953552,
-        0.9999999403953552
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "group",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 8,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -834,37 +1178,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 46,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.006_Aset_rock_assembly_XL_siEo Mesh",
       "parent": 45,
-      "rotation_degrees": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "mesh",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 0,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -873,37 +1235,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 47,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          0.9999999403953552,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -1.6292067073209182e-07,
+          -0.9999999403953552,
+          0.0
+        ],
+        [
+          0.0,
+          0.9999999403953552,
+          -1.6292067073209182e-07,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.007_Aset_rock_assembly_XL_siEo",
       "parent": 28,
-      "rotation_degrees": [
-        90.00000762939453,
-        -0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        0.9999999403953552,
-        0.9999999403953552
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "group",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 9,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -912,37 +1292,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 48,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.007_Aset_rock_assembly_XL_siEo Mesh",
       "parent": 47,
-      "rotation_degrees": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "mesh",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 0,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -951,37 +1349,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 49,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          0.9999999403953552,
+          0.0,
+          0.0,
+          0.265552282333374
+        ],
+        [
+          0.0,
+          -1.6292067073209182e-07,
+          -0.9999999403953552,
+          -0.5311852097511292
+        ],
+        [
+          0.0,
+          0.9999999403953552,
+          -1.6292067073209182e-07,
+          -0.24638408422470093
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.008_Aset_rock_assembly_XL_siEo",
       "parent": 28,
-      "rotation_degrees": [
-        90.00000762939453,
-        -0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        0.9999999403953552,
-        0.9999999403953552
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.265552282333374,
-        -0.5311852097511292,
-        -0.24638408422470093
-      ],
       "type": "group",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 10,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -990,37 +1406,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 50,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.008_Aset_rock_assembly_XL_siEo Mesh",
       "parent": 49,
-      "rotation_degrees": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "mesh",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 0,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -1029,37 +1463,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 51,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          0.9999999403953552,
+          0.0,
+          0.0,
+          1.0268218517303467
+        ],
+        [
+          0.0,
+          -1.6292067073209182e-07,
+          -0.9999999403953552,
+          0.0
+        ],
+        [
+          0.0,
+          0.9999999403953552,
+          -1.6292067073209182e-07,
+          -0.7729666829109192
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.009_Aset_rock_assembly_XL_siEo",
       "parent": 28,
-      "rotation_degrees": [
-        90.00000762939453,
-        -0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        0.9999999403953552,
-        0.9999999403953552
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        1.0268218517303467,
-        0.0,
-        -0.7729666829109192
-      ],
       "type": "group",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 11,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -1068,37 +1520,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 52,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.009_Aset_rock_assembly_XL_siEo Mesh",
       "parent": 51,
-      "rotation_degrees": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "mesh",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 0,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -1107,37 +1577,55 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 53,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          0.9999999403953552,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -1.6292067073209182e-07,
+          -0.9999999403953552,
+          0.0
+        ],
+        [
+          0.0,
+          0.9999999403953552,
+          -1.6292067073209182e-07,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.010_Aset_rock_assembly_XL_siEo",
       "parent": 28,
-      "rotation_degrees": [
-        90.00000762939453,
-        -0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        0.9999999403953552,
-        0.9999999403953552
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "group",
       "visible": true
     },
     {
+      "area_height": 1.0,
+      "area_width": 1.0,
       "asset": 12,
       "camera_aspect_ratio": 0.0,
       "camera_far_plane": 1000.0,
@@ -1146,36 +1634,109 @@
       "camera_vertical_fov_degrees": 45.0,
       "camera_x_magnification": 1.0,
       "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
       "id": 54,
+      "light_casts_shadows": true,
       "light_color": [
         25.0,
         25.0,
         25.0
       ],
       "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
       "locked": false,
       "name": "Aset_rock_assembly_XL_siEoZ_LOD0.010_Aset_rock_assembly_XL_siEo Mesh",
       "parent": 53,
-      "rotation_degrees": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
       "spot_inner_cone_radians": 0.0,
       "spot_outer_cone_radians": 0.7853981852531433,
-      "translation": [
-        0.0,
-        0.0,
-        0.0
-      ],
       "type": "mesh",
+      "visible": true
+    },
+    {
+      "area_height": 6.187980651855469,
+      "area_width": 6.187980651855469,
+      "asset": 0,
+      "camera_aspect_ratio": 0.0,
+      "camera_far_plane": 1000.0,
+      "camera_near_plane": 0.009999999776482582,
+      "camera_projection": "perspective",
+      "camera_vertical_fov_degrees": 45.0,
+      "camera_x_magnification": 1.0,
+      "camera_y_magnification": 1.0,
+      "directional_angular_radius_radians": 0.004642575979232788,
+      "id": 55,
+      "light_casts_shadows": true,
+      "light_color": [
+        72.56099700927734,
+        62.54756164550781,
+        61.45916748046875
+      ],
+      "light_range": 0.0,
+      "light_shadow_priority": 0,
+      "light_source_radius": 0.05000000074505806,
+      "light_two_sided": false,
+      "local_matrix": [
+        [
+          0.6399999856948853,
+          0.0,
+          0.0,
+          -0.06184619665145874
+        ],
+        [
+          0.0,
+          2.009065980246305e-07,
+          0.6399999856948853,
+          7.715641975402832
+        ],
+        [
+          0.0,
+          -0.6399999856948853,
+          2.009065980246305e-07,
+          0.30871111154556274
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "locked": false,
+      "name": "Rectangle Light",
+      "parent": 0,
+      "spot_inner_cone_radians": 0.0,
+      "spot_outer_cone_radians": 0.7853981852531433,
+      "type": "rect_area_light",
       "visible": true
     }
   ],
-  "version": 3
+  "version": 5
 }

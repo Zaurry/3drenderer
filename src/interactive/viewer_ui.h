@@ -147,7 +147,8 @@ public:
         const CudaPathStatistics& cuda_statistics,
         const OpenGlTechniqueDiagnostics& technique_diagnostics,
         OpenGlShaderUiState& shader_state,
-        bool scene_shortcuts_enabled);
+        bool scene_shortcuts_enabled,
+        const DxrStatistics& dxr_statistics = {});
 
     SceneChangeSet draw_scene_gizmo(
         ViewerUiState& state,

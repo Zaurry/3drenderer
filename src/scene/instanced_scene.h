@@ -61,6 +61,10 @@ struct RenderSceneAssetSnapshot {
 
 struct RenderSceneInstanceSnapshot {
     std::uint64_t object_id = 0;
+    // Disambiguates procedural primitives owned by the same document object.
+    std::uint32_t subobject_id = 0;
+    // Nonzero for visible geometry belonging to an analytical area light.
+    std::uint64_t emissive_light_id = 0;
     int asset_index = -1;
     Mat4 object_to_world = Mat4::Identity();
     Mat4 world_to_object = Mat4::Identity();

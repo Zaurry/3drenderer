@@ -6,7 +6,7 @@ namespace renderer {
 
 namespace {
 
-constexpr std::array<RenderModeDescriptor, 2> kRenderModes{{
+constexpr std::array<RenderModeDescriptor, 3> kRenderModes{{
     {
         InteractiveRenderMode::OpenGl,
         "opengl",
@@ -21,11 +21,12 @@ constexpr std::array<RenderModeDescriptor, 2> kRenderModes{{
         2,
         RenderModeCapability::Temporal,
     },
+    {InteractiveRenderMode::Dxr, "dxr", "DXR", 3, RenderModeCapability::Temporal},
 }};
 
 }  // namespace
 
-const std::array<RenderModeDescriptor, 2>& interactive_render_modes() {
+const std::array<RenderModeDescriptor, 3>& interactive_render_modes() {
     return kRenderModes;
 }
 

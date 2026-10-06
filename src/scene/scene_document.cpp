@@ -1846,6 +1846,14 @@ void SceneDocument::ensure_render_scene_snapshot() const {
     result.instances.reserve(state_.objects.size());
     std::unordered_map<AssetId, int> asset_indices;
     std::unordered_map<AssetId, std::vector<int>> texture_remaps;
+    std::unordered_map<AssetId, const RenderSceneAssetSnapshot*> cached_geometry;
+    if (render_scene_snapshot_.source_id == render_source_id_ &&
+        render_scene_snapshot_.revisions.geometry == revisions_.geometry &&
+        render_scene_snapshot_.revisions.material_bindings == revisions_.material_bindings) {
+        for (const auto& asset : render_scene_snapshot_.assets) {
+            cached_geometry.emplace(asset.asset_id, &asset);
+        }
+    }
     bool has_procedural_spheres = false;
     const bool has_rect_area_lights = std::any_of(
         state_.objects.begin(),
@@ -1883,6 +1891,16 @@ void SceneDocument::ensure_render_scene_snapshot() const {
         const int asset_index =
             static_cast<int>(result.assets.size());
         asset_indices[asset->id] = asset_index;
+        // Light, material-value and rigid-transform edits preserve local mesh
+        // bounds and primitive bindings. Avoid rescanning every triangle when
+        // an editor change rebuilds the shared scene snapshot.
+        const auto cached = cached_geometry.find(asset->id);
+        if (cached != cached_geometry.end() &&
+            cached->second->geometry_revision == asset->geometry_revision &&
+            cached->second->local_scene == render_geometry) {
+            result.assets.push_back(*cached->second);
+            continue;
+        }
         RenderSceneAssetSnapshot asset_view;
         asset_view.asset_id = asset->id;
         asset_view.geometry_revision = asset->geometry_revision;
@@ -1956,7 +1974,7 @@ void SceneDocument::ensure_render_scene_snapshot() const {
                     object.light_range,
                     object.light_source_radius,
                     object.light_casts_shadows,
-                    object.light_shadow_priority});
+                    object.light_shadow_priority, object.id});
             continue;
         }
         if (object.type == SceneObjectType::DirectionalLight) {
@@ -1969,7 +1987,7 @@ void SceneDocument::ensure_render_scene_snapshot() const {
                     object.light_color,
                     object.directional_angular_radius_radians,
                     object.light_casts_shadows,
-                    object.light_shadow_priority});
+                    object.light_shadow_priority, object.id});
             continue;
         }
         if (object.type == SceneObjectType::SpotLight) {
@@ -1984,7 +2002,7 @@ void SceneDocument::ensure_render_scene_snapshot() const {
                 object.spot_outer_cone_radians,
                 object.light_source_radius,
                 object.light_casts_shadows,
-                object.light_shadow_priority});
+                object.light_shadow_priority, object.id});
             continue;
         }
         if (object.type == SceneObjectType::RectAreaLight) {
@@ -2002,7 +2020,7 @@ void SceneDocument::ensure_render_scene_snapshot() const {
                 object.light_color,
                 object.light_two_sided,
                 object.light_casts_shadows,
-                object.light_shadow_priority});
+                object.light_shadow_priority, object.id});
 
             Mat4 area_scale = Mat4::Identity();
             area_scale(0, 0) = object.area_width;
@@ -2010,6 +2028,7 @@ void SceneDocument::ensure_render_scene_snapshot() const {
             RenderSceneInstanceSnapshot instance;
             instance.object_id = object.id;
             instance.asset_index = unit_quad_asset_index;
+            instance.emissive_light_id = object.id;
             instance.emission_casts_shadows = object.light_casts_shadows;
             instance.object_to_world = world * area_scale;
             instance.world_to_object = instance.object_to_world.inverse();
@@ -2070,6 +2089,7 @@ void SceneDocument::ensure_render_scene_snapshot() const {
             result.instances.push_back(std::move(instance));
         }
 
+        std::uint32_t sphere_ordinal = 0;
         for (const Sphere& sphere : asset->procedural_spheres) {
             if (unit_sphere_asset_index < 0) {
                 throw std::logic_error(
@@ -2101,6 +2121,7 @@ void SceneDocument::ensure_render_scene_snapshot() const {
             RenderSceneInstanceSnapshot instance;
             instance.object_id = object.id;
             instance.asset_index = unit_sphere_asset_index;
+            instance.subobject_id = ++sphere_ordinal;
             instance.object_to_world = world * local_sphere;
             instance.world_to_object = instance.object_to_world.inverse();
             instance.normal_to_world = instance.object_to_world

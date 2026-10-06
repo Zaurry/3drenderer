@@ -4,6 +4,7 @@
 
 - `OpenGL`：OpenGL 4.5 Core 实时预览，支持可热重载 GLSL、PBR、IBL、SSAO、GTAO + Bent Normal、时域 Hi-Z SSGI、SSR、Shadow Map/PCSS、环境主光提取、LTC 矩形面光和 weighted blended OIT。
 - `RTRT`：OptiX 全路径求交与 RT Core 加速、低采样路径追踪，支持可切换的 SVGF / OptiX 9.1 AI 降噪、TAA / TAAU、分信号历史、真实阴影、反射与透射，以及 CUDA/OpenGL interop。
+- `DXR`：Windows 原生 D3D12 光追后端，无需 CUDA；集成 ReSTIR DI/PT、NRD RELAX、可用时的 DLSS 重建及标准 SER/OMM。完整画质和 1440p/60 FPS 验收仍在进行，参见 [构建、配置与验证说明](docs/dxr-renderer.md)。
 - 离线 `Path`：保留 CUDA Wavefront 高采样路径追踪，用于参考图和最终离线输出。
 
 CPU Path 已从产品、CLI 和交互会话中删除。没有 CUDA 时仍可构建场景/文档系统、测试和 OpenGL Viewer；RTRT 模式会明确显示不可用原因，并回退到 OpenGL。

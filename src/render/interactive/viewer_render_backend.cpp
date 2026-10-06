@@ -1,4 +1,6 @@
 #include "render/interactive/viewer_render_backend.h"
+#include "render/dxr/dxr_renderer.h"
+#include <glad/gl.h>
 
 #include "platform/opengl/cuda_opengl_interop.h"
 #include "render/optix/optix_realtime_renderer.h"
@@ -250,7 +252,31 @@ private:
     RenderFrameOutput output_;
 };
 
+class DxrViewerRenderBackend final : public ViewerRenderBackend {
+public:
+    explicit DxrViewerRenderBackend(std::shared_ptr<D3d12Context> context):renderer_(std::move(context)){}
+    InteractiveRenderMode mode() const override{return InteractiveRenderMode::Dxr;}
+    RenderModeCapability capabilities() const override{return RenderModeCapability::Temporal;}
+    void reset(const RenderSceneSnapshot& scene,const RenderSettings& settings) override{renderer_.reset(scene,settings);}
+    const RenderFrameOutput& render(const RenderSceneSnapshot& scene,const Camera& camera,const RenderSettings& settings,const InteractiveFrameState& frame) override{return renderer_.render(scene,camera,settings,frame);}
+    const RenderFrameOutput& output() const override{return renderer_.output();}
+    ViewerRenderBackendStatistics statistics() const override{return renderer_.statistics();}
+    void readback(Framebuffer& destination) override{renderer_.readback(destination);}
+private:
+    DxrRenderer renderer_;
+};
 }  // namespace
+
+void ViewerRenderBackend::readback(Framebuffer& destination) {
+    const auto& frame=output();
+    if(const auto* host=std::get_if<HostFrameHandle>(&frame);host && host->framebuffer){destination=*host->framebuffer;return;}
+    if(const auto* texture=std::get_if<OpenGlTextureHandle>(&frame);texture && texture->texture) {
+        std::vector<float> pixels(std::size_t(texture->width)*texture->height*4);glBindTexture(GL_TEXTURE_2D,texture->texture);glGetTexImage(GL_TEXTURE_2D,0,GL_RGBA,GL_FLOAT,pixels.data());
+        destination.resize(texture->width,texture->height);
+        for(int y=0;y<texture->height;++y)for(int x=0;x<texture->width;++x){const int source_y=texture->flip_y?y:texture->height-1-y;const auto index=(std::size_t(source_y)*texture->width+x)*4;destination.set_pixel(x,y,Color(pixels[index],pixels[index+1],pixels[index+2]));}return;
+    }
+    throw std::runtime_error("No completed frame to capture");
+}
 
 OpenGlShaderControl* open_gl_shader_control(ViewerRenderBackend& backend) {
     return dynamic_cast<OpenGlShaderControl*>(&backend);
@@ -260,7 +286,9 @@ std::unique_ptr<ViewerRenderBackend> make_viewer_render_backend(
     InteractiveRenderMode mode,
     const std::filesystem::path& vertex_shader_path,
     const std::filesystem::path& fragment_shader_path,
-    bool disable_cuda_interop) {
+    bool disable_cuda_interop,
+    std::shared_ptr<D3d12Context> dxr_context) {
+    if(mode==InteractiveRenderMode::Dxr)return std::make_unique<DxrViewerRenderBackend>(std::move(dxr_context));
     if (mode == InteractiveRenderMode::OpenGl) {
         return std::make_unique<OpenGlViewerRenderBackend>(
             vertex_shader_path,

@@ -108,6 +108,15 @@ RenderSceneSnapshot make_render_scene_snapshot(Scene scene) {
     snapshot.directional_lights = geometry->directional_lights;
     snapshot.spot_lights = geometry->spot_lights;
     snapshot.rect_area_lights = geometry->rect_area_lights;
+    // Scene adapters without document IDs receive deterministic, type-tagged IDs.
+    const auto assign_ids = [](auto& lights, std::uint64_t tag) {
+        for (std::size_t i = 0; i < lights.size(); ++i)
+            if (!lights[i].stable_id) lights[i].stable_id = (tag << 56) | (i + 1);
+    };
+    assign_ids(snapshot.point_lights, 1);
+    assign_ids(snapshot.directional_lights, 2);
+    assign_ids(snapshot.spot_lights, 3);
+    assign_ids(snapshot.rect_area_lights, 4);
     snapshot.environment = geometry->environment;
     snapshot.environment_map = geometry->environment_map;
     snapshot.environment_intensity = geometry->environment_intensity;
@@ -208,6 +217,7 @@ RenderSceneSnapshot make_render_scene_snapshot(Scene scene) {
             instance.object_id =
                 static_cast<std::uint64_t>(snapshot.instances.size() + 1U);
             instance.asset_index = quad_asset_index;
+            instance.emissive_light_id = light.stable_id;
             instance.emission_casts_shadows = light.casts_shadows;
             instance.object_to_world = Mat4::Identity();
             instance.object_to_world.block<3, 1>(0, 0) = 2.0f * light.axis_u;
